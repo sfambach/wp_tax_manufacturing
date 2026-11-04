@@ -187,13 +187,31 @@ final class OrdersPage
                 . '<td style="text-align:right">' . esc_html($count($line['missing'])) . '</td><td>' . $take . '</td></tr>';
         }
 
+        $nowhere = array_filter($lines, static fn (array $line): bool => $line['place'] === null);
+        $reorder = '';
+
+        if ($canPick && $nowhere !== [] && $this->service->canReorder()) {
+            $list = '';
+
+            foreach ($nowhere as $line) {
+                $list .= '<li>' . esc_html($count($line['missing']) . ' × ' . ($labels[$line['thing']] ?? '#' . $line['thing'])) . '</li>';
+            }
+
+            $reorder = '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+                . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab()])
+                . ListPage::dialogAction('taxmod-mf-reorder-' . $order->id, __('Fehlendes nachbestellen', 'taxmod-manufacturing'), __('Fehlendes nachbestellen?', 'taxmod-manufacturing'),
+                    '<p>' . esc_html__('Was an keinem Lagerort liegt, kommt als neuer Bedarf in den Einkauf. Packungsgröße und Händler wählst du dort.', 'taxmod-manufacturing') . '</p><ul>' . $list . '</ul>',
+                    'do', 'reorder', __('Bedarf anlegen', 'taxmod-manufacturing'))
+                . '</form>';
+        }
+
         $note = $canPick ? '' : '<p class="description">' . esc_html__('Das Lager liefert die Lagerorte und das Umbuchen noch nicht; die Liste zeigt nur, was fehlt.', 'taxmod-manufacturing') . '</p>';
 
         return '<style>@media print{body *{visibility:hidden}.taxmod-mf-pick,.taxmod-mf-pick *{visibility:visible}.taxmod-mf-pick{position:absolute;left:0;top:0;width:100%}.taxmod-mf-noprint{display:none}}</style>'
             . '<div class="taxmod-mf-pick" style="border-top:1px solid #dcdcde;padding:.75em 0">'
             . '<div style="display:flex;align-items:center;gap:1em"><h3 style="flex:1;margin:.25em 0">' . esc_html(sprintf(__('Pickliste · %s', 'taxmod-manufacturing'), $order->label)) . '</h3>'
             . '<span class="taxmod-mf-noprint" style="display:flex;gap:.5em"><button type="button" class="button" onclick="window.print()">' . esc_html__('Drucken', 'taxmod-manufacturing') . '</button>'
-            . ($canPick ? '<button type="submit" class="button button-primary" form="taxmod-mf-pick">' . esc_html__('Abgehakte ins Gebinde umbuchen', 'taxmod-manufacturing') . '</button>' : '') . '</span></div>'
+            . $reorder . ($canPick ? '<button type="submit" class="button button-primary" form="taxmod-mf-pick">' . esc_html__('Abgehakte ins Gebinde umbuchen', 'taxmod-manufacturing') . '</button>' : '') . '</span></div>'
             . $note
             . '<form method="post" id="taxmod-mf-pick" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'do' => 'pick', 'order' => (string) $order->id, 'tab' => $this->tab()]) . '</form>'
@@ -262,6 +280,7 @@ final class OrdersPage
                     'assembly' => $this->updateAssembly($order, $today, $back),
                     'box'      => $this->box($order, $back),
                     'pick'     => $this->pick($order, $today, $back),
+                    'reorder'  => $this->reorder($order, $back),
                     'done'     => $this->step($order, 'order_done', $today, $back),
                     'cancel'   => $this->step($order, 'order_cancelled', $today, $back),
                     'reopen'   => $this->step($order, 'reopen', $today, $back),
@@ -313,6 +332,35 @@ final class OrdersPage
         $back['auftrag'] = $order;
 
         return ['booked' => 'saved_booked', 'unbooked' => 'saved_unbooked'][$booked] ?? 'saved';
+    }
+
+    /**
+     * The order's shortfall as read now, not as the page showed it: what lies nowhere (D-1156).
+     *
+     * @param array<string, string|int> $back
+     */
+    private function reorder(int $order, array &$back): string
+    {
+        $built            = $this->service->order($order);
+        [$lists]          = $this->context([$built]);
+        $demand           = Demand::of($built->assemblies, $lists, $built->count, $this->service->presentIn($built->box));
+        $things           = array_values(array_unique(array_merge(...array_map(static fn (array $rows): array => array_column($rows, 'thing'), array_values($demand)) ?: [[]])));
+        $quantities       = [];
+        $back['auftrag']  = $order;
+
+        foreach (PickList::of($demand, $this->service->placesOf($things, (int) $built->box)) as $line) {
+            if ($line['place'] === null) {
+                $quantities[$line['thing']] = $line['missing'];
+            }
+        }
+
+        if ($quantities === []) {
+            return 'nothing_missing';
+        }
+
+        $this->service->reorder($order, $quantities);
+
+        return 'reordered';
     }
 
     /** @param array<string, string|int> $back */
@@ -551,6 +599,8 @@ final class OrdersPage
             'saved_booked'   => __('Platine gespeichert, Verbrauch im Lager gebucht.', 'taxmod-manufacturing'),
             'saved_unbooked' => __('Platine gespeichert. Der Verbrauch ist noch nicht gebucht: das Lager bietet die Buchung noch nicht an.', 'taxmod-manufacturing'),
             'box'       => __('Gebinde gespeichert.', 'taxmod-manufacturing'),
+            'reordered' => __('Fehlendes als Bedarf im Einkauf angelegt.', 'taxmod-manufacturing'),
+            'nothing_missing' => __('Es fehlt nichts, was nirgends am Lager liegt.', 'taxmod-manufacturing'),
             'picked'    => __('Abgehakte Teile ins Gebinde umgebucht.', 'taxmod-manufacturing'),
             'nothing_picked' => __('Nichts abgehakt, nichts gebucht.', 'taxmod-manufacturing'),
             'closed'    => __('Auftrag abgeschlossen. «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'),

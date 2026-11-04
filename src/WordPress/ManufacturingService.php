@@ -70,6 +70,38 @@ final class ManufacturingService
     public const PLACES_FILTER = 'taxmod_stock_places_of';
     public const PICK_FILTER   = 'taxmod_stock_book_pick';
 
+    /** Whether the stock module's purchasing takes a demand from here (D-1156). */
+    public function canReorder(): bool
+    {
+        return class_exists(\TaxmodStock\WordPress\StockService::class) && method_exists(\TaxmodStock\WordPress\StockService::class, 'reorder');
+    }
+
+    /**
+     * What no place holds goes to purchasing as a new demand named after the order (D-1156); packs and suppliers are chosen there (D-1027).
+     *
+     * @param array<int, float> $quantities thing → pieces
+     */
+    public function reorder(int $order, array $quantities): void
+    {
+        $built = $this->order($order);
+
+        if (! $this->canReorder()) {
+            throw ManufacturingError::stockRefused(__('Der Einkauf im Lager nimmt noch keinen Bedarf an.', 'taxmod-manufacturing'));
+        }
+
+        $lines = [];
+
+        foreach ($quantities as $thing => $pieces) {
+            $lines[$thing] = rtrim(rtrim(number_format($pieces, 3, '.', ''), '0'), '.');
+        }
+
+        try {
+            (new \TaxmodStock\WordPress\StockService())->reorder($lines, null, sprintf(__('Bedarf %s', 'taxmod-manufacturing'), $built->label));
+        } catch (\RuntimeException $error) {
+            throw ManufacturingError::stockRefused($error->getMessage());
+        }
+    }
+
     /** Whether the stock module offers the picking list's two interfaces (D-1155). */
     public function canPick(): bool
     {
