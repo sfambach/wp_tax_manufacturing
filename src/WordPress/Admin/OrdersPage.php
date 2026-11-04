@@ -57,6 +57,12 @@ final class OrdersPage
             return $html . '<div class="notice notice-error"><p>' . esc_html($this->message($error)) . '</p></div></div>';
         }
 
+        $detail = absint($_GET['auftrag'] ?? 0);
+
+        if ($detail !== 0) {
+            return $html . $this->detail($orders, $detail) . '</div>';
+        }
+
         $tab   = $this->tab();
         $tabs  = [
             ['open', __('Offen', 'taxmod-manufacturing'), count(array_filter($orders, static fn (BuildOrder $o): bool => ! $o->isClosed()))],
@@ -71,25 +77,8 @@ final class OrdersPage
             . ListPage::bulkBar(self::FORM, self::NONCE, [self::BULK_CANCEL => __('Abbrechen', 'taxmod-manufacturing'), self::BULK_REOPEN => __('Wieder aufnehmen', 'taxmod-manufacturing')],
                 sprintf(_n('%d Auftrag', '%d Aufträge', count($shown), 'taxmod-manufacturing'), count($shown)));
 
-        $revisions = [];
-
-        foreach ($shown as $order) {
-            foreach ($order->assemblies as $assembly) {
-                $revisions[$assembly->revision] = true;
-            }
-        }
-
-        $lists  = $this->service->partsLists(array_keys($revisions));
-        $things = [];
-
-        foreach ($lists as $positions) {
-            foreach ($positions as $position) {
-                $things[] = $position['thing'];
-            }
-        }
-
-        $labels = $this->service->labelsOf(array_values(array_filter(array_unique([...array_keys($revisions), ...$things, ...array_map(static fn (BuildOrder $o): int => $o->project, $shown), ...array_filter(array_map(static fn (BuildOrder $o): ?int => $o->box, $shown))]))));
-        $rows   = '';
+        [$lists, $labels] = $this->context($shown);
+        $rows             = '';
 
         foreach ($shown as $order) {
             $rows .= $this->row($order, $labels, $lists, Demand::of($order->assemblies, $lists, $order->count, $this->service->presentIn($order->box)));
@@ -109,6 +98,79 @@ final class OrdersPage
             [__('Fehlt', 'taxmod-manufacturing'), '6em'],
             [__('Begonnen', 'taxmod-manufacturing'), '8em'],
         ], $rows) . '</div>';
+    }
+
+    /**
+     * One order on its own page: head, box, and every board with its demand list (his word 2026-11-04 «mach doch lieber eine detailansicht»).
+     *
+     * @param list<BuildOrder> $orders
+     */
+    private function detail(array $orders, int $id): string
+    {
+        $found = array_values(array_filter($orders, static fn (BuildOrder $o): bool => $o->id === $id));
+        $back  = '<p><a href="' . esc_url($this->url(['tab' => $this->tab()])) . '">← ' . esc_html__('Alle Aufträge', 'taxmod-manufacturing') . '</a></p>';
+
+        if ($found === []) {
+            return $back . '<div class="notice notice-error"><p>' . esc_html__('Diesen Auftrag gibt es nicht.', 'taxmod-manufacturing') . '</p></div>';
+        }
+
+        $order            = $found[0];
+        [$lists, $labels] = $this->context([$order]);
+        $demand           = Demand::of($order->assemblies, $lists, $order->count, $this->service->presentIn($order->box));
+        $facts            = [
+            __('Projekt', 'taxmod-manufacturing')  => esc_html($labels[$order->project] ?? '#' . $order->project),
+            __('Stück', 'taxmod-manufacturing')    => esc_html((string) $order->count),
+            __('Status', 'taxmod-manufacturing')   => esc_html($this->orderStepLabel($order->step)),
+            __('Fehlt', 'taxmod-manufacturing')    => esc_html($order->box === null ? '—' : (string) Demand::missingRows($demand)),
+            __('Begonnen', 'taxmod-manufacturing') => esc_html($order->started ?? '—'),
+            __('Fertig', 'taxmod-manufacturing')   => esc_html($order->finished ?? '—'),
+        ];
+        $head = '';
+
+        foreach ($facts as $label => $value) {
+            $head .= '<div><span class="description">' . esc_html($label) . '</span><br><strong>' . $value . '</strong></div>';
+        }
+
+        $html = $back . '<div style="display:flex;align-items:flex-start;gap:1em"><h2 style="flex:1;margin:.25em 0">' . esc_html($order->label) . '</h2>'
+            . '<div style="display:flex;gap:.5em">' . $this->rowButtons($order) . '</div></div>'
+            . '<div style="display:flex;gap:2.5em;flex-wrap:wrap;margin:.5em 0 1em">' . $head . '</div>'
+            . $this->boxForm($order);
+
+        foreach ($order->assemblies as $assembly) {
+            $html .= $this->assemblyForm($order, $assembly, $labels, $lists[$assembly->revision] ?? [], $demand[$assembly->id] ?? []);
+        }
+
+        return $html;
+    }
+
+    /**
+     * Parts lists and labels for the given orders, read once (CD-7).
+     *
+     * @param list<BuildOrder> $orders
+     * @return array{0: array<int, list<array{id: int, thing: int, count: float, fitting: string, ref: string}>>, 1: array<int, string>}
+     */
+    private function context(array $orders): array
+    {
+        $revisions = [];
+
+        foreach ($orders as $order) {
+            foreach ($order->assemblies as $assembly) {
+                $revisions[$assembly->revision] = true;
+            }
+        }
+
+        $lists  = $this->service->partsLists(array_keys($revisions));
+        $things = [];
+
+        foreach ($lists as $positions) {
+            foreach ($positions as $position) {
+                $things[] = $position['thing'];
+            }
+        }
+
+        $labels = $this->service->labelsOf(array_values(array_filter(array_unique([...array_keys($revisions), ...$things, ...array_map(static fn (BuildOrder $o): int => $o->project, $orders), ...array_filter(array_map(static fn (BuildOrder $o): ?int => $o->box, $orders))]))));
+
+        return [$lists, $labels];
     }
 
     /** admin-post: capability → nonce → validate → sanitize → act → back to the page (CD-5). */
@@ -167,8 +229,8 @@ final class OrdersPage
         $label = $this->service->labelsOf([$project])[$project] ?? '#' . $project;
         $id    = $this->service->create($project, $count, null, sprintf(__('Fertigung %1$s, %2$s', 'taxmod-manufacturing'), $label, current_time('Y-m-d')));
 
-        $back['open'] = $id;
-        $back['tab']  = 'open';
+        $back['auftrag'] = $id;
+        $back['tab']     = 'open';
 
         return 'created';
     }
@@ -187,7 +249,7 @@ final class OrdersPage
         $note   = isset($_POST['note']) ? sanitize_text_field(wp_unslash((string) $_POST['note'])) : null;
 
         $booked       = $this->service->updateAssembly($order, absint($_POST['assembly'] ?? 0), $fitted, $unused, $number('tested'), $number('done'), $note, $today);
-        $back['open'] = $order;
+        $back['auftrag'] = $order;
 
         return ['booked' => 'saved_booked', 'unbooked' => 'saved_unbooked'][$booked] ?? 'saved';
     }
@@ -196,7 +258,7 @@ final class OrdersPage
     private function box(int $order, array &$back): string
     {
         $this->service->setBox($order, absint($_POST['box'] ?? 0));
-        $back['open'] = $order;
+        $back['auftrag'] = $order;
 
         return 'box';
     }
@@ -208,7 +270,9 @@ final class OrdersPage
     private function step(int $order, string $to, string $today, array &$back): string
     {
         $this->service->setStep($order, $to, $today);
-        $back['open'] = $order;
+        if (sanitize_key((string) ($_POST['view'] ?? '')) === 'detail') {
+            $back['auftrag'] = $order;
+        }
 
         return ['order_done' => 'closed', 'order_cancelled' => 'cancelled', 'reopen' => 'reopened'][$to];
     }
@@ -221,7 +285,7 @@ final class OrdersPage
     private function row(BuildOrder $order, array $labels, array $lists, array $demand): string
     {
         $cells = [
-            '<strong>' . esc_html($order->label) . '</strong>',
+            '<strong><a href="' . esc_url($this->url(['auftrag' => $order->id, 'tab' => $this->tab()])) . '">' . esc_html($order->label) . '</a></strong>',
             esc_html($labels[$order->project] ?? '#' . $order->project),
             esc_html((string) $order->count),
             esc_html($this->orderStepLabel($order->step)),
@@ -231,13 +295,18 @@ final class OrdersPage
             esc_html($order->started ?? '—'),
         ];
 
-        $details = $this->boxForm($order);
+        $details = '';
 
         foreach ($order->assemblies as $assembly) {
-            $details .= $this->assemblyForm($order, $assembly, $labels, $lists[$assembly->revision] ?? [], $demand[$assembly->id] ?? []);
+            $rows     = $demand[$assembly->id] ?? [];
+            $details .= '<li>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision) . ': '
+                . esc_html(sprintf(__('%1$d von %2$d bestückt, %3$d fertig', 'taxmod-manufacturing'), Demand::boardsFitted($rows), $order->count, $assembly->done))
+                . ($order->box !== null && Demand::missingRows([$rows]) > 0 ? ' · <strong style="color:#b32d2e">' . esc_html(sprintf(__('%d Positionen fehlen', 'taxmod-manufacturing'), Demand::missingRows([$rows]))) . '</strong>' : '') . '</li>';
         }
 
-        return ListPage::row(self::FORM, (string) $order->id, $cells, $this->rowButtons($order), $details, absint($_GET['open'] ?? 0) === $order->id);
+        $details = '<ul style="margin:.5em 0">' . $details . '</ul><p><a class="button" href="' . esc_url($this->url(['auftrag' => $order->id, 'tab' => $this->tab()])) . '">' . esc_html__('Öffnen', 'taxmod-manufacturing') . '</a></p>';
+
+        return ListPage::row(self::FORM, (string) $order->id, $cells, $this->rowButtons($order), $details);
     }
 
     /** The order's box: everything lying on it and in it counts as there (his word 2026-11-04). */
@@ -351,7 +420,7 @@ final class OrdersPage
     private function dialogForm(string $do, BuildOrder $order, string $opener, string $title, string $body): string
     {
         return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
-            . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab()])
+            . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => absint($_GET['auftrag'] ?? 0) === $order->id ? 'detail' : ''])
             . ListPage::dialogAction('taxmod-mf-' . $do . '-' . $order->id, $opener, $title, '<p>' . $body . '</p>', 'do', $do, $opener)
             . '</form>';
     }
