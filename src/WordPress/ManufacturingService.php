@@ -2,6 +2,7 @@
 
 namespace TaxmodManufacturing\WordPress;
 
+use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\BuildOrders;
 use TaxmodManufacturing\Core\Demand;
@@ -68,6 +69,8 @@ final class ManufacturingService
     /** Filter of the stock module that books a build's consumption (D-1146); without it nothing is booked. */
     public const BOOK_FILTER = 'taxmod_stock_book_build';
     public const PLACES_FILTER = 'taxmod_stock_places_of';
+    public const OUTPUT_FILTER = 'taxmod_stock_book_output';
+    public const CREATE_THING_FILTER = 'taxmod_stock_create_thing';
     public const PICK_FILTER   = 'taxmod_stock_book_pick';
 
     /** Whether the stock module's purchasing takes a demand from here (D-1156). */
@@ -201,9 +204,103 @@ final class ManufacturingService
             $booked = 'unbooked';
         }
 
+        $made = $done === null ? 0 : $done - $part->done;
+
+        if ($made > 0) {
+            $boards = $this->boardsAfter($part, $fitted, $unused, $list);
+
+            if ($done > $boards) {
+                throw ManufacturingError::doneBeyondFitted($done, $boards);
+            }
+        }
+
+        if ($made !== 0 && $this->canReceive()) {
+            try {
+                $this->bookOutput($built, $part->revision, $made, $today);
+            } catch (ManufacturingError $error) {
+                if ($booked === 'booked') {
+                    // The consumption is already booked; give it back so the box shows what it did before.
+                    apply_filters(self::BOOK_FILTER, null, ['reference' => $order, 'place' => $built->box, 'lines' => array_map(static fn (float $q): float => -$q, $use), 'title' => $built->label, 'date' => $today]);
+                }
+
+                throw $error;
+            }
+
+            $booked = $booked === 'unbooked' ? 'unbooked' : 'booked';
+        }
+
         $this->model->write($changes);
 
         return $booked;
+    }
+
+    /** Whether finished boards go into stock (D-1143): the model knows the material node and the stock module books it. */
+    public function canReceive(): bool
+    {
+        $s = $this->structure();
+
+        return $s->hasNode('assembled') && $s->hasField('assembled_revision') && has_filter(self::OUTPUT_FILTER) && has_filter(self::CREATE_THING_FILTER);
+    }
+
+    /**
+     * Boards with every used position fitted once these counts are saved (D-1146).
+     *
+     * @param array<int, int> $fitted
+     * @param list<int> $unused
+     * @param list<array{id: int, fitting: string}> $list
+     */
+    private function boardsAfter(Assembly $part, array $fitted, array $unused, array $list): int
+    {
+        $counts = [];
+
+        foreach ($list as $position) {
+            if ($position['fitting'] === 'no' || in_array($position['id'], $unused, true)) {
+                continue;
+            }
+
+            $counts[] = $fitted[$position['id']] ?? $part->fittedOn($position['id']);
+        }
+
+        return $counts === [] ? 0 : min($counts);
+    }
+
+    /** Finished boards into the order's box as their own material, unchecked (D-1143); fewer finished give them back. */
+    private function bookOutput(BuildOrder $order, int $revision, int $boards, string $today): void
+    {
+        if ($order->box === null) {
+            throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
+        }
+
+        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $order->box, 'lines' => [$this->materialFor($revision) => (float) $boards], 'title' => $order->label, 'date' => $today]);
+
+        if (is_wp_error($answer)) {
+            throw ManufacturingError::stockRefused($answer->get_error_message());
+        }
+    }
+
+    /** The material «assembled board» of a revision; made at the first finished board. */
+    public function materialFor(int $revision): int
+    {
+        $s     = $this->structure();
+        $table = $this->table('assembled');
+        $link  = $s->field('assembled_revision');
+
+        foreach ($table->ids() as $id) {
+            if ((int) $table->first($id, $link) === $revision) {
+                return $id;
+            }
+        }
+
+        $name   = sprintf(__('%s, bestückt', 'taxmod-manufacturing'), $this->labelsOf([$revision])[$revision] ?? '#' . $revision);
+        $answer = apply_filters(self::CREATE_THING_FILTER, null, ['name' => $name, 'group' => $s->node('assembled')]);
+
+        if (is_wp_error($answer) || ! is_int($answer)) {
+            throw ManufacturingError::stockRefused(is_wp_error($answer) ? $answer->get_error_message() : __('Das Lager hat kein Material angelegt.', 'taxmod-manufacturing'));
+        }
+
+        $this->model->write([['op' => 'set_values', 'record' => (string) $answer, 'values' => [(string) $link => (string) $revision]]]);
+
+        return $answer;
     }
 
     public function setBox(int $order, int $box): void

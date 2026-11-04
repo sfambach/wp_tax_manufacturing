@@ -54,6 +54,11 @@ final class ManufacturingError extends \RuntimeException
         return new self('boards_out_of_range', $given . '/' . $pieces);
     }
 
+    public static function doneBeyondFitted(int $done, int $fitted): self
+    {
+        return new self('done_beyond_fitted', $done . '>' . $fitted);
+    }
+
     public static function stockRefused(string $message): self
     {
         return new self('stock_refused', $message);
