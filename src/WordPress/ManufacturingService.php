@@ -67,6 +67,70 @@ final class ManufacturingService
 
     /** Filter of the stock module that books a build's consumption (D-1146); without it nothing is booked. */
     public const BOOK_FILTER = 'taxmod_stock_book_build';
+    public const PLACES_FILTER = 'taxmod_stock_places_of';
+    public const PICK_FILTER   = 'taxmod_stock_book_pick';
+
+    /** Whether the stock module offers the picking list's two interfaces (D-1155). */
+    public function canPick(): bool
+    {
+        return has_filter(self::PLACES_FILTER) && has_filter(self::PICK_FILTER);
+    }
+
+    /**
+     * Where these parts lie, outside the box: the stock module answers (D-1155).
+     *
+     * @param list<int> $things
+     * @return array<int, array<int, float>> thing → place → pieces
+     */
+    public function placesOf(array $things, int $box): array
+    {
+        if ($things === [] || ! has_filter(self::PLACES_FILTER)) {
+            return [];
+        }
+
+        $answer = apply_filters(self::PLACES_FILTER, null, ['things' => $things, 'except' => $box]);
+        $places = [];
+
+        foreach (is_array($answer) ? $answer : [] as $thing => $at) {
+            foreach (is_array($at) ? $at : [] as $place => $pieces) {
+                if (is_numeric($pieces) && (float) $pieces > 0.0) {
+                    $places[(int) $thing][(int) $place] = (float) $pieces;
+                }
+            }
+        }
+
+        return $places;
+    }
+
+    /**
+     * Books the ticked lines of the picking list as one transfer into the order's box (D-1155).
+     *
+     * @param list<array{thing: int, from: int, qty: float}> $lines
+     */
+    public function bookPick(int $order, array $lines, string $today): int
+    {
+        $built = $this->order($order);
+
+        if ($built->box === null) {
+            throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
+        }
+
+        if (! has_filter(self::PICK_FILTER)) {
+            throw ManufacturingError::stockRefused(__('Das Lager bietet das Umbuchen für die Pickliste noch nicht an.', 'taxmod-manufacturing'));
+        }
+
+        $answer = apply_filters(self::PICK_FILTER, null, ['reference' => $order, 'place' => $built->box, 'lines' => $lines, 'title' => $built->label, 'date' => $today]);
+
+        if (is_wp_error($answer)) {
+            throw ManufacturingError::stockRefused($answer->get_error_message());
+        }
+
+        if (! is_int($answer)) {
+            throw ManufacturingError::stockRefused(__('Das Lager hat nicht geantwortet.', 'taxmod-manufacturing'));
+        }
+
+        return $answer;
+    }
 
     /**
      * Saves an assembly's counts. The consumption they mean is booked first, at the stock module, so a box that does not

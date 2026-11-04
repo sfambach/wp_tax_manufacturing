@@ -6,6 +6,7 @@ use Taxmod\WordPress\Admin\ListPage;
 use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\Demand;
+use TaxmodManufacturing\Core\PickList;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\WordPress\ManufacturingService;
 
@@ -136,11 +137,70 @@ final class OrdersPage
             . '<div style="display:flex;gap:2.5em;flex-wrap:wrap;margin:.5em 0 1em">' . $head . '</div>'
             . $this->boxForm($order);
 
+        $html .= $this->pickList($order, $demand);
+
         foreach ($order->assemblies as $assembly) {
             $html .= $this->assemblyForm($order, $assembly, $labels, $lists[$assembly->revision] ?? [], $demand[$assembly->id] ?? []);
         }
 
         return $html;
+    }
+
+    /**
+     * What the box still lacks and where it lies: tick what you put in, book it in one step, or print it (D-1155).
+     *
+     * @param array<int, list<array{thing: int, missing: float}>> $demand
+     */
+    private function pickList(BuildOrder $order, array $demand): string
+    {
+        if ($order->box === null || $order->isClosed() || Demand::missingRows($demand) === 0) {
+            return '';
+        }
+
+        $count  = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
+        $things = [];
+
+        foreach ($demand as $rows) {
+            foreach ($rows as $row) {
+                $things[] = $row['thing'];
+            }
+        }
+
+        $canPick = $this->service->canPick();
+        $lines   = PickList::of($demand, $this->service->placesOf(array_values(array_unique($things)), $order->box));
+        $labels  = $this->service->labelsOf(array_values(array_unique(array_filter([...array_column($lines, 'thing'), ...array_column($lines, 'place')]))));
+        $body    = '';
+
+        foreach ($lines as $line) {
+            $key   = $line['thing'] . ':' . (int) $line['place'];
+            $tick  = $canPick && $line['place'] !== null
+                ? '<input type="checkbox" name="pick[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick">'
+                : '<span style="display:inline-block;width:1em;height:1em;border:1px solid #8c8f94"></span>';
+            $take  = $canPick && $line['place'] !== null
+                ? '<input type="number" class="small-text" form="taxmod-mf-pick" name="qty[' . esc_attr($key) . ']" min="0" max="' . esc_attr($count($line['there'])) . '" step="any" value="' . esc_attr($count($line['take'])) . '">'
+                : esc_html($line['place'] === null ? '' : $count($line['take']));
+            $body .= '<tr><td>' . $tick . '</td><td>' . esc_html($labels[$line['thing']] ?? '#' . $line['thing']) . '</td>'
+                . '<td>' . ($line['place'] === null
+                    ? '<strong style="color:#b32d2e">' . esc_html($canPick ? __('nirgends am Lager', 'taxmod-manufacturing') : __('Lagerort unbekannt', 'taxmod-manufacturing')) . '</strong>'
+                    : esc_html($labels[$line['place']] ?? '#' . $line['place'])) . '</td>'
+                . '<td style="text-align:right">' . esc_html($line['place'] === null ? '' : $count($line['there'])) . '</td>'
+                . '<td style="text-align:right">' . esc_html($count($line['missing'])) . '</td><td>' . $take . '</td></tr>';
+        }
+
+        $note = $canPick ? '' : '<p class="description">' . esc_html__('Das Lager liefert die Lagerorte und das Umbuchen noch nicht; die Liste zeigt nur, was fehlt.', 'taxmod-manufacturing') . '</p>';
+
+        return '<style>@media print{body *{visibility:hidden}.taxmod-mf-pick,.taxmod-mf-pick *{visibility:visible}.taxmod-mf-pick{position:absolute;left:0;top:0;width:100%}.taxmod-mf-noprint{display:none}}</style>'
+            . '<div class="taxmod-mf-pick" style="border-top:1px solid #dcdcde;padding:.75em 0">'
+            . '<div style="display:flex;align-items:center;gap:1em"><h3 style="flex:1;margin:.25em 0">' . esc_html(sprintf(__('Pickliste · %s', 'taxmod-manufacturing'), $order->label)) . '</h3>'
+            . '<span class="taxmod-mf-noprint" style="display:flex;gap:.5em"><button type="button" class="button" onclick="window.print()">' . esc_html__('Drucken', 'taxmod-manufacturing') . '</button>'
+            . ($canPick ? '<button type="submit" class="button button-primary" form="taxmod-mf-pick">' . esc_html__('Abgehakte ins Gebinde umbuchen', 'taxmod-manufacturing') . '</button>' : '') . '</span></div>'
+            . $note
+            . '<form method="post" id="taxmod-mf-pick" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+            . $this->hidden(['action' => self::ACTION, 'do' => 'pick', 'order' => (string) $order->id, 'tab' => $this->tab()]) . '</form>'
+            . '<table class="widefat striped" style="margin-top:.5em"><thead><tr><th style="width:2em"></th>'
+            . '<th>' . esc_html__('Teil', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Lagerort', 'taxmod-manufacturing') . '</th>'
+            . '<th style="text-align:right">' . esc_html__('Dort', 'taxmod-manufacturing') . '</th><th style="text-align:right">' . esc_html__('Fehlt', 'taxmod-manufacturing') . '</th>'
+            . '<th>' . esc_html__('Nehmen', 'taxmod-manufacturing') . '</th></tr></thead><tbody>' . $body . '</tbody></table></div>';
     }
 
     /**
@@ -201,6 +261,7 @@ final class OrdersPage
                     'create'   => $this->create($back),
                     'assembly' => $this->updateAssembly($order, $today, $back),
                     'box'      => $this->box($order, $back),
+                    'pick'     => $this->pick($order, $today, $back),
                     'done'     => $this->step($order, 'order_done', $today, $back),
                     'cancel'   => $this->step($order, 'order_cancelled', $today, $back),
                     'reopen'   => $this->step($order, 'reopen', $today, $back),
@@ -252,6 +313,37 @@ final class OrdersPage
         $back['auftrag'] = $order;
 
         return ['booked' => 'saved_booked', 'unbooked' => 'saved_unbooked'][$booked] ?? 'saved';
+    }
+
+    /** @param array<string, string|int> $back */
+    private function pick(int $order, string $today, array &$back): string
+    {
+        $quantities = (array) ($_POST['qty'] ?? []);
+        $lines      = [];
+
+        foreach ((array) ($_POST['pick'] ?? []) as $key) {
+            $key = sanitize_text_field(wp_unslash((string) $key));
+
+            if (preg_match('/^(\d+):(\d+)$/', $key, $match) !== 1) {
+                continue;
+            }
+
+            $qty = (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($quantities[$key] ?? '0'))));
+
+            if ($qty > 0.0) {
+                $lines[] = ['thing' => (int) $match[1], 'from' => (int) $match[2], 'qty' => $qty];
+            }
+        }
+
+        $back['auftrag'] = $order;
+
+        if ($lines === []) {
+            return 'nothing_picked';
+        }
+
+        $this->service->bookPick($order, $lines, $today);
+
+        return 'picked';
     }
 
     /** @param array<string, string|int> $back */
@@ -459,6 +551,8 @@ final class OrdersPage
             'saved_booked'   => __('Platine gespeichert, Verbrauch im Lager gebucht.', 'taxmod-manufacturing'),
             'saved_unbooked' => __('Platine gespeichert. Der Verbrauch ist noch nicht gebucht: das Lager bietet die Buchung noch nicht an.', 'taxmod-manufacturing'),
             'box'       => __('Gebinde gespeichert.', 'taxmod-manufacturing'),
+            'picked'    => __('Abgehakte Teile ins Gebinde umgebucht.', 'taxmod-manufacturing'),
+            'nothing_picked' => __('Nichts abgehakt, nichts gebucht.', 'taxmod-manufacturing'),
             'closed'    => __('Auftrag abgeschlossen. «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'),
             'cancelled' => __('Abgebrochen. «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'),
             'reopened'  => __('Wieder aufgenommen.', 'taxmod-manufacturing'),
