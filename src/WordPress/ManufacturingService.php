@@ -4,6 +4,8 @@ namespace TaxmodManufacturing\WordPress;
 
 use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\BuildOrders;
+use TaxmodManufacturing\Core\Demand;
+use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\OrderChanges;
 use TaxmodManufacturing\Core\Structure;
 use TaxmodManufacturing\Core\Table;
@@ -45,12 +47,12 @@ final class ManufacturingService
     /** @return list<BuildOrder> */
     public function orders(): array
     {
-        return (new BuildOrders($this->structure()))->all($this->table('order'), $this->table('assembly'));
+        return (new BuildOrders($this->structure()))->all($this->table('order'), $this->table('assembly'), $this->table('fitting'));
     }
 
     public function order(int $id): BuildOrder
     {
-        return (new BuildOrders($this->structure()))->one($id, $this->table('order'), $this->table('assembly'));
+        return (new BuildOrders($this->structure()))->one($id, $this->table('order'), $this->table('assembly'), $this->table('fitting'));
     }
 
     /** @return int the new order's id */
@@ -63,21 +65,48 @@ final class ManufacturingService
         return (int) ($answer['refs']['auftrag'] ?? 0);
     }
 
-    /** @param list<int> $unused */
-    public function updateAssembly(int $order, int $assembly, string $step, array $unused, string $today, ?string $note = null): void
-    {
-        $built    = $this->order($order);
-        $part     = $built->assembly($assembly);
-        $optional = [];
+    /** Filter of the stock module that books a build's consumption (D-1146); without it nothing is booked. */
+    public const BOOK_FILTER = 'taxmod_stock_book_build';
 
-        // Only an optional position may be left out (his word: «bei optionalen … was nicht verwendet wird»).
-        foreach ($part === null ? [] : $this->partsLists([$part->revision])[$part->revision] ?? [] as $position) {
-            if ($position['fitting'] === 'optional' || ! $this->structure()->hasValue('fitting_optional')) {
-                $optional[] = $position['id'];
+    /**
+     * Saves an assembly's counts. The consumption they mean is booked first, at the stock module, so a box that does not
+     * hold enough stops the save; then the counts are written.
+     *
+     * @param array<int, int> $fitted position → boards
+     * @param list<int>       $unused
+     * @return 'booked'|'nothing'|'unbooked' unbooked: there was something to book, but the stock module offers no interface yet
+     */
+    public function updateAssembly(int $order, int $assembly, array $fitted, array $unused, ?int $tested, ?int $done, ?string $note, string $today): string
+    {
+        $built = $this->order($order);
+        $part  = $built->assembly($assembly) ?? throw ManufacturingError::assemblyNotOfOrder($assembly, $order);
+        $list  = $this->partsLists([$part->revision])[$part->revision] ?? [];
+        $all   = array_column($list, 'id');
+        // Only an option may be left out (his word: «bei optionalen … was nicht verwendet wird»).
+        $options = $this->structure()->hasValue('fitting_optional') ? array_column(array_filter($list, static fn (array $p): bool => $p['fitting'] === 'optional'), 'id') : $all;
+        $changes = (new OrderChanges($this->structure()))->updateAssembly($built, $assembly, $fitted, $unused, $all, $options, $tested, $done, $note, $today);
+        $booked  = 'nothing';
+        $use     = Demand::consumption($part, $fitted, $list);
+
+        if ($use !== [] && has_filter(self::BOOK_FILTER)) {
+            if ($built->box === null) {
+                throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
             }
+
+            $answer = apply_filters(self::BOOK_FILTER, null, ['reference' => $order, 'place' => $built->box, 'lines' => $use, 'title' => $built->label, 'date' => $today]);
+
+            if (is_wp_error($answer)) {
+                throw ManufacturingError::stockRefused($answer->get_error_message());
+            }
+
+            $booked = 'booked';
+        } elseif ($use !== []) {
+            $booked = 'unbooked';
         }
 
-        $this->model->write((new OrderChanges($this->structure()))->updateAssembly($built, $assembly, $step, $unused, $optional, $today, $note));
+        $this->model->write($changes);
+
+        return $booked;
     }
 
     public function setBox(int $order, int $box): void

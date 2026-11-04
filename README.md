@@ -3,13 +3,15 @@
 Build orders for the [Taxonomy Modeller](https://github.com/sfambach/wp-taxonomy-modeler), shown inside the logistics
 navigation of [Taxmod Stock](https://github.com/sfambach/wp_tax_stock) under **Fertigung › Aufträge**.
 
-- A **build order** names a project and a piece count. It holds one **assembly** per board of the project, built from the
-  board's newest revision.
-- Each assembly has a **build status**: offen → Teile da → bestückt → geprüft → fertig.
-- An assembly also lists the **parts-list positions still missing** (for example, every board fitted except the coil) and
-  takes a note.
-- An order closes once every assembly is done. Cancelling and closing can both be undone with «Wieder aufnehmen».
-  Nothing is ever deleted.
+- A **build order** names a project, a piece count and its **box** (a project box of the stock module). It holds one
+  **assembly** per board of the project, built from the board's newest revision.
+- Each assembly shows its **demand list**: the board itself and every parts-list position, «Anzahl × Stückzahl», with
+  **on how many boards it is fitted**, what lies in the box, and what is missing (D-1145, D-1146). «Best.» = nein drops
+  out; an optional position can be marked «nicht verwenden». «Alle auf n» fills every count at once.
+- «Boards fitted» is the smallest count over the used positions. Saving books the difference as consumption at the stock
+  module (filter `taxmod_stock_book_build`); without that interface the counts are saved and the page says nothing was booked.
+- «Geprüft» and «Fertig» are counts per assembly. An order closes once every board is finished; cancelling and closing
+  are undone with «Wieder aufnehmen». Nothing is ever deleted.
 
 Concept and decisions: [`docs/pakete/fertigung/konzept.md`](https://github.com/sfambach/wp-taxonomy-modeler/blob/main/docs/pakete/fertigung/konzept.md),
 D-1142 and D-1143 in the modeller's decision log.
@@ -18,8 +20,8 @@ D-1142 and D-1143 in the modeller's decision log.
 
 - Taxonomy Modeller with the abilities `taxmod/read-node` and `taxmod/write-data`.
 - Taxmod Stock with the navigation area «production» for the menu entry.
-- The model change `fertigung-apply.json` (nodes «Fertigungsaufträge», «Fertigung Baugruppen», the choices «Fertigungsstatus»
-  and «Aufbaustatus»). Its ids go into the option `taxmod_manufacturing_structure` (REST `/wp/v2/settings`) or into
+- The model changes `fertigung-apply.json` and `fertigung-0.0.3-apply.json` (nodes «Fertigungsaufträge», «Fertigung Baugruppen»,
+  «Fertigung Bestückung», the choices «Fertigungsstatus» and «Aufbaustatus»). Its ids go into the option `taxmod_manufacturing_structure` (REST `/wp/v2/settings`) or into
   `structure-live.json`. Until all of them are there, the page lists the missing keys.
 
 ## Layout
@@ -30,8 +32,7 @@ D-1142 and D-1143 in the modeller's decision log.
 
 ## Not yet built
 
-- Booking at «fertig» (D-1143): consumption of the parts and receipt of the finished board as its own material, then
-  inspection. This needs an interface from the stock module.
+- Receipt of a finished board as its own material and its inspection (D-1143).
 - Moving «Projekt-Gebinde» (D-1139) over from the stock module.
 
 ## Authors

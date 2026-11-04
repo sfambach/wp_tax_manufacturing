@@ -10,8 +10,8 @@ namespace TaxmodManufacturing\Core;
  * ```mermaid
  * flowchart LR
  *   P["Projekt"] -->|each board: newest revision| N["new order + one assembly per board"]
- *   N -->|first assembly leaves «offen»| B["order «in Bau», Begonnen am"]
- *   B -->|every assembly «fertig»| D["order may close: «fertig», Fertig am"]
+ *   N -->|first position fitted| B["order «in Bau», Begonnen am"]
+ *   B -->|every board of every assembly «fertig»| D["order may close: «fertig», Fertig am"]
  * ```
  *
  * @see https://github.com/sfambach/wp-taxonomy-modeler/blob/main/docs/NewConcept/90-decision-log.md D-1142
@@ -87,42 +87,66 @@ final class OrderChanges
     }
 
     /**
-     * An assembly's step, its note and the optional positions it leaves out; a planned order goes «in Bau» with today as its start.
+     * An assembly's fitted counts, options left out, tested and finished boards and note; a planned order goes «in Bau»,
+     * with today as its start, once anything is fitted (D-1146). A count is a part of the assembly: an existing one is
+     * rewritten in place, a new one added — none is removed, a count taken back is written as the lower number.
      *
-     * @param list<int> $unused
-     * @param list<int> $positions the positions of the assembly's revision that may be left out
+     * @param array<int, int> $fitted    position → boards
+     * @param list<int>       $unused
+     * @param list<int>       $positions every position of the revision
+     * @param list<int>       $options   the positions that may be left out
      * @return list<array<string, mixed>>
      */
-    public function updateAssembly(BuildOrder $order, int $assembly, string $step, array $unused, array $positions, string $today, ?string $note = null): array
+    public function updateAssembly(BuildOrder $order, int $assembly, array $fitted, array $unused, array $positions, array $options, ?int $tested, ?int $done, ?string $note, string $today): array
     {
         $s    = $this->s;
         $part = $order->assembly($assembly) ?? throw ManufacturingError::assemblyNotOfOrder($assembly, $order->id);
 
-        if (! in_array($step, Structure::ASSEMBLY_STEPS, true)) {
-            throw ManufacturingError::unknownStatus($step);
+        foreach ([...array_values($fitted), $tested ?? 0, $done ?? 0] as $boards) {
+            if ($boards < 0 || $boards > $order->count) {
+                throw ManufacturingError::boardsOutOfRange($boards, $order->count);
+            }
         }
 
         $unused = array_values(array_unique(array_map('intval', $unused)));
 
-        foreach ($unused as $position) {
-            if (! in_array($position, $positions, true)) {
+        foreach ([...$unused, ...array_keys($fitted)] as $position) {
+            if (! in_array($position, in_array($position, $unused, true) ? $options : $positions, true)) {
                 throw ManufacturingError::positionNotOnRevision($position, $part->revision);
             }
         }
 
-        $values = [
-            (string) $s->field('assembly_status') => (string) $s->value($step),
-            (string) $s->field('assembly_unused')   => ['values' => array_map('strval', $unused)],
-        ];
+        $changes = [];
+        $added   = [];
 
-        // His example 2026-11-04: «die Spule … eventuell müsste man die durchmessen» — a word on the board, not on the order.
-        if ($note !== null && $s->hasField('assembly_note')) {
-            $values[(string) $s->field('assembly_note')] = trim($note);
+        foreach ($fitted as $position => $boards) {
+            $existing = $part->fitted[$position] ?? null;
+
+            if ($existing !== null) {
+                if ($existing['boards'] !== $boards) {
+                    $changes[] = ['op' => 'set_values', 'record' => (string) $existing['part'], 'values' => [(string) $s->field('fitting_boards') => (string) $boards]];
+                }
+            } elseif ($boards > 0) {
+                $added['f' . $position] = [(string) $s->field('fitting_position') => (string) $position, (string) $s->field('fitting_boards') => (string) $boards];
+            }
         }
 
-        $changes = [['op' => 'set_values', 'record' => (string) $assembly, 'values' => $values]];
+        $values = [(string) $s->field('assembly_unused') => ['values' => array_map('strval', $unused)]];
 
-        if ($order->step === 'order_planned' && $step !== 'build_open') {
+        if ($added !== []) {
+            // A non-numeric key adds a new part (taxmod/apply, set_values); the parts already there stay.
+            $values[(string) $s->field('assembly_fitted')] = $added;
+        }
+
+        foreach (['assembly_tested' => $tested, 'assembly_done' => $done, 'assembly_note' => $note] as $key => $value) {
+            if ($value !== null && $s->hasField($key)) {
+                $values[(string) $s->field($key)] = is_string($value) ? trim($value) : (string) $value;
+            }
+        }
+
+        array_unshift($changes, ['op' => 'set_values', 'record' => (string) $assembly, 'values' => $values]);
+
+        if ($order->step === 'order_planned' && array_filter($fitted) !== []) {
             $changes[] = ['op' => 'set_values', 'record' => (string) $order->id, 'values' => $this->stepValues('order_building', $order->started === null ? $today : null, null)];
         }
 
@@ -149,10 +173,8 @@ final class OrderChanges
     public function setStep(BuildOrder $order, string $to, string $today): array
     {
         if ($to === 'order_done') {
-            foreach ($order->assemblies as $assembly) {
-                if (! $assembly->isDone()) {
-                    throw ManufacturingError::assembliesNotDone($order->id);
-                }
+            if (! $order->isFinished()) {
+                throw ManufacturingError::assembliesNotDone($order->id);
             }
 
             return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $this->stepValues('order_done', null, $today)]];
@@ -163,7 +185,7 @@ final class OrderChanges
         }
 
         if ($to === 'reopen') {
-            $started = array_filter($order->assemblies, static fn (Assembly $a): bool => $a->step !== 'build_open') !== [];
+            $started = array_filter($order->assemblies, static fn (Assembly $a): bool => array_filter(array_column($a->fitted, 'boards')) !== []) !== [];
 
             return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $this->stepValues($started ? 'order_building' : 'order_planned', null, '')]];
         }

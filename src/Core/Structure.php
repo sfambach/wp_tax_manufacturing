@@ -18,11 +18,13 @@ final class Structure
     public const BASE_FIELDS = ['label', 'project_boards', 'board_revisions', 'revision_positions', 'position_part', 'position_count'];
 
     /** D-1142: the build order and its assemblies, one per board revision. */
-    public const OWN_NODES = ['order', 'assembly'];
+    public const OWN_NODES = ['order', 'assembly', 'fitting'];
 
     public const OWN_FIELDS = [
         'order_project', 'order_count', 'order_status', 'order_assemblies',
         'assembly_revision', 'assembly_status', 'assembly_unused',
+        // D-1146: on how many boards a position is fitted, as parts of the assembly.
+        'assembly_fitted', 'fitting_position', 'fitting_boards',
     ];
 
     /** The steps of an order and of an assembly, in their order of the process. */
@@ -32,7 +34,7 @@ final class Structure
 
     private const OPTIONAL_NODES = ['location'];
 
-    private const OPTIONAL_FIELDS = ['order_box', 'order_started', 'order_finished', 'order_note', 'assembly_note',
+    private const OPTIONAL_FIELDS = ['order_box', 'order_started', 'order_finished', 'order_note', 'assembly_note', 'assembly_tested', 'assembly_done',
         // D-954: the column «Best.» of a parts list and the reference designators; D-1030: the project a box belongs to.
         'position_fitting', 'position_ref', 'location_project'];
 

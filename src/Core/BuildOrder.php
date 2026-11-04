@@ -30,9 +30,16 @@ final class BuildOrder
         return null;
     }
 
-    public function doneCount(): int
+    /** Every assembly has all its boards finished. */
+    public function isFinished(): bool
     {
-        return count(array_filter($this->assemblies, static fn (Assembly $a): bool => $a->isDone()));
+        return $this->assemblies !== [] && array_filter($this->assemblies, fn (Assembly $a): bool => $a->done < $this->count) === [];
+    }
+
+    /** @return int boards finished, summed over the assemblies */
+    public function doneBoards(): int
+    {
+        return array_sum(array_map(static fn (Assembly $a): int => $a->done, $this->assemblies));
     }
 
     public function isClosed(): bool

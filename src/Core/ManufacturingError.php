@@ -49,6 +49,16 @@ final class ManufacturingError extends \RuntimeException
         return new self('position_not_on_revision', $position . '/' . $revision);
     }
 
+    public static function boardsOutOfRange(int $given, int $pieces): self
+    {
+        return new self('boards_out_of_range', $given . '/' . $pieces);
+    }
+
+    public static function stockRefused(string $message): self
+    {
+        return new self('stock_refused', $message);
+    }
+
     public static function assembliesNotDone(int $order): self
     {
         return new self('assemblies_not_done', (string) $order);
