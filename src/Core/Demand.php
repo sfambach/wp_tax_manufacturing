@@ -86,6 +86,28 @@ final class Demand
     }
 
     /**
+     * Fitted parts as entered → the boards they make up per position, which is what is stored (D-1146). The page asks for
+     * parts because «3 / 10» next to a demand of 30 read as parts (his question 2026-11-04 «Soll ich dann da 3 eintragen?»).
+     * Started boards do not count: 10 parts at 3 per board are 3 boards.
+     *
+     * @param array<int, float> $pieces position → fitted parts
+     * @param list<array{id: int, count: float}> $positions of the assembly's revision
+     * @return array<int, int> position → boards
+     */
+    public static function boardsFromPieces(array $pieces, array $positions): array
+    {
+        $per    = array_column($positions, 'count', 'id');
+        $boards = [];
+
+        foreach ($pieces as $position => $count) {
+            $each               = (float) ($per[$position] ?? 0.0);
+            $boards[$position] = $each > 0.0 ? (int) floor($count / $each + 1e-9) : 0;
+        }
+
+        return $boards;
+    }
+
+    /**
      * What a change of fitted counts takes out of the box (positive) or puts back (negative): the difference × the count of
      * each position, and for the board itself the difference of its largest count.
      *

@@ -72,16 +72,17 @@ final class ManufacturingService
      * Saves an assembly's counts. The consumption they mean is booked first, at the stock module, so a box that does not
      * hold enough stops the save; then the counts are written.
      *
-     * @param array<int, int> $fitted position → boards
+     * @param array<int, float> $pieces position → fitted parts, as entered
      * @param list<int>       $unused
      * @return 'booked'|'nothing'|'unbooked' unbooked: there was something to book, but the stock module offers no interface yet
      */
-    public function updateAssembly(int $order, int $assembly, array $fitted, array $unused, ?int $tested, ?int $done, ?string $note, string $today): string
+    public function updateAssembly(int $order, int $assembly, array $pieces, array $unused, ?int $tested, ?int $done, ?string $note, string $today): string
     {
         $built = $this->order($order);
         $part  = $built->assembly($assembly) ?? throw ManufacturingError::assemblyNotOfOrder($assembly, $order);
         $list  = $this->partsLists([$part->revision])[$part->revision] ?? [];
         $all   = array_column($list, 'id');
+        $fitted = Demand::boardsFromPieces($pieces, $list);
         // Only an option may be left out (his word: «bei optionalen … was nicht verwendet wird»).
         $options = $this->structure()->hasValue('fitting_optional') ? array_column(array_filter($list, static fn (array $p): bool => $p['fitting'] === 'optional'), 'id') : $all;
         $changes = (new OrderChanges($this->structure()))->updateAssembly($built, $assembly, $fitted, $unused, $all, $options, $tested, $done, $note, $today);

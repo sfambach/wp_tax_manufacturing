@@ -240,8 +240,8 @@ final class OrdersPage
     {
         $fitted = [];
 
-        foreach ((array) ($_POST['fitted'] ?? []) as $position => $boards) {
-            $fitted[absint($position)] = absint($boards);
+        foreach ((array) ($_POST['fitted'] ?? []) as $position => $pieces) {
+            $fitted[absint($position)] = max(0.0, (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) $pieces))));
         }
 
         $unused = array_values(array_filter(array_map('absint', (array) ($_POST['unused'] ?? []))));
@@ -359,8 +359,9 @@ final class OrdersPage
 
         foreach ($rows as $row) {
             $fit = $row['position'] === 0 || $row['unused']
-                ? esc_html((string) $row['boards'])
-                : '<input type="number" class="small-text taxmod-mf-fit" name="fitted[' . esc_attr((string) $row['position']) . ']" min="0" max="' . esc_attr((string) $pieces) . '" step="1" value="' . esc_attr((string) $row['boards']) . '"> / ' . esc_html((string) $pieces);
+                ? esc_html($count($row['boards'] * $row['count']))
+                : '<input type="number" class="small-text taxmod-mf-fit" name="fitted[' . esc_attr((string) $row['position']) . ']" min="0" max="' . esc_attr($count($row['needed'])) . '" step="' . esc_attr($count($row['count'])) . '" value="' . esc_attr($count($row['boards'] * $row['count'])) . '" data-full="' . esc_attr($count($row['needed'])) . '"> / ' . esc_html($count($row['needed']))
+                    . ' <button type="button" class="button button-small" onclick="var i=this.parentNode.querySelector(\'.taxmod-mf-fit\');i.value=i.dataset.full">' . esc_html__('voll', 'taxmod-manufacturing') . '</button>';
             $use = $row['optional']
                 ? '<label><input type="checkbox" name="unused[]" value="' . esc_attr((string) $row['position']) . '"' . checked($row['unused'], true, false) . '> ' . esc_html__('nicht verwenden', 'taxmod-manufacturing') . '</label>'
                 : '';
@@ -376,14 +377,14 @@ final class OrdersPage
 
         $table = '<table class="widefat striped" style="margin-top:.5em"><thead><tr>'
             . '<th>' . esc_html__('Referenz', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Teil', 'taxmod-manufacturing') . '</th>'
-            . '<th style="text-align:right">' . esc_html__('Bedarf', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Bestückt (Platinen)', 'taxmod-manufacturing') . '</th>'
+            . '<th style="text-align:right">' . esc_html__('Bedarf', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Bestückt (Teile)', 'taxmod-manufacturing') . '</th>'
             . '<th style="text-align:right">' . esc_html__('Im Gebinde', 'taxmod-manufacturing') . '</th><th style="text-align:right">' . esc_html__('Fehlt', 'taxmod-manufacturing') . '</th>'
             . '<th>' . esc_html__('Option', 'taxmod-manufacturing') . '</th></tr></thead><tbody>' . $body . '</tbody></table>';
 
         $fittedBoards = Demand::boardsFitted($rows);
-        // «alle auf n»: fills every count of this board's list; only the form's own inputs.
+        // «alle auf n Platinen»: n × the parts per board in every field of this form.
         $fill = '<input type="number" class="small-text" min="0" max="' . esc_attr((string) $pieces) . '" value="' . esc_attr((string) $pieces) . '" aria-label="' . esc_attr__('Anzahl Platinen', 'taxmod-manufacturing') . '"> '
-            . '<button type="button" class="button" onclick="var n=this.previousElementSibling.value;this.closest(\'form\').querySelectorAll(\'.taxmod-mf-fit\').forEach(function(i){i.value=n})">' . esc_html__('Alle auf n', 'taxmod-manufacturing') . '</button>';
+            . '<button type="button" class="button" onclick="var n=this.previousElementSibling.value;this.closest(\'form\').querySelectorAll(\'.taxmod-mf-fit\').forEach(function(i){i.value=n*parseFloat(i.step)})">' . esc_html__('Alle auf n Platinen', 'taxmod-manufacturing') . '</button>';
         $counts = $this->service->structure()->hasField('assembly_tested')
             ? '<label>' . esc_html__('Geprüft', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="tested" min="0" max="' . esc_attr((string) $pieces) . '" value="' . esc_attr((string) $assembly->tested) . '"></label>'
                 . '<label>' . esc_html__('Fertig', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="done" min="0" max="' . esc_attr((string) $pieces) . '" value="' . esc_attr((string) $assembly->done) . '"></label>'

@@ -53,4 +53,12 @@ final class DemandTest extends TestCase
         self::assertSame(0.0, $demand[100][1]['missing']);
         self::assertSame(1.0, $demand[200][1]['missing']);
     }
+
+    public function testPartsEnteredBecomeWholeBoards(): void
+    {
+        $positions = [['id' => 1, 'count' => 3.0], ['id' => 2, 'count' => 1.0], ['id' => 3, 'count' => 0.0]];
+
+        self::assertSame([1 => 10, 2 => 4, 3 => 0], Demand::boardsFromPieces([1 => 30.0, 2 => 4.0, 3 => 5.0], $positions));
+        self::assertSame([1 => 3], Demand::boardsFromPieces([1 => 10.0], $positions));
+    }
 }
