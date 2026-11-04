@@ -43,7 +43,10 @@ final class Plugin
         });
 
         foreach (OrdersPage::ACTIONS as $action) {
-            add_action('admin_post_' . $action, static fn () => (new OrdersPage())->handle($action));
+            // D-1147: a manufacturing step books through the stock, so it waits for the stock's other bookings like they wait for each other.
+            add_action('admin_post_' . $action, static fn () => class_exists(\TaxmodStock\WordPress\Plugin::class) && method_exists(\TaxmodStock\WordPress\Plugin::class, 'serially')
+                ? \TaxmodStock\WordPress\Plugin::serially(static fn () => (new OrdersPage())->handle($action))
+                : (new OrdersPage())->handle($action));
         }
 
         if (! class_exists(\TaxmodStock\WordPress\Plugin::class)) {

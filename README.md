@@ -16,6 +16,9 @@ navigation of [Taxmod Stock](https://github.com/sfambach/wp_tax_stock) under **F
 Concept and decisions: [`docs/pakete/fertigung/konzept.md`](https://github.com/sfambach/wp-taxonomy-modeler/blob/main/docs/pakete/fertigung/konzept.md),
 D-1142 and D-1143 in the modeller's decision log.
 
+- Several people at once (D-1148, from 0.0.4): a step that books through the stock waits for the stock's other bookings, so
+  two builds cannot use the same last part.
+
 ## Requirements
 
 - Taxonomy Modeller with the abilities `taxmod/read-node` and `taxmod/write-data`.
