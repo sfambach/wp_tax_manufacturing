@@ -22,7 +22,7 @@ final class Structure
 
     public const OWN_FIELDS = [
         'order_project', 'order_count', 'order_status', 'order_assemblies',
-        'assembly_revision', 'assembly_status', 'assembly_open',
+        'assembly_revision', 'assembly_status', 'assembly_unused',
     ];
 
     /** The steps of an order and of an assembly, in their order of the process. */
@@ -32,7 +32,12 @@ final class Structure
 
     private const OPTIONAL_NODES = ['location'];
 
-    private const OPTIONAL_FIELDS = ['order_box', 'order_started', 'order_finished', 'order_note', 'assembly_note'];
+    private const OPTIONAL_FIELDS = ['order_box', 'order_started', 'order_finished', 'order_note', 'assembly_note',
+        // D-954: the column «Best.» of a parts list and the reference designators; D-1030: the project a box belongs to.
+        'position_fitting', 'position_ref', 'location_project'];
+
+    /** D-954: the «Best.» values that matter here — «optional» may be left out, «nein» is never needed. */
+    private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no'];
 
     /**
      * @param array<string, int> $nodes
@@ -49,7 +54,7 @@ final class Structure
         return new self(
             self::ids($raw, 'nodes', [...self::BASE_NODES, ...self::OWN_NODES, ...self::OPTIONAL_NODES]),
             self::ids($raw, 'fields', [...self::BASE_FIELDS, ...self::OWN_FIELDS, ...self::OPTIONAL_FIELDS]),
-            self::ids($raw, 'values', [...self::ORDER_STEPS, ...self::ASSEMBLY_STEPS]),
+            self::ids($raw, 'values', [...self::ORDER_STEPS, ...self::ASSEMBLY_STEPS, ...self::OPTIONAL_VALUES]),
         );
     }
 
@@ -121,6 +126,11 @@ final class Structure
     public function hasField(string $key): bool
     {
         return isset($this->fields[$key]);
+    }
+
+    public function hasValue(string $key): bool
+    {
+        return isset($this->values[$key]);
     }
 
     /**

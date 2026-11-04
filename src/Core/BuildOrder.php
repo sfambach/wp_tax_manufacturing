@@ -35,11 +35,6 @@ final class BuildOrder
         return count(array_filter($this->assemblies, static fn (Assembly $a): bool => $a->isDone()));
     }
 
-    public function openPositionCount(): int
-    {
-        return array_sum(array_map(static fn (Assembly $a): int => count($a->open), $this->assemblies));
-    }
-
     public function isClosed(): bool
     {
         return in_array($this->step, ['order_done', 'order_cancelled'], true);

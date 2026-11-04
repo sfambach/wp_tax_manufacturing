@@ -49,7 +49,7 @@ final class BuildOrders
                 $part,
                 (int) $assemblies->first($part, $s->field('assembly_revision')),
                 $s->stepOf($assemblies->first($part, $s->field('assembly_status')), Structure::ASSEMBLY_STEPS) ?? 'build_open',
-                array_map('intval', $assemblies->all($part, $s->field('assembly_open'))),
+                array_map('intval', $assemblies->all($part, $s->field('assembly_unused'))),
                 $s->hasField('assembly_note') ? (string) ($assemblies->first($part, $s->field('assembly_note')) ?? '') : '',
             );
         }

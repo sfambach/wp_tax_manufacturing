@@ -63,13 +63,68 @@ final class ManufacturingService
         return (int) ($answer['refs']['auftrag'] ?? 0);
     }
 
-    /** @param list<int> $open */
-    public function updateAssembly(int $order, int $assembly, string $step, array $open, string $today, ?string $note = null): void
+    /** @param list<int> $unused */
+    public function updateAssembly(int $order, int $assembly, string $step, array $unused, string $today, ?string $note = null): void
     {
-        $built = $this->order($order);
-        $part  = $built->assembly($assembly);
+        $built    = $this->order($order);
+        $part     = $built->assembly($assembly);
+        $optional = [];
 
-        $this->model->write((new OrderChanges($this->structure()))->updateAssembly($built, $assembly, $step, $open, $part === null ? [] : $this->positionsOf($part->revision), $today, $note));
+        // Only an optional position may be left out (his word: «bei optionalen … was nicht verwendet wird»).
+        foreach ($part === null ? [] : $this->partsLists([$part->revision])[$part->revision] ?? [] as $position) {
+            if ($position['fitting'] === 'optional' || ! $this->structure()->hasValue('fitting_optional')) {
+                $optional[] = $position['id'];
+            }
+        }
+
+        $this->model->write((new OrderChanges($this->structure()))->updateAssembly($built, $assembly, $step, $unused, $optional, $today, $note));
+    }
+
+    public function setBox(int $order, int $box): void
+    {
+        $this->model->write((new OrderChanges($this->structure()))->setBox($this->order($order), $box));
+    }
+
+    /**
+     * What lies in a box and every place in it, as the stock module counts it (D-1139) — thing → pieces. Empty without
+     * the stock module.
+     *
+     * @return array<int, float>
+     */
+    public function presentIn(?int $box): array
+    {
+        $stock = \TaxmodStock\WordPress\StockService::class;
+
+        if ($box === null || ! class_exists($stock) || ! method_exists($stock, 'presentIn')) {
+            return [];
+        }
+
+        return array_map('floatval', (new $stock())->presentIn($box));
+    }
+
+    /**
+     * The places that belong to a project (D-1030 project boxes), for the box of an order.
+     *
+     * @return array<int, string> place id → label
+     */
+    public function boxesOf(int $project): array
+    {
+        $s = $this->structure();
+
+        if (! $s->hasNode('location') || ! $s->hasField('location_project')) {
+            return [];
+        }
+
+        $places = $this->table('location');
+        $out    = [];
+
+        foreach ($places->ids() as $id) {
+            if ((int) $places->first($id, $s->field('location_project')) === $project) {
+                $out[$id] = (string) ($places->first($id, $s->field('label')) ?? '#' . $id);
+            }
+        }
+
+        return $out;
     }
 
     /** @param 'order_done'|'order_cancelled'|'reopen' $to */
@@ -85,31 +140,32 @@ final class ManufacturingService
     }
 
     /**
-     * The positions with the part they name and how many, for the assemblies shown — one read of the positions, one of their parts.
+     * The positions of these revisions: the part, how many, the reference designators and «Best.» (D-954) — one read of the
+     * positions node.
      *
      * @param list<int> $revisions
-     * @return array<int, list<array{id: int, part: string, count: string}>> revision → positions
+     * @return array<int, list<array{id: int, thing: int, count: float, fitting: string, ref: string}>> revision → positions
      */
     public function partsLists(array $revisions): array
     {
         $s         = $this->structure();
         $positions = $this->table('bom_position');
-        $out       = [];
-        $parts     = [];
+        $fitting   = static fn (?string $value): string => match (true) {
+            $value !== null && $s->hasValue('fitting_optional') && (string) $s->value('fitting_optional') === $value => 'optional',
+            $value !== null && $s->hasValue('fitting_no') && (string) $s->value('fitting_no') === $value              => 'no',
+            default                                                                                                     => '',
+        };
+        $out = [];
 
         foreach ($revisions as $revision) {
             foreach ($this->positionsOf($revision) as $position) {
-                $part = (int) $positions->first($position, $s->field('position_part'));
-                $parts[$part] = true;
-                $out[$revision][] = ['id' => $position, 'part' => (string) $part, 'count' => (string) ($positions->first($position, $s->field('position_count')) ?? '1')];
-            }
-        }
-
-        $labels = $this->labelsOf(array_keys(array_filter($parts, static fn (bool $_, int $id): bool => $id > 0, ARRAY_FILTER_USE_BOTH)));
-
-        foreach ($out as $revision => $rows) {
-            foreach ($rows as $i => $row) {
-                $out[$revision][$i]['part'] = $labels[(int) $row['part']] ?? ((int) $row['part'] > 0 ? '#' . $row['part'] : '—');
+                $out[$revision][] = [
+                    'id'      => $position,
+                    'thing'   => (int) $positions->first($position, $s->field('position_part')),
+                    'count'   => (float) ($positions->first($position, $s->field('position_count')) ?? 1),
+                    'fitting' => $s->hasField('position_fitting') ? $fitting($positions->first($position, $s->field('position_fitting'))) : '',
+                    'ref'     => $s->hasField('position_ref') ? implode(', ', $positions->all($position, $s->field('position_ref'))) : '',
+                ];
             }
         }
 

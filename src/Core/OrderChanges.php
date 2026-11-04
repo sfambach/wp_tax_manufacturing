@@ -87,13 +87,13 @@ final class OrderChanges
     }
 
     /**
-     * An assembly's step and the positions still missing; a planned order goes «in Bau» with today as its start.
+     * An assembly's step, its note and the optional positions it leaves out; a planned order goes «in Bau» with today as its start.
      *
-     * @param list<int> $open
-     * @param list<int> $positions the positions of the assembly's revision — an open one must be among them
+     * @param list<int> $unused
+     * @param list<int> $positions the positions of the assembly's revision that may be left out
      * @return list<array<string, mixed>>
      */
-    public function updateAssembly(BuildOrder $order, int $assembly, string $step, array $open, array $positions, string $today, ?string $note = null): array
+    public function updateAssembly(BuildOrder $order, int $assembly, string $step, array $unused, array $positions, string $today, ?string $note = null): array
     {
         $s    = $this->s;
         $part = $order->assembly($assembly) ?? throw ManufacturingError::assemblyNotOfOrder($assembly, $order->id);
@@ -102,9 +102,9 @@ final class OrderChanges
             throw ManufacturingError::unknownStatus($step);
         }
 
-        $open = array_values(array_unique(array_map('intval', $open)));
+        $unused = array_values(array_unique(array_map('intval', $unused)));
 
-        foreach ($open as $position) {
+        foreach ($unused as $position) {
             if (! in_array($position, $positions, true)) {
                 throw ManufacturingError::positionNotOnRevision($position, $part->revision);
             }
@@ -112,7 +112,7 @@ final class OrderChanges
 
         $values = [
             (string) $s->field('assembly_status') => (string) $s->value($step),
-            (string) $s->field('assembly_open')   => ['values' => array_map('strval', $open)],
+            (string) $s->field('assembly_unused')   => ['values' => array_map('strval', $unused)],
         ];
 
         // His example 2026-11-04: «die Spule … eventuell müsste man die durchmessen» — a word on the board, not on the order.
@@ -127,6 +127,16 @@ final class OrderChanges
         }
 
         return $changes;
+    }
+
+    /**
+     * The box the order's parts lie in (D-1030 project box); 0 takes it away.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function setBox(BuildOrder $order, int $box): array
+    {
+        return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => [(string) $this->s->field('order_box') => $box > 0 ? (string) $box : '']]];
     }
 
     /**

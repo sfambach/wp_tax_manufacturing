@@ -5,13 +5,15 @@ namespace TaxmodManufacturing\WordPress\Admin;
 use Taxmod\WordPress\Admin\ListPage;
 use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
+use TaxmodManufacturing\Core\Demand;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\Structure;
 use TaxmodManufacturing\WordPress\ManufacturingService;
 
 /**
- * Fertigung › Aufträge (D-1142): the build orders in the shared list template (D-989), a board's step and its missing
- * positions in the row's details, every act behind a dialog (D-1063). Returns strings (CD-8).
+ * Fertigung › Aufträge (D-1142): the build orders in the shared list template (D-989). A row's details show the order's
+ * box and, board by board, its step, note and parts list with needed · in the box · missing (D-1144); every act on the
+ * order stands behind a dialog (D-1063). Returns strings (CD-8).
  *
  * @see https://github.com/sfambach/wp-taxonomy-modeler/blob/main/docs/pakete/fertigung/konzept.md
  */
@@ -78,16 +80,24 @@ final class OrdersPage
             }
         }
 
-        $lists    = $this->service->partsLists(array_keys($revisions));
-        $labels   = $this->service->labelsOf([...array_keys($revisions), ...array_map(static fn (BuildOrder $o): int => $o->project, $shown)]);
-        $rows     = '';
+        $lists  = $this->service->partsLists(array_keys($revisions));
+        $things = [];
+
+        foreach ($lists as $positions) {
+            foreach ($positions as $position) {
+                $things[] = $position['thing'];
+            }
+        }
+
+        $labels = $this->service->labelsOf(array_values(array_filter(array_unique([...array_keys($revisions), ...$things, ...array_map(static fn (BuildOrder $o): int => $o->project, $shown), ...array_filter(array_map(static fn (BuildOrder $o): ?int => $o->box, $shown))]))));
+        $rows   = '';
 
         foreach ($shown as $order) {
-            $rows .= $this->row($order, $labels, $lists);
+            $rows .= $this->row($order, $labels, $lists, Demand::of($order->assemblies, $lists, $order->count, $this->service->presentIn($order->box)));
         }
 
         if ($rows === '') {
-            $rows = '<tr class="no-items"><td class="colspanchange" colspan="9">' . esc_html__('Keine Aufträge.', 'taxmod-manufacturing') . '</td></tr>';
+            $rows = '<tr class="no-items"><td class="colspanchange" colspan="10">' . esc_html__('Keine Aufträge.', 'taxmod-manufacturing') . '</td></tr>';
         }
 
         return $html . ListPage::table([
@@ -96,7 +106,8 @@ final class OrdersPage
             [__('Stück', 'taxmod-manufacturing'), '5em'],
             [__('Status', 'taxmod-manufacturing'), '8em'],
             [__('Platinen fertig', 'taxmod-manufacturing'), '9em'],
-            [__('Fehlende Teile', 'taxmod-manufacturing'), '9em'],
+            [__('Gebinde', 'taxmod-manufacturing')],
+            [__('Fehlt', 'taxmod-manufacturing'), '6em'],
             [__('Begonnen', 'taxmod-manufacturing'), '8em'],
         ], $rows) . '</div>';
     }
@@ -128,6 +139,7 @@ final class OrdersPage
                 $back['msg'] = match ($do) {
                     'create'   => $this->create($back),
                     'assembly' => $this->updateAssembly($order, $today, $back),
+                    'box'      => $this->box($order, $back),
                     'done'     => $this->step($order, 'order_done', $today, $back),
                     'cancel'   => $this->step($order, 'order_cancelled', $today, $back),
                     'reopen'   => $this->step($order, 'reopen', $today, $back),
@@ -166,14 +178,22 @@ final class OrdersPage
     private function updateAssembly(int $order, string $today, array &$back): string
     {
         $step = sanitize_key((string) ($_POST['step'] ?? ''));
-        $open = array_values(array_filter(array_map('absint', (array) ($_POST['missing'] ?? []))));
+        $unused = array_values(array_filter(array_map('absint', (array) ($_POST['unused'] ?? []))));
+        $note   = isset($_POST['note']) ? sanitize_text_field(wp_unslash((string) $_POST['note'])) : null;
 
-        $note = isset($_POST['note']) ? sanitize_text_field(wp_unslash((string) $_POST['note'])) : null;
-
-        $this->service->updateAssembly($order, absint($_POST['assembly'] ?? 0), $step, $open, $today, $note);
+        $this->service->updateAssembly($order, absint($_POST['assembly'] ?? 0), $step, $unused, $today, $note);
         $back['open'] = $order;
 
         return 'saved';
+    }
+
+    /** @param array<string, string|int> $back */
+    private function box(int $order, array &$back): string
+    {
+        $this->service->setBox($order, absint($_POST['box'] ?? 0));
+        $back['open'] = $order;
+
+        return 'box';
     }
 
     /**
@@ -190,29 +210,45 @@ final class OrdersPage
 
     /**
      * @param array<int, string> $labels
-     * @param array<int, list<array{id: int, part: string, count: string}>> $lists
+     * @param array<int, list<array{id: int, thing: int, count: float, fitting: string, ref: string}>> $lists
+     * @param array<int, list<array{position: int, thing: int, needed: float, present: float, missing: float, optional: bool, unused: bool}>> $demand
      */
-    private function row(BuildOrder $order, array $labels, array $lists): string
+    private function row(BuildOrder $order, array $labels, array $lists, array $demand): string
     {
-        $done  = $order->doneCount();
-        $all   = count($order->assemblies);
         $cells = [
             '<strong>' . esc_html($order->label) . '</strong>',
             esc_html($labels[$order->project] ?? '#' . $order->project),
             esc_html((string) $order->count),
             esc_html($this->orderStepLabel($order->step)),
-            esc_html($done . ' / ' . $all),
-            esc_html((string) $order->openPositionCount()),
+            esc_html($order->doneCount() . ' / ' . count($order->assemblies)),
+            $order->box === null ? '<em>' . esc_html__('keins', 'taxmod-manufacturing') . '</em>' : esc_html($labels[$order->box] ?? '#' . $order->box),
+            esc_html($order->box === null ? '—' : (string) Demand::missingRows($demand)),
             esc_html($order->started ?? '—'),
         ];
 
-        $details = '';
+        $details = $this->boxForm($order);
 
         foreach ($order->assemblies as $assembly) {
-            $details .= $this->assemblyForm($order, $assembly, $labels[$assembly->revision] ?? '#' . $assembly->revision, $lists[$assembly->revision] ?? []);
+            $details .= $this->assemblyForm($order, $assembly, $labels, $lists[$assembly->revision] ?? [], $demand[$assembly->id] ?? []);
         }
 
-        return ListPage::row(self::FORM, (string) $order->id, $cells, $this->rowButtons($order), $details === '' ? '<p>' . esc_html__('Keine Platinen.', 'taxmod-manufacturing') . '</p>' : $details, absint($_GET['open'] ?? 0) === $order->id);
+        return ListPage::row(self::FORM, (string) $order->id, $cells, $this->rowButtons($order), $details, absint($_GET['open'] ?? 0) === $order->id);
+    }
+
+    /** The order's box: everything lying on it and in it counts as there (his word 2026-11-04). */
+    private function boxForm(BuildOrder $order): string
+    {
+        $options = '<option value="0">' . esc_html__('— kein Gebinde —', 'taxmod-manufacturing') . '</option>';
+
+        foreach ($this->service->boxesOf($order->project) as $id => $label) {
+            $options .= '<option value="' . esc_attr((string) $id) . '"' . selected($id, $order->box, false) . '>' . esc_html($label) . '</option>';
+        }
+
+        return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:flex;align-items:center;gap:1em;padding:.75em 0">'
+            . wp_nonce_field(self::NONCE, '_wpnonce', true, false) . $this->hidden(['action' => self::ACTION, 'do' => 'box', 'order' => (string) $order->id, 'tab' => $this->tab()])
+            . '<label>' . esc_html__('Gebinde', 'taxmod-manufacturing') . ' <select name="box">' . $options . '</select></label>'
+            . '<span class="description" style="flex:1">' . esc_html__('Was im Gebinde und darunter liegt, zählt als vorhanden. Projekt-Gebinde legst du im Lager an.', 'taxmod-manufacturing') . '</span>'
+            . '<button type="submit" class="button">' . esc_html__('Speichern', 'taxmod-manufacturing') . '</button></form>';
     }
 
     private function rowButtons(BuildOrder $order): string
@@ -233,8 +269,12 @@ final class OrdersPage
             esc_html__('Nichts wird gelöscht; «Wieder aufnehmen» holt ihn zurück.', 'taxmod-manufacturing'));
     }
 
-    /** @param list<array{id: int, part: string, count: string}> $positions */
-    private function assemblyForm(BuildOrder $order, Assembly $assembly, string $revision, array $positions): string
+    /**
+     * @param array<int, string> $labels
+     * @param list<array{id: int, thing: int, count: float, fitting: string, ref: string}> $positions
+     * @param list<array{position: int, thing: int, needed: float, present: float, missing: float, optional: bool, unused: bool}> $rows
+     */
+    private function assemblyForm(BuildOrder $order, Assembly $assembly, array $labels, array $positions, array $rows): string
     {
         $options = '';
 
@@ -242,24 +282,36 @@ final class OrdersPage
             $options .= '<option value="' . esc_attr($step) . '"' . selected($step, $assembly->step, false) . '>' . esc_html($this->assemblyStepLabel($step)) . '</option>';
         }
 
-        $boxes = '';
+        $refs  = array_column($positions, 'ref', 'id');
+        $count = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
+        $boxed = $order->box !== null;
+        $body  = '';
 
-        foreach ($positions as $position) {
-            $boxes .= '<label style="display:block"><input type="checkbox" name="missing[]" value="' . esc_attr((string) $position['id']) . '"' . checked(in_array($position['id'], $assembly->open, true), true, false) . '> '
-                . esc_html($position['count'] . ' × ' . $position['part']) . '</label>';
+        foreach ($rows as $row) {
+            $use = $row['optional']
+                ? '<label><input type="checkbox" name="unused[]" value="' . esc_attr((string) $row['position']) . '"' . checked($row['unused'], true, false) . '> ' . esc_html__('nicht verwenden', 'taxmod-manufacturing') . '</label>'
+                : '';
+            $body .= '<tr' . ($row['unused'] ? ' style="opacity:.55"' : '') . '>'
+                . '<td>' . esc_html($row['position'] === 0 ? __('Platine', 'taxmod-manufacturing') : (string) ($refs[$row['position']] ?? '')) . '</td>'
+                . '<td>' . esc_html($labels[$row['thing']] ?? '#' . $row['thing']) . '</td>'
+                . '<td style="text-align:right">' . esc_html($count($row['needed'])) . '</td>'
+                . '<td style="text-align:right">' . esc_html($boxed ? $count($row['present']) : '—') . '</td>'
+                . '<td style="text-align:right">' . ($boxed && $row['missing'] > 0.0 ? '<strong style="color:#b32d2e">' . esc_html($count($row['missing'])) . '</strong>' : '') . '</td>'
+                . '<td>' . $use . '</td></tr>';
         }
 
-        $boxes = $boxes === '' ? '<p>' . esc_html__('Die Revision hat keine Stückliste.', 'taxmod-manufacturing') . '</p>'
-            : '<details' . ($assembly->open === [] ? '' : ' open') . '><summary>' . esc_html(sprintf(__('Fehlende Positionen (%1$d von %2$d)', 'taxmod-manufacturing'), count($assembly->open), count($positions))) . '</summary>'
-                . '<div style="columns:2;margin:.5em 0">' . $boxes . '</div></details>';
+        $table = '<table class="widefat striped" style="margin-top:.5em"><thead><tr>'
+            . '<th>' . esc_html__('Referenz', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Teil', 'taxmod-manufacturing') . '</th>'
+            . '<th style="text-align:right">' . esc_html__('Bedarf', 'taxmod-manufacturing') . '</th><th style="text-align:right">' . esc_html__('Im Gebinde', 'taxmod-manufacturing') . '</th>'
+            . '<th style="text-align:right">' . esc_html__('Fehlt', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Option', 'taxmod-manufacturing') . '</th></tr></thead><tbody>' . $body . '</tbody></table>';
 
         return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="border-top:1px solid #dcdcde;padding:.75em 0">'
             . wp_nonce_field(self::NONCE, '_wpnonce', true, false) . $this->hidden(['action' => self::ACTION, 'do' => 'assembly', 'order' => (string) $order->id, 'assembly' => (string) $assembly->id, 'tab' => $this->tab()])
-            . '<div style="display:flex;align-items:center;gap:1em"><strong style="flex:1">' . esc_html($revision) . '</strong>'
+            . '<div style="display:flex;align-items:center;gap:1em;flex-wrap:wrap"><strong style="flex:1">' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision) . '</strong>'
+            . ($this->service->structure()->hasField('assembly_note') ? '<label>' . esc_html__('Hinweis', 'taxmod-manufacturing') . ' <input type="text" class="regular-text" name="note" value="' . esc_attr($assembly->note) . '"></label>' : '')
             . '<label>' . esc_html__('Status', 'taxmod-manufacturing') . ' <select name="step">' . $options . '</select></label>'
             . '<button type="submit" class="button">' . esc_html__('Speichern', 'taxmod-manufacturing') . '</button></div>'
-            . ($this->service->structure()->hasField('assembly_note') ? '<label style="display:block;margin-top:.5em">' . esc_html__('Hinweis', 'taxmod-manufacturing') . ' <input type="text" class="regular-text" name="note" value="' . esc_attr($assembly->note) . '"></label>' : '')
-            . $boxes . '</form>';
+            . $table . '</form>';
     }
 
     private function createAction(): string
@@ -318,6 +370,7 @@ final class OrdersPage
         $text = [
             'created'   => __('Auftrag angelegt.', 'taxmod-manufacturing'),
             'saved'     => __('Platine gespeichert.', 'taxmod-manufacturing'),
+            'box'       => __('Gebinde gespeichert.', 'taxmod-manufacturing'),
             'closed'    => __('Auftrag abgeschlossen. «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'),
             'cancelled' => __('Abgebrochen. «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'),
             'reopened'  => __('Wieder aufgenommen.', 'taxmod-manufacturing'),
@@ -335,7 +388,7 @@ final class OrdersPage
             'unknown_order'            => __('Diesen Auftrag gibt es nicht.', 'taxmod-manufacturing'),
             'assembly_not_of_order'    => __('Diese Platine gehört nicht zum Auftrag.', 'taxmod-manufacturing'),
             'assemblies_not_done'      => __('Erst wenn alle Platinen fertig sind, lässt sich der Auftrag abschließen.', 'taxmod-manufacturing'),
-            'position_not_on_revision' => __('Diese Position steht nicht in der Stückliste der Revision.', 'taxmod-manufacturing'),
+            'position_not_on_revision' => __('Nur optionale Positionen der Stückliste lassen sich weglassen.', 'taxmod-manufacturing'),
             'model_refused'            => sprintf(__('Das Modell hat abgelehnt: %s', 'taxmod-manufacturing'), $error->detail),
             default                    => __('Unbekannte Aktion.', 'taxmod-manufacturing'),
         };

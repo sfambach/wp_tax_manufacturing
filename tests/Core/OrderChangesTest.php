@@ -16,7 +16,7 @@ final class OrderChangesTest extends TestCase
         'fields' => [
             'label' => 10, 'project_boards' => 11, 'board_revisions' => 12, 'revision_positions' => 13, 'position_part' => 14, 'position_count' => 15,
             'order_project' => 20, 'order_count' => 21, 'order_status' => 22, 'order_assemblies' => 23, 'order_started' => 24, 'order_finished' => 25,
-            'assembly_revision' => 30, 'assembly_status' => 31, 'assembly_open' => 32, 'assembly_note' => 33,
+            'assembly_revision' => 30, 'assembly_status' => 31, 'assembly_unused' => 32, 'assembly_note' => 33,
         ],
         'values' => [
             'order_planned' => 40, 'order_building' => 41, 'order_done' => 42, 'order_cancelled' => 43,
