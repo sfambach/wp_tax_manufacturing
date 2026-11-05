@@ -105,6 +105,14 @@ final class ManufacturingService
         }
     }
 
+    /** The stock page of a part, where its stock is shown; null while the stock module offers none. */
+    public function stockUrl(int $thing): ?string
+    {
+        $page = \TaxmodStock\WordPress\Admin\StockPage::class;
+
+        return class_exists($page) && method_exists($page, 'thingUrl') ? $page::thingUrl($thing, 'bestand') : null;
+    }
+
     /** Whether the stock module offers the picking list's two interfaces (D-1155). */
     public function canPick(): bool
     {
