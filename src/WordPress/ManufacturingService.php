@@ -185,6 +185,19 @@ final class ManufacturingService
         // Only an option may be left out (his word: «bei optionalen … was nicht verwendet wird»).
         $options = $this->structure()->hasValue('fitting_optional') ? array_column(array_filter($list, static fn (array $p): bool => $p['fitting'] === 'optional'), 'id') : $all;
         $changes = (new OrderChanges($this->structure()))->updateAssembly($built, $assembly, $fitted, $unused, $all, $options, $tested, $done, $note, $today);
+        $made    = $done === null ? 0 : $done - $part->done;
+        $checked = $tested ?? $part->tested;
+        $boards  = $this->boardsAfter($part, $fitted, $unused, $list);
+
+        // D-1177 «prüfung ist pflicht»: finished ≤ tested ≤ fully fitted — checked before anything is booked.
+        if ($checked > $boards) {
+            throw ManufacturingError::testedBeyondFitted($checked, $boards);
+        }
+
+        if (($done ?? $part->done) > $checked) {
+            throw ManufacturingError::doneBeyondTested($done ?? $part->done, $checked);
+        }
+
         $booked  = 'nothing';
         $use     = Demand::consumption($part, $fitted, $list);
 
@@ -202,16 +215,6 @@ final class ManufacturingService
             $booked = 'booked';
         } elseif ($use !== []) {
             $booked = 'unbooked';
-        }
-
-        $made = $done === null ? 0 : $done - $part->done;
-
-        if ($made > 0) {
-            $boards = $this->boardsAfter($part, $fitted, $unused, $list);
-
-            if ($done > $boards) {
-                throw ManufacturingError::doneBeyondFitted($done, $boards);
-            }
         }
 
         if ($made !== 0 && $this->canReceive()) {
@@ -264,14 +267,14 @@ final class ManufacturingService
         return $counts === [] ? 0 : min($counts);
     }
 
-    /** Finished boards into the order's box as their own material, unchecked (D-1143); fewer finished give them back. */
+    /** Finished boards into the order's box as their own material (D-1143), tested (D-1177); fewer finished give them back. */
     private function bookOutput(BuildOrder $order, int $revision, int $boards, string $today): void
     {
         if ($order->box === null) {
             throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
         }
 
-        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $order->box, 'lines' => [$this->materialFor($revision) => (float) $boards], 'title' => $order->label, 'date' => $today]);
+        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $order->box, 'lines' => [$this->materialFor($revision) => (float) $boards], 'title' => $order->label, 'date' => $today, 'tested' => true]);
 
         if (is_wp_error($answer)) {
             throw ManufacturingError::stockRefused($answer->get_error_message());

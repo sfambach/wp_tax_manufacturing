@@ -527,7 +527,7 @@ final class OrdersPage
             . '<button type="button" class="button" onclick="var n=this.previousElementSibling.value;this.closest(\'form\').querySelectorAll(\'.taxmod-mf-fit\').forEach(function(i){i.value=n*parseFloat(i.step)})">' . esc_html__('Alle auf n Platinen', 'taxmod-manufacturing') . '</button>';
         $counts = $this->service->structure()->hasField('assembly_tested')
             ? '<label>' . esc_html__('Geprüft', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="tested" min="0" max="' . esc_attr((string) $pieces) . '" value="' . esc_attr((string) $assembly->tested) . '"></label>'
-                . '<label title="' . esc_attr__('Fertige Platinen kommen als eigenes Material ins Gebinde, Zustand «ungeprüft».', 'taxmod-manufacturing') . '">' . esc_html__('Fertig', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="done" min="0" max="' . esc_attr((string) $pieces) . '" value="' . esc_attr((string) $assembly->done) . '"></label>'
+                . '<label title="' . esc_attr__('Nur geprüfte Platinen können fertig sein; sie kommen als eigenes Material ins Gebinde.', 'taxmod-manufacturing') . '">' . esc_html__('Fertig', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="done" min="0" max="' . esc_attr((string) $pieces) . '" value="' . esc_attr((string) $assembly->done) . '"></label>'
             : '';
 
         return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '" style="border-top:1px solid #dcdcde;padding:.75em 0">'
@@ -620,7 +620,8 @@ final class OrdersPage
             'unknown_order'            => __('Diesen Auftrag gibt es nicht.', 'taxmod-manufacturing'),
             'assembly_not_of_order'    => __('Diese Platine gehört nicht zum Auftrag.', 'taxmod-manufacturing'),
             'boards_out_of_range'      => __('Eine Platinenzahl liegt außerhalb von 0 bis zur Stückzahl.', 'taxmod-manufacturing'),
-            'done_beyond_fitted'       => __('Fertig können höchstens so viele Platinen sein, wie voll bestückt sind.', 'taxmod-manufacturing'),
+            'tested_beyond_fitted'     => __('Geprüft können höchstens so viele Platinen sein, wie voll bestückt sind.', 'taxmod-manufacturing'),
+            'done_beyond_tested'       => __('Fertig ist eine Platine erst nach der Prüfung: «Fertig» höchstens so viele wie «Geprüft».', 'taxmod-manufacturing'),
             'stock_refused'            => sprintf(__('Das Lager hat die Buchung abgelehnt, nichts gespeichert: %s', 'taxmod-manufacturing'), $error->detail),
             'assemblies_not_done'      => __('Erst wenn alle Platinen fertig sind, lässt sich der Auftrag abschließen.', 'taxmod-manufacturing'),
             'position_not_on_revision' => __('Nur optionale Positionen der Stückliste lassen sich weglassen.', 'taxmod-manufacturing'),
