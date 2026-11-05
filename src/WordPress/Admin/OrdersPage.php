@@ -179,7 +179,7 @@ final class OrdersPage
             $take  = $canPick && $line['place'] !== null
                 ? '<input type="number" class="small-text" form="taxmod-mf-pick" name="qty[' . esc_attr($key) . ']" min="0" max="' . esc_attr($count($line['there'])) . '" step="any" value="' . esc_attr($count($line['take'])) . '">'
                 : esc_html($line['place'] === null ? '' : $count($line['take']));
-            $body .= '<tr><td>' . $tick . '</td><td>' . $this->part($line['thing'], $labels) . '</td>'
+            $body .= '<tr><td>' . $tick . '</td><td>' . $this->part($line['thing'], $labels, $order) . '</td>'
                 . '<td>' . ($line['place'] === null
                     ? '<strong style="color:#b32d2e">' . esc_html($canPick ? __('nirgends am Lager', 'taxmod-manufacturing') : __('Lagerort unbekannt', 'taxmod-manufacturing')) . '</strong>'
                     : esc_html($labels[$line['place']] ?? '#' . $line['place'])) . '</td>'
@@ -222,16 +222,23 @@ final class OrdersPage
     }
 
     /**
-     * A part's name, linked to its stock in the stock module (his word 2026-11-05: «zum Bestand springen»).
+     * A part's name, linked to its stock in the stock module (his word 2026-11-05: «zum Bestand springen»). The link names
+     * this order as its origin, so the stock page leads back here (D-1179: arguments `taxmod_from`, `taxmod_from_label`).
      *
      * @param array<int, string> $labels
      */
-    private function part(int $thing, array $labels): string
+    private function part(int $thing, array $labels, BuildOrder $order): string
     {
         $name = esc_html($labels[$thing] ?? '#' . $thing);
         $url  = $this->service->stockUrl($thing);
 
-        return $url === null ? $name : '<a href="' . esc_url($url) . '">' . $name . '</a>';
+        if ($url === null) {
+            return $name;
+        }
+
+        $here = remove_query_arg(['taxmod_from', 'taxmod_from_label', 'taxmod_nav'], wp_unslash((string) ($_SERVER['REQUEST_URI'] ?? '')));
+
+        return '<a href="' . esc_url(add_query_arg(['taxmod_from' => rawurlencode($here), 'taxmod_from_label' => rawurlencode($order->label)], $url)) . '">' . $name . '</a>';
     }
 
     /**
@@ -520,7 +527,7 @@ final class OrdersPage
                 : '';
             $body .= '<tr' . ($row['unused'] ? ' style="opacity:.55"' : '') . '>'
                 . '<td>' . esc_html($row['position'] === 0 ? __('Platine', 'taxmod-manufacturing') : (string) ($refs[$row['position']] ?? '')) . '</td>'
-                . '<td>' . $this->part($row['thing'], $labels) . '</td>'
+                . '<td>' . $this->part($row['thing'], $labels, $order) . '</td>'
                 . '<td style="text-align:right">' . esc_html($count($row['needed'])) . '</td>'
                 . '<td style="white-space:nowrap">' . $fit . '</td>'
                 . '<td style="text-align:right">' . esc_html($boxed ? $count($row['present']) : '—') . '</td>'
