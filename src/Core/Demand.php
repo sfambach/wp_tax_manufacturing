@@ -86,6 +86,28 @@ final class Demand
     }
 
     /**
+     * Adds the pins lost at cutting to each position's count (D-1178): one cut per piece, a piece per reference designator
+     * («J1, J2» are two pieces), at least one (INFERRED).
+     *
+     * @param list<array{id: int, thing: int, count: float, fitting: string, ref: string}> $positions
+     * @param array<int, int> $loss thing → pins lost per cut
+     * @return list<array{id: int, thing: int, count: float, fitting: string, ref: string}>
+     */
+    public static function withCutLoss(array $positions, array $loss): array
+    {
+        foreach ($positions as $i => $position) {
+            $per = $loss[$position['thing']] ?? 0;
+
+            if ($per > 0) {
+                $pieces                  = max(1, count(array_filter(preg_split('/[\s,;]+/', $position['ref']) ?: [], static fn (string $r): bool => $r !== '')));
+                $positions[$i]['count'] = $position['count'] + $pieces * $per;
+            }
+        }
+
+        return $positions;
+    }
+
+    /**
      * Fitted parts as entered → the boards they make up per position, which is what is stored (D-1146). The page asks for
      * parts because «3 / 10» next to a demand of 30 read as parts (his question 2026-11-04 «Soll ich dann da 3 eintragen?»).
      * Started boards do not count: 10 parts at 3 per board are 3 boards.

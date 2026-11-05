@@ -33,11 +33,13 @@ final class Structure
     public const ASSEMBLY_STEPS = ['build_open', 'build_parts', 'build_assembled', 'build_tested', 'build_done'];
 
     // D-1143: the assembled board as a material of its own, one record per revision.
-    private const OPTIONAL_NODES = ['location', 'assembled'];
+    private const OPTIONAL_NODES = ['location', 'assembled', 'lager'];
 
     private const OPTIONAL_FIELDS = ['order_box', 'order_started', 'order_finished', 'order_note', 'assembly_note', 'assembly_tested', 'assembly_done',
         // D-954: the column «Best.» of a parts list and the reference designators; D-1030: the project a box belongs to.
-        'position_fitting', 'position_ref', 'location_project', 'assembled_revision'];
+        'position_fitting', 'position_ref', 'location_project', 'assembled_revision',
+        // D-1178: the pins a socket strip loses at each cut, on the material's stock record.
+        'lager_thing', 'lager_cut_loss'];
 
     /** D-954: the «Best.» values that matter here — «optional» may be left out, «nein» is never needed. */
     private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no'];

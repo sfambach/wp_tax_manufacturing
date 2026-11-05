@@ -403,6 +403,38 @@ final class ManufacturingService
             }
         }
 
+        $loss = $this->cutLoss(array_values(array_unique(array_merge(...array_map(static fn (array $l): array => array_column($l, 'thing'), array_values($out)) ?: [[]]))));
+
+        return $loss === [] ? $out : array_map(static fn (array $list): array => Demand::withCutLoss($list, $loss), $out);
+    }
+
+    /**
+     * Pins lost per cut (D-1178), from the stock records of these materials — one read of that node.
+     *
+     * @param list<int> $things
+     * @return array<int, int> thing → pins, only above nothing
+     */
+    private function cutLoss(array $things): array
+    {
+        $s = $this->structure();
+
+        if ($things === [] || ! $s->hasNode('lager') || ! $s->hasField('lager_thing') || ! $s->hasField('lager_cut_loss')) {
+            return [];
+        }
+
+        $wanted = array_flip($things);
+        $table  = $this->table('lager');
+        $out    = [];
+
+        foreach ($table->ids() as $id) {
+            $thing = (int) $table->first($id, $s->field('lager_thing'));
+            $per   = (int) $table->first($id, $s->field('lager_cut_loss'));
+
+            if ($per > 0 && isset($wanted[$thing])) {
+                $out[$thing] = $per;
+            }
+        }
+
         return $out;
     }
 

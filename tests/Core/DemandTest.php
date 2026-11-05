@@ -61,4 +61,16 @@ final class DemandTest extends TestCase
         self::assertSame([1 => 10, 2 => 4, 3 => 0], Demand::boardsFromPieces([1 => 30.0, 2 => 4.0, 3 => 5.0], $positions));
         self::assertSame([1 => 3], Demand::boardsFromPieces([1 => 10.0], $positions));
     }
+
+    public function testCutLossAddsOnePerPiece(): void
+    {
+        $positions = [
+            ['id' => 1, 'thing' => 7, 'count' => 40.0, 'fitting' => '', 'ref' => 'J1, J2'],
+            ['id' => 2, 'thing' => 7, 'count' => 8.0, 'fitting' => '', 'ref' => ''],
+            ['id' => 3, 'thing' => 9, 'count' => 3.0, 'fitting' => '', 'ref' => 'R1 R2'],
+        ];
+        $result = Demand::withCutLoss($positions, [7 => 1]);
+
+        self::assertSame([42.0, 9.0, 3.0], array_column($result, 'count'));
+    }
 }
