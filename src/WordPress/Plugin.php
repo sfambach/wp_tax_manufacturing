@@ -20,9 +20,10 @@ final class Plugin
 
     public function bootWhenModellerIsThere(): void
     {
-        if (! class_exists(\Taxmod\WordPress\Plugin::class)) {
+        // The one door into the model (D-1186) came with the modeller 0.1.174.
+        if (! class_exists(\Taxmod\WordPress\Plugin::class) || ! class_exists(\Taxmod\WordPress\ModelDoor::class)) {
             add_action('admin_notices', static function (): void {
-                echo '<div class="notice notice-error"><p>' . esc_html__('Taxmod Fertigung braucht den aktiven Taxonomy Modeller.', 'taxmod-manufacturing') . '</p></div>';
+                echo '<div class="notice notice-error"><p>' . esc_html__('Taxmod Fertigung braucht den aktiven Taxonomy Modeller ab 0.1.174.', 'taxmod-manufacturing') . '</p></div>';
             });
 
             return;

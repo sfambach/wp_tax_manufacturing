@@ -2,66 +2,33 @@
 
 namespace TaxmodManufacturing\WordPress;
 
+use Taxmod\Core\Exception\ModelDoorRefused;
+use Taxmod\WordPress\ModelDoor;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\Table;
 
 /**
- * The module's only door into the model: the modeller's abilities `taxmod/read-node` (one call per node, CD-7) and
- * `taxmod/write-data` (D-936: records only, one change number, all or nothing).
- *
- * ⚠️ One exception, as in the stock module: {@see records()} reads a few records of a node too large to read whole (the
- * parts of a parts list), through the modeller's record repository.
+ * The module's side of the modeller's one door into the model (`Taxmod\WordPress\ModelDoor`, D-1186): it only wraps the
+ * answers in the core's {@see Table} and words a refusal as {@see ManufacturingError}.
  */
 final class ModelGateway
 {
-    /** @var array<int, Table> node id → its records, read once per request */
-    private array $read = [];
+    private readonly ModelDoor $door;
+
+    public function __construct()
+    {
+        $this->door = new ModelDoor();
+    }
 
     public function table(int $node): Table
     {
-        if (isset($this->read[$node])) {
-            return $this->read[$node];
-        }
-
-        $records = [];
-
-        foreach ($this->execute('taxmod/read-node', ['node' => $node])['records'] ?? [] as $record) {
-            $values = [];
-
-            foreach ($record['values'] ?? [] as $value) {
-                $values[(int) $value['relation_id']][] = (string) $value['value'];
-            }
-
-            $records[(int) $record['id']] = $values;
-        }
-
-        return $this->read[$node] = new Table($records);
+        return new Table($this->ask(fn (): array => $this->door->records($node)));
     }
 
-    /**
-     * Only these records with their values, in one query.
-     *
-     * @param list<int> $records
-     */
+    /** @param list<int> $records */
     public function records(array $records): Table
     {
-        $repository = \Taxmod\WordPress\Persistence\WpdbRecordRepository::class;
-
-        if ($records === [] || ! class_exists($repository) || ! method_exists($repository, 'valuesOfMany')) {
-            return new Table([]);
-        }
-
-        $out = [];
-
-        foreach ((new $repository())->valuesOfMany($records) as $id => $values) {
-            $out[(int) $id] = [];
-
-            foreach ($values as $value) {
-                $out[(int) $id][(int) $value->relationId][] = (string) $value->value->rawValue();
-            }
-        }
-
-        return new Table($out);
+        return new Table($this->door->valuesOf($records));
     }
 
     /**
@@ -70,29 +37,19 @@ final class ModelGateway
      */
     public function write(array $changes): array
     {
-        $this->read = [];
-
-        return $this->execute('taxmod/write-data', ['changes' => $changes]);
+        return $this->ask(fn (): array => $this->door->write($changes));
     }
 
     /**
-     * @param array<string, mixed> $input
-     * @return array<string, mixed>
+     * @param callable(): array<mixed> $read
+     * @return array<mixed>
      */
-    private function execute(string $name, array $input): array
+    private function ask(callable $read): array
     {
-        $ability = function_exists('wp_get_ability') ? wp_get_ability($name) : null;
-
-        if ($ability === null) {
-            throw ManufacturingError::fromModel($name . ' is not available — is the Taxonomy Modeller active?');
+        try {
+            return $read();
+        } catch (ModelDoorRefused $refused) {
+            throw ManufacturingError::fromModel($refused->getMessage());
         }
-
-        $result = $ability->execute($input);
-
-        if (is_wp_error($result)) {
-            throw ManufacturingError::fromModel($result->get_error_message());
-        }
-
-        return is_array($result) ? $result : [];
     }
 }
