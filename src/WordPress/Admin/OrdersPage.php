@@ -600,9 +600,7 @@ final class OrdersPage
 
     private function heading(): string
     {
-        return class_exists(ListPage::class)
-            ? ListPage::heading(__('Aufträge', 'taxmod-manufacturing'), (string) TAXMOD_MANUFACTURING_VERSION, __('Fertigung', 'taxmod-manufacturing'))
-            : '<h1>' . esc_html__('Fertigung › Aufträge', 'taxmod-manufacturing') . '</h1>';
+        return ListPage::heading(__('Aufträge', 'taxmod-manufacturing'), (string) TAXMOD_MANUFACTURING_VERSION, __('Fertigung', 'taxmod-manufacturing'));
     }
 
     private function notice(): string
