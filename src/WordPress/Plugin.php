@@ -28,7 +28,9 @@ final class Plugin
             return;
         }
 
-        add_action('init', [$this, 'registerSettings']);
+        // On admin_init and rest_api_init, where settings are saved, not on every page view (D-1186).
+        add_action('admin_init', [$this, 'registerSettings']);
+        add_action('rest_api_init', [$this, 'registerSettings']);
         // D-1085: a module's page opens inside the logistics frame; the stock module draws the navigation.
         add_filter('taxmod_logistics_pages', static function (mixed $pages): array {
             $pages   = is_array($pages) ? $pages : [];
@@ -42,11 +44,14 @@ final class Plugin
             return $pages;
         });
 
-        foreach (OrdersPage::ACTIONS as $action) {
-            // D-1147: a manufacturing step books through the stock, so it waits for the stock's other bookings like they wait for each other.
-            add_action('admin_post_' . $action, static fn () => class_exists(\TaxmodStock\WordPress\Plugin::class) && method_exists(\TaxmodStock\WordPress\Plugin::class, 'serially')
-                ? \TaxmodStock\WordPress\Plugin::serially(static fn () => (new OrdersPage())->handle($action))
-                : (new OrdersPage())->handle($action));
+        // ⚠️ *Only where admin-post.php answers: `OrdersPage::ACTIONS` alone compiled the orders page on every page view (D-1186).*
+        if (self::handlesAdminActions()) {
+            foreach (OrdersPage::ACTIONS as $action) {
+                // D-1147: a manufacturing step books through the stock, so it waits for the stock's other bookings like they wait for each other.
+                add_action('admin_post_' . $action, static fn () => class_exists(\TaxmodStock\WordPress\Plugin::class) && method_exists(\TaxmodStock\WordPress\Plugin::class, 'serially')
+                    ? \TaxmodStock\WordPress\Plugin::serially(static fn () => (new OrdersPage())->handle($action))
+                    : (new OrdersPage())->handle($action));
+            }
         }
 
         if (! class_exists(\TaxmodStock\WordPress\Plugin::class)) {
@@ -54,6 +59,12 @@ final class Plugin
                 echo '<div class="notice notice-warning"><p>' . esc_html__('Taxmod Fertigung erscheint in der Logistik-Navigation; dafür muss Taxmod Stock aktiv sein.', 'taxmod-manufacturing') . '</p></div>';
             });
         }
+    }
+
+    /** The modeller's answer whether admin-post.php or admin-ajax.php serve this request; an older modeller wires always (D-1186). */
+    private static function handlesAdminActions(): bool
+    {
+        return ! method_exists(\Taxmod\WordPress\Plugin::class, 'handlesAdminActions') || \Taxmod\WordPress\Plugin::handlesAdminActions();
     }
 
     /** The structure ids, settable over REST (/wp/v2/settings) right after the model change is applied. */
