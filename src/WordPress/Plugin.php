@@ -28,7 +28,7 @@ final class Plugin
             return;
         }
 
-        // On admin_init and rest_api_init, where settings are saved, not on every page view (D-1186).
+        // On admin_init and rest_api_init, where settings are saved, not on every page view (D-1187).
         add_action('admin_init', [$this, 'registerSettings']);
         add_action('rest_api_init', [$this, 'registerSettings']);
         // D-1085: a module's page opens inside the logistics frame; the stock module draws the navigation.
@@ -44,7 +44,7 @@ final class Plugin
             return $pages;
         });
 
-        // ⚠️ *Only where admin-post.php answers: `OrdersPage::ACTIONS` alone compiled the orders page on every page view (D-1186).*
+        // ⚠️ *Only where admin-post.php answers: `OrdersPage::ACTIONS` alone compiled the orders page on every page view (D-1187).*
         if (self::handlesAdminActions()) {
             foreach (OrdersPage::ACTIONS as $action) {
                 // D-1147: a manufacturing step books through the stock, so it waits for the stock's other bookings like they wait for each other.
@@ -61,7 +61,7 @@ final class Plugin
         }
     }
 
-    /** The modeller's answer whether admin-post.php or admin-ajax.php serve this request; an older modeller wires always (D-1186). */
+    /** The modeller's answer whether admin-post.php or admin-ajax.php serve this request; an older modeller wires always (D-1187). */
     private static function handlesAdminActions(): bool
     {
         return ! method_exists(\Taxmod\WordPress\Plugin::class, 'handlesAdminActions') || \Taxmod\WordPress\Plugin::handlesAdminActions();
