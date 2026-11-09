@@ -271,14 +271,38 @@ final class OrdersPage
         return [$lists, $labels];
     }
 
-    /** admin-post: capability → nonce → validate → sanitize → act → back to the page (CD-5). */
+    /**
+     * admin-post: capability → nonce → validate → sanitize → act → back to the page (CD-5). As an act (D-1254): an error the
+     * page does not name itself becomes a message in the message field with the way back, never an empty page.
+     */
     public function handle(string $action): void
     {
-        if (! current_user_can('manage_options')) {
-            wp_die(esc_html__('Keine Berechtigung.', 'taxmod-manufacturing'), '', ['response' => 403]);
+        $back = $this->url(['tab' => sanitize_key((string) ($_POST['tab'] ?? ''))]);
+
+        if (! method_exists(ListPage::class, 'act')) {
+            $this->act($action);
+
+            return;
         }
 
-        check_admin_referer(self::NONCE);
+        ListPage::act(function () use ($action): string {
+            $this->act($action);
+
+            return '';
+        }, $back);
+    }
+
+    private function act(string $action): void
+    {
+        if (! current_user_can('manage_options')) {
+            $this->refuse(__('Keine Berechtigung.', 'taxmod-manufacturing'));
+        }
+
+        if (method_exists(ListPage::class, 'nonce')) {
+            ListPage::nonce(self::NONCE);
+        } elseif (! wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['_wpnonce'] ?? '')), self::NONCE)) {
+            $this->refuse(__('Das Formular ist abgelaufen. Bitte noch einmal.', 'taxmod-manufacturing'));
+        }
 
         $today = current_time('Y-m-d');
         $tab   = sanitize_key((string) ($_POST['tab'] ?? ''));
@@ -673,6 +697,16 @@ final class OrdersPage
             'all'       => true,
             default     => ! $order->isClosed(),
         };
+    }
+
+    /** A refusal (capability, nonce) as a message on the page instead of a bare error page (D-1254). */
+    private function refuse(string $message): never
+    {
+        if (method_exists(ListPage::class, 'fail')) {
+            ListPage::fail($message, $this->url(['tab' => sanitize_key((string) ($_POST['tab'] ?? ''))]));
+        }
+
+        wp_die(esc_html($message), '', ['response' => 403, 'back_link' => true]);
     }
 
     /** @param array<string, string|int> $args */
