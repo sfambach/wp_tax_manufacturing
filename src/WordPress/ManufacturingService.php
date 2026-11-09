@@ -183,7 +183,7 @@ final class ManufacturingService
      * @param list<int>       $unused
      * @return 'booked'|'nothing'|'unbooked' unbooked: there was something to book, but the stock module offers no interface yet
      */
-    public function updateAssembly(int $order, int $assembly, array $pieces, array $unused, ?int $tested, ?int $done, ?string $note, string $today): string
+    public function updateAssembly(int $order, int $assembly, array $pieces, array $unused, ?int $tested, ?int $done, ?string $note, string $today, ?int $sparte = null): string
     {
         $built = $this->order($order);
         $part  = $built->assembly($assembly) ?? throw ManufacturingError::assemblyNotOfOrder($assembly, $order);
@@ -227,7 +227,7 @@ final class ManufacturingService
 
         if ($made !== 0 && $this->canReceive()) {
             try {
-                $this->bookOutput($built, $part->revision, $made, $today);
+                $this->bookOutput($built, $part->revision, $made, $today, $sparte);
             } catch (ManufacturingError $error) {
                 if ($booked === 'booked') {
                     // The consumption is already booked; give it back so the box shows what it did before.
@@ -250,7 +250,7 @@ final class ManufacturingService
     {
         $s = $this->structure();
 
-        return $s->hasNode('assembled') && $s->hasField('assembled_revision') && has_filter(self::OUTPUT_FILTER) && has_filter(self::CREATE_THING_FILTER);
+        return $s->hasNode('hardware') && $s->hasField('assembled_revision') && has_filter(self::OUTPUT_FILTER) && has_filter(self::CREATE_THING_FILTER);
     }
 
     /**
@@ -276,42 +276,82 @@ final class ManufacturingService
     }
 
     /** Finished boards into the order's box as their own material (D-1143), tested (D-1177); fewer finished give them back. */
-    private function bookOutput(BuildOrder $order, int $revision, int $boards, string $today): void
+    private function bookOutput(BuildOrder $order, int $revision, int $boards, string $today, ?int $sparte): void
     {
         if ($order->box === null) {
             throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
         }
 
-        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $order->box, 'lines' => [$this->materialFor($revision) => (float) $boards], 'title' => $order->label, 'date' => $today, 'tested' => true]);
+        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $order->box, 'lines' => [$this->materialFor($revision, $sparte) => (float) $boards], 'title' => $order->label, 'date' => $today, 'tested' => true]);
 
         if (is_wp_error($answer)) {
             throw ManufacturingError::stockRefused($answer->get_error_message());
         }
     }
 
-    /** The material «assembled board» of a revision; made at the first finished board. */
-    public function materialFor(int $revision): int
+    /**
+     * The material «assembled board» of a revision (D-1261): the hardware record whose «Revision» names it. Made at the first
+     * finished board in the Sparte chosen then — the Sparte is where the record lies, nothing else stores it.
+     */
+    public function materialFor(int $revision, ?int $sparte = null): int
     {
-        $s     = $this->structure();
-        $table = $this->table('assembled');
-        $link  = $s->field('assembled_revision');
+        $existing = $this->existingMaterial($revision);
 
-        foreach ($table->ids() as $id) {
-            if ((int) $table->first($id, $link) === $revision) {
-                return $id;
-            }
+        if ($existing !== null) {
+            return $existing;
         }
 
+        $s = $this->structure();
+
+        if ($sparte === null || $sparte <= 0) {
+            throw ManufacturingError::sparteNeeded($revision);
+        }
+
+        // D-1176: the revision's name with «bestückt»; every other field stays empty until reviewed (D-1250, D-1255).
         $name   = sprintf(__('%s, bestückt', 'taxmod-manufacturing'), $this->labelsOf([$revision])[$revision] ?? '#' . $revision);
-        $answer = apply_filters(self::CREATE_THING_FILTER, null, ['name' => $name, 'group' => $s->node('assembled')]);
+        $answer = apply_filters(self::CREATE_THING_FILTER, null, ['name' => $name, 'group' => $sparte]);
 
         if (is_wp_error($answer) || ! is_int($answer)) {
             throw ManufacturingError::stockRefused(is_wp_error($answer) ? $answer->get_error_message() : __('Das Lager hat kein Material angelegt.', 'taxmod-manufacturing'));
         }
 
-        $this->model->write([['op' => 'set_values', 'record' => (string) $answer, 'values' => [(string) $link => (string) $revision]]]);
+        $this->model->write([['op' => 'set_values', 'record' => (string) $answer, 'values' => [(string) $s->field('assembled_revision') => (string) $revision]]]);
+        $this->model->markForReview([$answer]);
 
         return $answer;
+    }
+
+    public function existingMaterial(int $revision): ?int
+    {
+        $found = $this->model->referrers([$revision], $this->structure()->field('assembled_revision'));
+
+        return $found === [] ? null : min($found);
+    }
+
+    /**
+     * The Sparte to suggest for a revision without its material yet: where another revision of the same board lies (D-1261).
+     */
+    public function suggestedSparte(int $revision): ?int
+    {
+        $s      = $this->structure();
+        $boards = $this->model->referrers([$revision], $s->field('board_revisions'));
+
+        if ($boards === []) {
+            return null;
+        }
+
+        $table     = $this->model->records($boards);
+        $revisions = [];
+
+        foreach ($boards as $board) {
+            foreach ($table->all($board, $s->field('board_revisions')) as $other) {
+                $revisions[] = (int) $other;
+            }
+        }
+
+        $nodes = $this->model->nodesOf($this->model->referrers(array_values(array_diff($revisions, [$revision])), $s->field('assembled_revision')));
+
+        return $nodes === [] ? null : (int) reset($nodes);
     }
 
     public function setBox(int $order, int $box): void

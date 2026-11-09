@@ -64,6 +64,11 @@ final class ManufacturingError extends \RuntimeException
         return new self('done_beyond_tested', $done . '>' . $tested);
     }
 
+    public static function sparteNeeded(int $revision): self
+    {
+        return new self('sparte_needed', (string) $revision);
+    }
+
     public static function stockRefused(string $message): self
     {
         return new self('stock_refused', $message);

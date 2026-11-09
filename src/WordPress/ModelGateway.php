@@ -32,6 +32,42 @@ final class ModelGateway
     }
 
     /**
+     * The records whose field `$relation` points at one of these records (D-1195).
+     *
+     * @param list<int> $records
+     * @return list<int>
+     */
+    public function referrers(array $records, int $relation): array
+    {
+        return $records === [] ? [] : $this->ask(fn (): array => $this->door->referrers($records, $relation));
+    }
+
+    /**
+     * @param list<int> $records
+     * @return array<int, int> record → node
+     */
+    public function nodesOf(array $records): array
+    {
+        return $records === [] ? [] : $this->ask(fn (): array => $this->door->nodesOf($records));
+    }
+
+    /**
+     * «Review nötig» on records made with only what could be derived (D-1255); a modeller before 0.2.44 has no such mark.
+     *
+     * @param list<int> $records
+     */
+    public function markForReview(array $records): void
+    {
+        if (method_exists($this->door, 'markForReview')) {
+            $this->ask(function () use ($records): array {
+                $this->door->markForReview($records);
+
+                return [];
+            });
+        }
+    }
+
+    /**
      * @param list<array<string, mixed>> $changes
      * @return array<string, mixed> the modeller's answer, with the new ids under `refs`
      */

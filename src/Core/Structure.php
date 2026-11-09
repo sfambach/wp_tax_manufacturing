@@ -33,7 +33,8 @@ final class Structure
     public const ASSEMBLY_STEPS = ['build_open', 'build_parts', 'build_assembled', 'build_tested', 'build_done'];
 
     // D-1143: the assembled board as a material of its own, one record per revision.
-    private const OPTIONAL_NODES = ['location', 'assembled', 'lager'];
+    // D-1261: the hardware branch, whose groups (Sparten) hold the assembled boards.
+    private const OPTIONAL_NODES = ['location', 'assembled', 'lager', 'hardware'];
 
     private const OPTIONAL_FIELDS = ['order_box', 'order_started', 'order_finished', 'order_note', 'assembly_note', 'assembly_tested', 'assembly_done',
         // D-954: the column «Best.» of a parts list and the reference designators; D-1030: the project a box belongs to.

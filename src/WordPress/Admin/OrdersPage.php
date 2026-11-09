@@ -372,7 +372,7 @@ final class OrdersPage
         $number = static fn (string $key): ?int => isset($_POST[$key]) && $_POST[$key] !== '' ? absint($_POST[$key]) : null;
         $note   = isset($_POST['note']) ? sanitize_text_field(wp_unslash((string) $_POST['note'])) : null;
 
-        $booked       = $this->service->updateAssembly($order, absint($_POST['assembly'] ?? 0), $fitted, $unused, $number('tested'), $number('done'), $note, $today);
+        $booked       = $this->service->updateAssembly($order, absint($_POST['assembly'] ?? 0), $fitted, $unused, $number('tested'), $number('done'), $note, $today, absint($_POST['sparte'] ?? 0) ?: null);
         $back['auftrag'] = $order;
 
         return ['booked' => 'saved_booked', 'unbooked' => 'saved_unbooked'][$booked] ?? 'saved';
@@ -578,10 +578,32 @@ final class OrdersPage
             . wp_nonce_field(self::NONCE, '_wpnonce', true, false) . $this->hidden(['action' => self::ACTION, 'do' => 'assembly', 'order' => (string) $order->id, 'assembly' => (string) $assembly->id, 'tab' => $this->tab()])
             . '<div style="display:flex;align-items:center;gap:1em;flex-wrap:wrap"><strong style="flex:1">' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision)
             . ' · ' . esc_html(sprintf(__('%1$d von %2$d bestückt', 'taxmod-manufacturing'), $fittedBoards, $pieces)) . '</strong>'
-            . $fill . $counts
+            . $fill . $counts . $this->sparteChooser($assembly, $form)
             . ($this->service->structure()->hasField('assembly_note') ? '<label>' . esc_html__('Hinweis', 'taxmod-manufacturing') . ' <input type="text" class="regular-text" name="note" value="' . esc_attr($assembly->note) . '"></label>' : '')
             . '<button type="submit" class="button button-primary">' . esc_html__('Speichern', 'taxmod-manufacturing') . '</button></div>'
             . $table . '</form>';
+    }
+
+    /**
+     * Only before the first finished board of a revision: in which Hardware-Sparte its record is made (D-1261). The modeller's
+     * node chooser, rooted at Hardware, with the Sparte of another revision of the board preselected.
+     */
+    private function sparteChooser(Assembly $assembly, string $form): string
+    {
+        $s = $this->service->structure();
+
+        if (! $this->service->canReceive() || $this->service->existingMaterial($assembly->revision) !== null) {
+            return '';
+        }
+
+        $chooser = apply_filters(\Taxmod\WordPress\Plugin::NODE_CHOOSER_FILTER, '', [
+            'name'        => 'sparte',
+            'root'        => $s->node('hardware'),
+            'preselected' => $this->service->suggestedSparte($assembly->revision) ?? 0,
+            'form'        => $form,
+        ]);
+
+        return '<label>' . esc_html__('Hardware-Sparte', 'taxmod-manufacturing') . ' ' . (is_string($chooser) ? $chooser : '') . '</label>';
     }
 
     private function createAction(): string
@@ -664,6 +686,7 @@ final class OrdersPage
             'boards_out_of_range'      => __('Eine Platinenzahl liegt außerhalb von 0 bis zur Stückzahl.', 'taxmod-manufacturing'),
             'tested_beyond_fitted'     => __('Geprüft können höchstens so viele Platinen sein, wie voll bestückt sind.', 'taxmod-manufacturing'),
             'done_beyond_tested'       => __('Fertig ist eine Platine erst nach der Prüfung: «Fertig» höchstens so viele wie «Geprüft».', 'taxmod-manufacturing'),
+            'sparte_needed'            => __('Für die erste fertige Platine dieser Revision bitte die Hardware-Sparte wählen.', 'taxmod-manufacturing'),
             'stock_refused'            => sprintf(__('Das Lager hat die Buchung abgelehnt, nichts gespeichert: %s', 'taxmod-manufacturing'), $error->detail),
             'assemblies_not_done'      => __('Erst wenn alle Platinen fertig sind, lässt sich der Auftrag abschließen.', 'taxmod-manufacturing'),
             'position_not_on_revision' => __('Nur optionale Positionen der Stückliste lassen sich weglassen.', 'taxmod-manufacturing'),
