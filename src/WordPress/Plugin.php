@@ -11,6 +11,9 @@ use TaxmodManufacturing\WordPress\Admin\OrdersPage;
  */
 final class Plugin
 {
+    /** The orders page's address, owned here so the boot names it without compiling the page (D-1187). */
+    public const ORDERS_PAGE = 'taxmod-fertigung';
+
     public function boot(): void
     {
         // Checked at runtime rather than with «Requires Plugins», for the same reason as the stock module: the modeller lives in
@@ -36,7 +39,7 @@ final class Plugin
         add_filter('taxmod_logistics_pages', static function (mixed $pages): array {
             $pages   = is_array($pages) ? $pages : [];
             $pages[] = [
-                'slug'   => OrdersPage::SLUG,
+                'slug'   => self::ORDERS_PAGE,
                 'label'  => __('Aufträge', 'taxmod-manufacturing'),
                 'area'   => 'production',
                 'render' => static fn (): string => (new OrdersPage())->render(),

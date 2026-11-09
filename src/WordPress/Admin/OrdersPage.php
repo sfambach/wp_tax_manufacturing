@@ -19,7 +19,7 @@ use TaxmodManufacturing\WordPress\ManufacturingService;
  */
 final class OrdersPage
 {
-    public const SLUG = 'taxmod-fertigung';
+    public const SLUG = \TaxmodManufacturing\WordPress\Plugin::ORDERS_PAGE;
 
     public const ACTION = 'taxmod_manufacturing';
 
