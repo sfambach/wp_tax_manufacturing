@@ -56,11 +56,22 @@ final class ManufacturingService
         return (new BuildOrders($this->structure()))->one($id, $this->table('order'), $this->table('assembly'), $this->table('fitting'));
     }
 
-    /** @return int the new order's id */
-    public function create(int $project, string $count, ?int $box, string $title): int
+    /**
+     * @param list<int>|null $chosen revisions to build; null builds every board of the project (D-1300)
+     * @return int the new order's id
+     */
+    public function create(int $project, string $count, ?int $box, string $title, ?array $chosen = null): int
     {
         $changes   = new OrderChanges($this->structure());
         $revisions = $changes->revisionsOf($project, $this->table('project'), $this->table('board'));
+
+        if ($chosen !== null) {
+            $revisions = array_values(array_intersect($revisions, $chosen));
+
+            if ($revisions === []) {
+                throw ManufacturingError::noBoardChosen($project);
+            }
+        }
         $answer    = $this->model->write($changes->create($project, $revisions, $count, $box, $title));
 
         return (int) ($answer['refs']['auftrag'] ?? 0);
@@ -482,6 +493,20 @@ final class ManufacturingService
      * @param list<int> $records
      * @return array<int, string> record id → its label
      */
+    /** @return array<int, string> newest revision id => «board · revision», one per board of the project (D-1300) */
+    public function boardsOf(int $project): array
+    {
+        $newest = (new OrderChanges($this->structure()))->newestRevisions($project, $this->table('project'), $this->table('board'));
+        $labels = $this->labelsOf(array_merge(array_keys($newest), array_values($newest)));
+        $out    = [];
+
+        foreach ($newest as $board => $revision) {
+            $out[$revision] = $labels[$board] . ' · ' . $labels[$revision];
+        }
+
+        return $out;
+    }
+
     public function labelsOf(array $records): array
     {
         $table = $this->model->records(array_values(array_unique($records)));

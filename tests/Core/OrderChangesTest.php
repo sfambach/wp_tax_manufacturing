@@ -44,6 +44,7 @@ final class OrderChangesTest extends TestCase
         $revisions = $changes->revisionsOf(100, $projects, $boards);
 
         self::assertSame([305, 310], $revisions);
+        self::assertSame([200 => 305, 201 => 310], $changes->newestRevisions(100, $projects, $boards));
 
         $list   = $changes->create(100, $revisions, '3', null, 'Fertigung s7vrm');
         $values = $list[1]['values'];

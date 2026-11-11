@@ -73,7 +73,8 @@ final class OrdersPage
         ];
         $shown = array_values(array_filter($orders, fn (BuildOrder $o): bool => $this->inTab($o, $tab)));
 
-        $html .= '<div style="display:flex;justify-content:flex-end;margin:8px 0">' . $this->createAction() . '</div>'
+        $html .= $this->chooseBoards()
+            . '<div style="display:flex;justify-content:flex-end;margin:8px 0">' . $this->createAction() . '</div>'
             . ListPage::tabs($tabs, $tab, fn (string $slug): string => $this->url(['tab' => $slug]))
             . ListPage::bulkBar(self::FORM, self::NONCE, [self::BULK_CANCEL => __('Abbrechen', 'taxmod-manufacturing'), self::BULK_REOPEN => __('Wieder aufnehmen', 'taxmod-manufacturing')],
                 sprintf(_n('%d Auftrag', '%d Aufträge', count($shown), 'taxmod-manufacturing'), count($shown)));
@@ -350,8 +351,17 @@ final class OrdersPage
         }
 
         $count = sanitize_text_field(wp_unslash((string) ($_POST['count'] ?? '1')));
-        $label = $this->service->labelsOf([$project])[$project] ?? '#' . $project;
-        $id    = $this->service->create($project, $count, null, sprintf(__('Fertigung %1$s, %2$s', 'taxmod-manufacturing'), $label, current_time('Y-m-d')));
+
+        if (! isset($_POST['choosing'])) {
+            $back['neu']   = $project;
+            $back['count'] = $count;
+
+            return '';
+        }
+
+        $chosen = array_values(array_filter(array_map('absint', (array) wp_unslash($_POST['boards'] ?? []))));
+        $label  = $this->service->labelsOf([$project])[$project] ?? '#' . $project;
+        $id     = $this->service->create($project, $count, null, sprintf(__('Fertigung %1$s, %2$s', 'taxmod-manufacturing'), $label, current_time('Y-m-d')), $chosen);
 
         $back['auftrag'] = $id;
         $back['tab']     = 'open';
@@ -616,12 +626,45 @@ final class OrdersPage
 
         $body = '<label class="taxmod-dialog-field" style="display:block;margin-bottom:.5em">' . esc_html__('Projekt', 'taxmod-manufacturing') . '<br><select name="project" required>' . $options . '</select></label>'
             . '<label class="taxmod-dialog-field" style="display:block">' . esc_html__('Stückzahl', 'taxmod-manufacturing') . '<br><input type="number" name="count" min="1" step="1" value="1" required></label>'
-            . '<p>' . esc_html__('Je Platine des Projekts entsteht eine Baugruppe mit ihrer neuesten Revision, Status «offen».', 'taxmod-manufacturing') . '</p>';
+            . '<p>' . esc_html__('Im nächsten Schritt wählst du, welche Platinen des Projekts gebaut werden.', 'taxmod-manufacturing') . '</p>';
 
         return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'tab' => $this->tab()])
             . ListPage::dialogAction('taxmod-mf-new', __('Neuer Auftrag', 'taxmod-manufacturing'), __('Neuer Fertigungsauftrag', 'taxmod-manufacturing'), $body, 'do', 'create', __('Anlegen', 'taxmod-manufacturing'))
             . '</form>';
+    }
+
+    /** Second step of «Neuer Auftrag»: which boards of the chosen project are built, each in its newest revision (D-1300). */
+    private function chooseBoards(): string
+    {
+        $project = absint($_GET['neu'] ?? 0);
+
+        if ($project === 0) {
+            return '';
+        }
+
+        $boards = $this->service->boardsOf($project);
+
+        if ($boards === []) {
+            return '<div class="notice notice-error"><p>' . esc_html($this->message(ManufacturingError::projectWithoutBoards($project))) . '</p></div>';
+        }
+
+        $only  = count($boards) === 1;
+        $boxes = '';
+
+        foreach ($boards as $revision => $label) {
+            $boxes .= '<p><label><input type="checkbox" name="boards[]" value="' . esc_attr((string) $revision) . '"' . ($only ? ' checked' : '') . '> ' . esc_html($label) . '</label></p>';
+        }
+
+        $name = $this->service->labelsOf([$project])[$project] ?? '#' . $project;
+
+        return '<div class="notice notice-info"><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+            . $this->hidden(['action' => self::ACTION, 'tab' => $this->tab(), 'do' => 'create', 'choosing' => '1', 'project' => (string) $project, 'count' => sanitize_text_field(wp_unslash((string) ($_GET['count'] ?? '1')))])
+            . '<p><strong>' . esc_html(sprintf(__('Welche Platinen von «%s» sollen gebaut werden?', 'taxmod-manufacturing'), $name)) . '</strong></p>'
+            . $boxes
+            . '<p><button type="submit" class="button button-primary">' . esc_html__('Anlegen', 'taxmod-manufacturing') . '</button> '
+            . '<a class="button" href="' . esc_url($this->url(['tab' => $this->tab()])) . '">' . esc_html__('Abbrechen', 'taxmod-manufacturing') . '</a></p>'
+            . '</form></div>';
     }
 
     private function dialogForm(string $do, BuildOrder $order, string $opener, string $title, string $body): string
@@ -679,6 +722,7 @@ final class OrdersPage
     {
         return match ($error->reason) {
             'not_configured'           => sprintf(__('Im Modell fehlt %s.', 'taxmod-manufacturing'), $error->detail),
+            'no_board_chosen'          => __('Keine Platine gewählt.', 'taxmod-manufacturing'),
             'project_without_boards'   => __('Das Projekt hat keine Platine mit Revision.', 'taxmod-manufacturing'),
             'count_not_positive'       => __('Die Stückzahl muss eine ganze Zahl ab 1 sein.', 'taxmod-manufacturing'),
             'unknown_order'            => __('Diesen Auftrag gibt es nicht.', 'taxmod-manufacturing'),

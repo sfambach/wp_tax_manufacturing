@@ -29,6 +29,12 @@ final class OrderChanges
      */
     public function revisionsOf(int $project, Table $projects, Table $boards): array
     {
+        return array_values($this->newestRevisions($project, $projects, $boards));
+    }
+
+    /** @return array<int, int> board id => its newest revision, for the boards that have one */
+    public function newestRevisions(int $project, Table $projects, Table $boards): array
+    {
         $s   = $this->s;
         $out = [];
 
@@ -36,7 +42,7 @@ final class OrderChanges
             $ids = array_map('intval', $boards->all((int) $board, $s->field('board_revisions')));
 
             if ($ids !== []) {
-                $out[] = max($ids);
+                $out[(int) $board] = max($ids);
             }
         }
 
