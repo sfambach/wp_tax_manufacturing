@@ -21,7 +21,7 @@ D-1142 and D-1143 in the modeller's decision log.
 
 ## Requirements
 
-- Taxonomy Modeller with the abilities `taxmod/read-node` and `taxmod/write-data`.
+- Taxonomy Modeller with the abilities `taxmod/read-node` and `taxmod/write-data`. Taxonomy Modeller 0.2.67 or later (buttons in the toolbar above each form, D-1308).
 - Taxmod Stock with the navigation area «production» for the menu entry.
 - The model changes `fertigung-apply.json` and `fertigung-0.0.3-apply.json` (nodes «Fertigungsaufträge», «Fertigung Baugruppen»,
   «Fertigung Bestückung», the choices «Fertigungsstatus» and «Aufbaustatus»). Its ids go into the option `taxmod_manufacturing_structure` (REST `/wp/v2/settings`) or into

@@ -2,6 +2,8 @@
 
 namespace TaxmodManufacturing\WordPress\Admin;
 
+use Taxmod\Core\Renderer\Control;
+use Taxmod\Core\Renderer\ControlMarkup;
 use Taxmod\WordPress\Admin\ListPage;
 use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
@@ -74,7 +76,7 @@ final class OrdersPage
         $shown = array_values(array_filter($orders, fn (BuildOrder $o): bool => $this->inTab($o, $tab)));
 
         $html .= $this->chooseBoards()
-            . '<div style="display:flex;justify-content:flex-end;margin:8px 0">' . $this->createAction() . '</div>'
+            . ListPage::toolbar([$this->createAction()])
             . ListPage::tabs($tabs, $tab, fn (string $slug): string => $this->url(['tab' => $slug]))
             . ListPage::bulkBar(self::FORM, self::NONCE, [self::BULK_CANCEL => __('Abbrechen', 'taxmod-manufacturing'), self::BULK_REOPEN => __('Wieder aufnehmen', 'taxmod-manufacturing')],
                 sprintf(_n('%d Auftrag', '%d Aufträge', count($shown), 'taxmod-manufacturing'), count($shown)));
@@ -133,8 +135,8 @@ final class OrdersPage
             $head .= '<div><span class="description">' . esc_html($label) . '</span><br><strong>' . $value . '</strong></div>';
         }
 
-        $html = $back . '<div style="display:flex;align-items:flex-start;gap:1em"><h2 style="flex:1;margin:.25em 0">' . esc_html($order->label) . '</h2>'
-            . '<div style="display:flex;gap:.5em">' . $this->rowButtons($order) . '</div></div>'
+        $html = $back . '<h2>' . esc_html($order->label) . '</h2>'
+            . ListPage::toolbar([$this->rowButtons($order)])
             . '<div style="display:flex;gap:2.5em;flex-wrap:wrap;margin:.5em 0 1em">' . $head . '</div>'
             . $this->boxForm($order);
 
@@ -210,9 +212,12 @@ final class OrdersPage
 
         return '<style>@media print{body *{visibility:hidden}.taxmod-mf-pick,.taxmod-mf-pick *{visibility:visible}.taxmod-mf-pick{position:absolute;left:0;top:0;width:100%}.taxmod-mf-noprint{display:none}}</style>'
             . '<div class="taxmod-mf-pick" style="border-top:1px solid #dcdcde;padding:.75em 0">'
-            . '<div style="display:flex;align-items:center;gap:1em"><h3 style="flex:1;margin:.25em 0">' . esc_html(sprintf(__('Pickliste · %s', 'taxmod-manufacturing'), $order->label)) . '</h3>'
-            . '<span class="taxmod-mf-noprint" style="display:flex;gap:.5em"><button type="button" class="button" onclick="window.print()">' . esc_html__('Drucken', 'taxmod-manufacturing') . '</button>'
-            . $reorder . ($canPick ? '<button type="submit" class="button button-primary" form="taxmod-mf-pick">' . esc_html__('Abgehakte ins Gebinde umbuchen', 'taxmod-manufacturing') . '</button>' : '') . '</span></div>'
+            . '<h3>' . esc_html(sprintf(__('Pickliste · %s', 'taxmod-manufacturing'), $order->label)) . '</h3>'
+            . '<div class="taxmod-mf-noprint">' . ListPage::toolbar([
+                $reorder,
+                $canPick ? '<button type="submit" class="button button-primary" form="taxmod-mf-pick">' . esc_html__('Abgehakte ins Gebinde umbuchen', 'taxmod-manufacturing') . '</button>' : '',
+                '<button type="button" class="button" onclick="window.print()">' . esc_html__('Drucken', 'taxmod-manufacturing') . '</button>',
+            ]) . '</div>'
             . $note
             . '<form method="post" id="taxmod-mf-pick" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'do' => 'pick', 'order' => (string) $order->id, 'tab' => $this->tab()]) . '</form>'
@@ -512,11 +517,14 @@ final class OrdersPage
             $options .= '<option value="' . esc_attr((string) $id) . '"' . selected($id, $order->box, false) . '>' . esc_html($label) . '</option>';
         }
 
-        return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:flex;align-items:center;gap:1em;padding:.75em 0">'
+        return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'
             . wp_nonce_field(self::NONCE, '_wpnonce', true, false) . $this->hidden(['action' => self::ACTION, 'do' => 'box', 'order' => (string) $order->id, 'tab' => $this->tab()])
-            . '<label>' . esc_html__('Gebinde', 'taxmod-manufacturing') . ' <select name="box">' . $options . '</select></label>'
-            . '<span class="description" style="flex:1">' . esc_html__('Was im Gebinde und darunter liegt, zählt als vorhanden. Projekt-Gebinde legst du im Lager an.', 'taxmod-manufacturing') . '</span>'
-            . '<button type="submit" class="button">' . esc_html__('Speichern', 'taxmod-manufacturing') . '</button></form>';
+            . ListPage::form([[
+                'label'   => __('Gebinde', 'taxmod-manufacturing'),
+                'control' => '<select name="box" id="taxmod-mf-box-' . esc_attr((string) $order->id) . '">' . $options . '</select>',
+                'hint'    => __('Was im Gebinde und darunter liegt, zählt als vorhanden. Projekt-Gebinde legst du im Lager an.', 'taxmod-manufacturing'),
+                'for'     => 'taxmod-mf-box-' . $order->id,
+            ]], $this->saveButton()) . '</form>';
     }
 
     private function rowButtons(BuildOrder $order): string
@@ -586,11 +594,13 @@ final class OrdersPage
 
         return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '" style="border-top:1px solid #dcdcde;padding:.75em 0">'
             . wp_nonce_field(self::NONCE, '_wpnonce', true, false) . $this->hidden(['action' => self::ACTION, 'do' => 'assembly', 'order' => (string) $order->id, 'assembly' => (string) $assembly->id, 'tab' => $this->tab()])
-            . '<div style="display:flex;align-items:center;gap:1em;flex-wrap:wrap"><strong style="flex:1">' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision)
-            . ' · ' . esc_html(sprintf(__('%1$d von %2$d bestückt', 'taxmod-manufacturing'), $fittedBoards, $pieces)) . '</strong>'
-            . $fill . $counts . $this->sparteChooser($assembly, $form)
+            . '<h3>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision)
+            . ' · ' . esc_html(sprintf(__('%1$d von %2$d bestückt', 'taxmod-manufacturing'), $fittedBoards, $pieces)) . '</h3>'
+            . ListPage::toolbar([$this->saveButton(), $fill])
+            . '<div style="display:flex;align-items:center;gap:1em;flex-wrap:wrap">'
+            . $counts . $this->sparteChooser($assembly, $form)
             . ($this->service->structure()->hasField('assembly_note') ? '<label>' . esc_html__('Hinweis', 'taxmod-manufacturing') . ' <input type="text" class="regular-text" name="note" value="' . esc_attr($assembly->note) . '"></label>' : '')
-            . '<button type="submit" class="button button-primary">' . esc_html__('Speichern', 'taxmod-manufacturing') . '</button></div>'
+            . '</div>'
             . $table . '</form>';
     }
 
@@ -661,10 +671,18 @@ final class OrdersPage
         return '<div class="notice notice-info"><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'tab' => $this->tab(), 'do' => 'create', 'choosing' => '1', 'project' => (string) $project, 'count' => sanitize_text_field(wp_unslash((string) ($_GET['count'] ?? '1')))])
             . '<p><strong>' . esc_html(sprintf(__('Welche Platinen von «%s» sollen gebaut werden?', 'taxmod-manufacturing'), $name)) . '</strong></p>'
+            . ListPage::toolbar([
+                '<button type="submit" class="button button-primary">' . esc_html__('Anlegen', 'taxmod-manufacturing') . '</button>',
+                '<a class="button" href="' . esc_url($this->url(['tab' => $this->tab()])) . '">' . esc_html__('Abbrechen', 'taxmod-manufacturing') . '</a>',
+            ])
             . $boxes
-            . '<p><button type="submit" class="button button-primary">' . esc_html__('Anlegen', 'taxmod-manufacturing') . '</button> '
-            . '<a class="button" href="' . esc_url($this->url(['tab' => $this->tab()])) . '">' . esc_html__('Abbrechen', 'taxmod-manufacturing') . '</a></p>'
             . '</form></div>';
+    }
+
+    /** D-1308: «Speichern» with the diskette, first in the toolbar above its form. */
+    private function saveButton(): string
+    {
+        return ControlMarkup::button(Control::saving('submit', '1', __('Speichern', 'taxmod-manufacturing'), __('Speichern', 'taxmod-manufacturing')));
     }
 
     private function dialogForm(string $do, BuildOrder $order, string $opener, string $title, string $body): string
