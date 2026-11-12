@@ -171,7 +171,17 @@ final class OrdersPage
 
         $canPick = $this->service->canPick();
         $lines   = PickList::of($demand, $this->service->placesOf(array_values(array_unique($things)), $order->box));
-        $labels  = $this->service->labelsOf(array_values(array_unique(array_filter([...array_column($lines, 'thing'), ...array_column($lines, 'place')]))));
+        $needs   = [];
+
+        foreach ($lines as $line) {
+            if ($line['place'] === null) {
+                $needs[$line['thing']] = $line['missing'];
+            }
+        }
+
+        $cuts    = $canPick ? $this->service->cutSources($needs, $order->box) : [];
+        $sources = array_merge([], ...array_values($cuts));
+        $labels  = $this->service->labelsOf(array_values(array_unique(array_filter([...array_column($lines, 'thing'), ...array_column($lines, 'place'), ...array_column($sources, 'thing'), ...array_column($sources, 'place')]))));
         $body    = '';
 
         foreach ($lines as $line) {
@@ -188,6 +198,16 @@ final class OrdersPage
                     : esc_html($labels[$line['place']] ?? '#' . $line['place'])) . '</td>'
                 . '<td style="text-align:right">' . esc_html($line['place'] === null ? '' : $count($line['there'])) . '</td>'
                 . '<td style="text-align:right">' . esc_html($count($line['missing'])) . '</td><td>' . $take . '</td></tr>';
+
+            // D9: a strip found nowhere can be cut from a longer one of the same kind; the stock module books the cut.
+            foreach ($line['place'] === null ? ($cuts[$line['thing']] ?? []) : [] as $source) {
+                $key   = $line['thing'] . ':' . $source['lot'];
+                $body .= '<tr><td><input type="checkbox" name="cut[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick"></td>'
+                    . '<td>' . esc_html(sprintf(__('ablängen aus %s', 'taxmod-manufacturing'), $labels[$source['thing']] ?? '#' . $source['thing'])) . '</td>'
+                    . '<td>' . esc_html($labels[$source['place']] ?? '#' . $source['place']) . '</td>'
+                    . '<td>' . esc_html($count($source['left'])) . '</td><td></td>'
+                    . '<td><input type="number" class="small-text" form="taxmod-mf-pick" name="cutqty[' . esc_attr($key) . ']" min="0" step="1" value="' . esc_attr($count($line['missing'])) . '"></td></tr>';
+            }
         }
 
         $nowhere = array_filter($lines, static fn (array $line): bool => $line['place'] === null);
@@ -443,13 +463,31 @@ final class OrdersPage
             }
         }
 
+        $cutQty = (array) ($_POST['cutqty'] ?? []);
+        $cuts   = [];
+
+        foreach ((array) ($_POST['cut'] ?? []) as $key) {
+            $key = sanitize_text_field(wp_unslash((string) $key));
+            $qty = (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($cutQty[$key] ?? '0'))));
+
+            if (preg_match('/^(\d+):(\d+)$/', $key, $match) === 1 && $qty > 0.0) {
+                $cuts[] = ['from' => (int) $match[2], 'thing' => (int) $match[1], 'pieces' => $qty];
+            }
+        }
+
         $back['auftrag'] = $order;
 
-        if ($lines === []) {
+        if ($lines === [] && $cuts === []) {
             return 'nothing_picked';
         }
 
-        $this->service->bookPick($order, $lines, $today);
+        if ($cuts !== []) {
+            $this->service->bookCut($order, $cuts, $today);
+        }
+
+        if ($lines !== []) {
+            $this->service->bookPick($order, $lines, $today);
+        }
 
         return 'picked';
     }

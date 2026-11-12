@@ -83,6 +83,9 @@ final class ManufacturingService
     public const OUTPUT_FILTER = 'taxmod_stock_book_output';
     public const CREATE_THING_FILTER = 'taxmod_stock_create_thing';
     public const PICK_FILTER   = 'taxmod_stock_book_pick';
+    /** D9 (D-1320): longer strips of the same kind a missing strip can be cut from, and the booking of the cut. */
+    public const CUT_SOURCES_FILTER = 'taxmod_stock_cut_sources';
+    public const CUT_FILTER         = 'taxmod_stock_book_cut';
 
     /** Whether the stock module's purchasing takes a demand from here (D-1156). */
     public function canReorder(): bool
@@ -154,6 +157,66 @@ final class ManufacturingService
         }
 
         return $places;
+    }
+
+    public function canCut(): bool
+    {
+        return has_filter(self::CUT_SOURCES_FILTER) && has_filter(self::CUT_FILTER);
+    }
+
+    /**
+     * Longer strips a missing strip can be cut from, asked once for all (CD-7); the stock module decides what is the same kind.
+     *
+     * @param array<int, float> $needs thing → pieces missing
+     * @return array<int, list<array{thing: int, pins: int, lot: int, place: int, left: float}>> missing thing → sources
+     */
+    public function cutSources(array $needs, int $box): array
+    {
+        if ($needs === [] || ! $this->canCut()) {
+            return [];
+        }
+
+        $answer = apply_filters(self::CUT_SOURCES_FILTER, null, ['things' => $needs, 'except' => $box]);
+        $out    = [];
+
+        foreach (is_array($answer) ? $answer : [] as $thing => $sources) {
+            foreach (is_array($sources) ? $sources : [] as $source) {
+                if (is_array($source) && isset($source['thing'], $source['lot'], $source['place'])) {
+                    $out[(int) $thing][] = ['thing' => (int) $source['thing'], 'pins' => (int) ($source['pins'] ?? 0), 'lot' => (int) $source['lot'], 'place' => (int) $source['place'], 'left' => (float) ($source['left'] ?? 0)];
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Books the ticked cuts as one transaction at the stock module: the long strip used, the pieces into the box, the rest
+     * back at its place, the loss per cut (D-1178, D9).
+     *
+     * @param list<array{from: int, thing: int, pieces: float}> $cuts
+     */
+    public function bookCut(int $order, array $cuts, string $today): void
+    {
+        $built = $this->order($order);
+
+        if ($built->box === null) {
+            throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
+        }
+
+        if (! has_filter(self::CUT_FILTER)) {
+            throw ManufacturingError::stockRefused(__('Das Lager bietet das Ablängen noch nicht an.', 'taxmod-manufacturing'));
+        }
+
+        $answer = apply_filters(self::CUT_FILTER, null, ['reference' => $order, 'into' => $built->box, 'cuts' => $cuts, 'title' => $built->label, 'date' => $today]);
+
+        if (is_wp_error($answer)) {
+            throw ManufacturingError::stockRefused($answer->get_error_message());
+        }
+
+        if ($answer === null) {
+            throw ManufacturingError::stockRefused(__('Das Lager hat nicht geantwortet.', 'taxmod-manufacturing'));
+        }
     }
 
     /**
