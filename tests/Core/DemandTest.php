@@ -45,6 +45,16 @@ final class DemandTest extends TestCase
         self::assertSame([9001 => -6.0, 305 => -2.0], Demand::consumption($assembly, [700 => 0, 701 => 0], self::POSITIONS[305]));
     }
 
+    public function testBareBoardIsTheBoardRecordLikeAnyPart(): void
+    {
+        $assembly = new Assembly(600, 305, [], []);
+        $demand   = Demand::of([$assembly], self::POSITIONS, 2, [200 => 2.0], [305 => 200]);
+
+        self::assertSame(200, $demand[600][0]['thing']);
+        self::assertSame(0.0, $demand[600][0]['missing']);
+        self::assertSame([9001 => 3.0, 9002 => 1.0, 200 => 1.0], Demand::consumption($assembly, [700 => 1, 701 => 1], self::POSITIONS[305], 200));
+    }
+
     public function testBoxIsHandedOutOnce(): void
     {
         $positions = [1 => [['id' => 10, 'thing' => 50, 'count' => 1.0, 'fitting' => '']], 2 => [['id' => 20, 'thing' => 50, 'count' => 1.0, 'fitting' => '']]];

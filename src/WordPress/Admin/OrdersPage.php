@@ -81,11 +81,11 @@ final class OrdersPage
             . ListPage::bulkBar(self::FORM, self::NONCE, [self::BULK_CANCEL => __('Abbrechen', 'taxmod-manufacturing'), self::BULK_REOPEN => __('Wieder aufnehmen', 'taxmod-manufacturing')],
                 sprintf(_n('%d Auftrag', '%d Aufträge', count($shown), 'taxmod-manufacturing'), count($shown)));
 
-        [$lists, $labels] = $this->context($shown);
+        [$lists, $labels, $boardOf] = $this->context($shown);
         $rows             = '';
 
         foreach ($shown as $order) {
-            $rows .= $this->row($order, $labels, $lists, Demand::of($order->assemblies, $lists, $order->count, $this->service->presentIn($order->box)));
+            $rows .= $this->row($order, $labels, $lists, Demand::of($order->assemblies, $lists, $order->count, $this->service->presentIn($order->box), $boardOf));
         }
 
         if ($rows === '') {
@@ -119,8 +119,8 @@ final class OrdersPage
         }
 
         $order            = $found[0];
-        [$lists, $labels] = $this->context([$order]);
-        $demand           = Demand::of($order->assemblies, $lists, $order->count, $this->service->presentIn($order->box));
+        [$lists, $labels, $boardOf] = $this->context([$order]);
+        $demand           = Demand::of($order->assemblies, $lists, $order->count, $this->service->presentIn($order->box), $boardOf);
         $facts            = [
             __('Projekt', 'taxmod-manufacturing')  => esc_html($labels[$order->project] ?? '#' . $order->project),
             __('Stück', 'taxmod-manufacturing')    => esc_html((string) $order->count),
@@ -248,10 +248,10 @@ final class OrdersPage
     }
 
     /**
-     * Parts lists and labels for the given orders, read once (CD-7).
+     * Parts lists, labels and the board record of each revision for the given orders, read once (CD-7).
      *
      * @param list<BuildOrder> $orders
-     * @return array{0: array<int, list<array{id: int, thing: int, count: float, fitting: string, ref: string}>>, 1: array<int, string>}
+     * @return array{0: array<int, list<array{id: int, thing: int, count: float, fitting: string, ref: string}>>, 1: array<int, string>, 2: array<int, int>}
      */
     private function context(array $orders): array
     {
@@ -263,8 +263,9 @@ final class OrdersPage
             }
         }
 
-        $lists  = $this->service->partsLists(array_keys($revisions));
-        $things = [];
+        $lists   = $this->service->partsLists(array_keys($revisions));
+        $boardOf = $this->service->boardsOfRevisions(array_keys($revisions));
+        $things  = array_values($boardOf);
 
         foreach ($lists as $positions) {
             foreach ($positions as $position) {
@@ -274,7 +275,7 @@ final class OrdersPage
 
         $labels = $this->service->labelsOf(array_values(array_filter(array_unique([...array_keys($revisions), ...$things, ...array_map(static fn (BuildOrder $o): int => $o->project, $orders), ...array_filter(array_map(static fn (BuildOrder $o): ?int => $o->box, $orders))]))));
 
-        return [$lists, $labels];
+        return [$lists, $labels, $boardOf];
     }
 
     /**
@@ -401,8 +402,8 @@ final class OrdersPage
     private function reorder(int $order, array &$back): string
     {
         $built            = $this->service->order($order);
-        [$lists]          = $this->context([$built]);
-        $demand           = Demand::of($built->assemblies, $lists, $built->count, $this->service->presentIn($built->box));
+        [$lists, , $boardOf] = $this->context([$built]);
+        $demand           = Demand::of($built->assemblies, $lists, $built->count, $this->service->presentIn($built->box), $boardOf);
         $things           = array_values(array_unique(array_merge(...array_map(static fn (array $rows): array => array_column($rows, 'thing'), array_values($demand)) ?: [[]])));
         $quantities       = [];
         $back['auftrag']  = $order;
@@ -630,13 +631,25 @@ final class OrdersPage
     {
         $options = '<option value="">' . esc_html__('— Projekt wählen —', 'taxmod-manufacturing') . '</option>';
 
-        foreach ($this->service->projects() as $id => $label) {
+        $projects = $this->service->projects();
+
+        foreach ($projects as $id => $label) {
             $options .= '<option value="' . esc_attr((string) $id) . '">' . esc_html($label) . '</option>';
         }
 
         $body = '<label class="taxmod-dialog-field" style="display:block;margin-bottom:.5em">' . esc_html__('Projekt', 'taxmod-manufacturing') . '<br><select name="project" required>' . $options . '</select></label>'
-            . '<label class="taxmod-dialog-field" style="display:block">' . esc_html__('Stückzahl', 'taxmod-manufacturing') . '<br><input type="number" name="count" min="1" step="1" value="1" required></label>'
-            . '<p>' . esc_html__('Im nächsten Schritt wählst du, welche Platinen des Projekts gebaut werden.', 'taxmod-manufacturing') . '</p>';
+            . '<label class="taxmod-dialog-field" style="display:block">' . esc_html__('Stückzahl', 'taxmod-manufacturing') . '<br><input type="number" name="count" min="1" step="1" value="1" required></label>';
+
+        if (method_exists(ListPage::class, 'shownBy')) {
+            // D-1311: the boards of the chosen project show in the dialog itself; the server still takes only that project's.
+            foreach ($this->service->boardsOfProjects(array_keys($projects)) as $project => $boards) {
+                $body .= ListPage::shownBy('project', (string) $project, '<fieldset><legend>' . esc_html__('Platinen', 'taxmod-manufacturing') . '</legend>' . $this->boardBoxes($boards) . '</fieldset>');
+            }
+
+            $body .= $this->hidden(['choosing' => '1']);
+        } else {
+            $body .= '<p>' . esc_html__('Im nächsten Schritt wählst du, welche Platinen des Projekts gebaut werden.', 'taxmod-manufacturing') . '</p>';
+        }
 
         return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'tab' => $this->tab()])
@@ -659,13 +672,7 @@ final class OrdersPage
             return '<div class="notice notice-error"><p>' . esc_html($this->message(ManufacturingError::projectWithoutBoards($project))) . '</p></div>';
         }
 
-        $only  = count($boards) === 1;
-        $boxes = '';
-
-        foreach ($boards as $revision => $label) {
-            $boxes .= '<p><label><input type="checkbox" name="boards[]" value="' . esc_attr((string) $revision) . '"' . ($only ? ' checked' : '') . '> ' . esc_html($label) . '</label></p>';
-        }
-
+        $boxes = $this->boardBoxes($boards);
         $name = $this->service->labelsOf([$project])[$project] ?? '#' . $project;
 
         return '<div class="notice notice-info"><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
@@ -683,6 +690,19 @@ final class OrdersPage
     private function saveButton(): string
     {
         return ControlMarkup::button(Control::saving('submit', '1', __('Speichern', 'taxmod-manufacturing'), __('Speichern', 'taxmod-manufacturing')));
+    }
+
+    /** @param array<int, string> $boards newest revision id => label; a single board comes ticked */
+    private function boardBoxes(array $boards): string
+    {
+        $only  = count($boards) === 1;
+        $boxes = '';
+
+        foreach ($boards as $revision => $label) {
+            $boxes .= '<p><label><input type="checkbox" name="boards[]" value="' . esc_attr((string) $revision) . '"' . ($only ? ' checked' : '') . '> ' . esc_html($label) . '</label></p>';
+        }
+
+        return $boxes;
     }
 
     private function dialogForm(string $do, BuildOrder $order, string $opener, string $title, string $body): string

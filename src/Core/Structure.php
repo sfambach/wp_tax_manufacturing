@@ -43,7 +43,7 @@ final class Structure
         'lager_thing', 'lager_cut_loss'];
 
     /** D-954: the «Best.» values that matter here — «optional» may be left out, «nein» is never needed. */
-    private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no'];
+    private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no', 'fitting_external'];
 
     /**
      * @param array<string, int> $nodes

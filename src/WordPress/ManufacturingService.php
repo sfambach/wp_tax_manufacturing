@@ -218,7 +218,7 @@ final class ManufacturingService
         }
 
         $booked  = 'nothing';
-        $use     = Demand::consumption($part, $fitted, $list);
+        $use     = Demand::consumption($part, $fitted, $list, $this->boardsOfRevisions([$part->revision])[$part->revision] ?? null);
 
         if ($use !== [] && has_filter(self::BOOK_FILTER)) {
             if ($built->box === null) {
@@ -438,6 +438,8 @@ final class ManufacturingService
         $fitting   = static fn (?string $value): string => match (true) {
             $value !== null && $s->hasValue('fitting_optional') && (string) $s->value('fitting_optional') === $value => 'optional',
             $value !== null && $s->hasValue('fitting_no') && (string) $s->value('fitting_no') === $value              => 'no',
+            // «extern»: needed by whoever uses the board (the Arduino under a shield), but not part of the build (D-1323).
+            $value !== null && $s->hasValue('fitting_external') && (string) $s->value('fitting_external') === $value  => 'no',
             default                                                                                                     => '',
         };
         $out = [];
@@ -493,15 +495,62 @@ final class ManufacturingService
      * @param list<int> $records
      * @return array<int, string> record id → its label
      */
+    /**
+     * The board each revision belongs to: the bare board is stocked as the board record, not as its revision (D-1322).
+     *
+     * @param list<int> $revisions
+     * @return array<int, int> revision → board
+     */
+    public function boardsOfRevisions(array $revisions): array
+    {
+        $boards = $this->table('board');
+        $field  = $this->structure()->field('board_revisions');
+        $want   = array_flip($revisions);
+        $out    = [];
+
+        foreach ($boards->ids() as $board) {
+            foreach ($boards->all($board, $field) as $revision) {
+                if (isset($want[(int) $revision])) {
+                    $out[(int) $revision] = $board;
+                }
+            }
+        }
+
+        return $out;
+    }
+
     /** @return array<int, string> newest revision id => «board · revision», one per board of the project (D-1300) */
     public function boardsOf(int $project): array
     {
-        $newest = (new OrderChanges($this->structure()))->newestRevisions($project, $this->table('project'), $this->table('board'));
-        $labels = $this->labelsOf(array_merge(array_keys($newest), array_values($newest)));
+        return $this->boardsOfProjects([$project])[$project] ?? [];
+    }
+
+    /**
+     * Boards of several projects with one read of their labels (CD-7).
+     *
+     * @param list<int> $projects
+     * @return array<int, array<int, string>> project id => (newest revision id => «board · revision»)
+     */
+    public function boardsOfProjects(array $projects): array
+    {
+        $changes  = new OrderChanges($this->structure());
+        $projectT = $this->table('project');
+        $boardT   = $this->table('board');
+        $newest   = [];
+        $ids      = [];
+
+        foreach ($projects as $project) {
+            $newest[$project] = $changes->newestRevisions($project, $projectT, $boardT);
+            array_push($ids, ...array_keys($newest[$project]), ...array_values($newest[$project]));
+        }
+
+        $labels = $ids === [] ? [] : $this->labelsOf($ids);
         $out    = [];
 
-        foreach ($newest as $board => $revision) {
-            $out[$revision] = $labels[$board] . ' · ' . $labels[$revision];
+        foreach ($newest as $project => $pairs) {
+            foreach ($pairs as $board => $revision) {
+                $out[$project][$revision] = $labels[$board] . ' · ' . $labels[$revision];
+            }
         }
 
         return $out;
