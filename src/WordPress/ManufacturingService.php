@@ -518,7 +518,7 @@ final class ManufacturingService
     private function bookOutput(BuildOrder $order, int $revision, int $boards, string $today, ?int $sparte): void
     {
         $test  = has_filter(self::TEST_PLACE_FILTER) ? (int) apply_filters(self::TEST_PLACE_FILTER, null) : 0;
-        $place = $boards > 0 && $test > 0 ? $test : $order->box;
+        $place = $test > 0 ? $test : $order->box;
 
         if ($place === null) {
             throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
