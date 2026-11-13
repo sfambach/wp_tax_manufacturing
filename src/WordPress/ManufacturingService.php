@@ -159,6 +159,63 @@ final class ManufacturingService
         return $places;
     }
 
+    /** D-1302: parts lost while building go out of the box as Verbrauch › Defekt/Ausschuss (D-1297); the stock module books it. */
+    public const SCRAP_FILTER = 'taxmod_stock_book_scrap';
+
+    public function canScrap(): bool
+    {
+        return has_filter(self::SCRAP_FILTER);
+    }
+
+    /**
+     * Books scrapped parts of one assembly out of the order's box (D-1302). The reason is «Ausschuss Fertigung» plus the
+     * optional extra reason.
+     *
+     * @param array<int, float> $pieces position → scrapped pieces; position 0 is the bare board
+     */
+    public function bookScrap(int $order, int $assembly, array $pieces, string $extra, string $today): bool
+    {
+        $pieces = array_filter($pieces, static fn (float $n): bool => $n > 0.0);
+
+        if ($pieces === []) {
+            return false;
+        }
+
+        $built = $this->order($order);
+        $part  = $built->assembly($assembly) ?? throw ManufacturingError::assemblyNotOfOrder($assembly, $order);
+
+        if ($built->box === null) {
+            throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
+        }
+
+        if (! $this->canScrap()) {
+            throw ManufacturingError::stockRefused(__('Das Lager bietet das Buchen von Ausschuss noch nicht an.', 'taxmod-manufacturing'));
+        }
+
+        $things = array_column($this->partsLists([$part->revision])[$part->revision] ?? [], 'thing', 'id');
+        $things[0] = $this->boardsOfRevisions([$part->revision])[$part->revision] ?? $part->revision;
+        $lines  = [];
+
+        foreach ($pieces as $position => $n) {
+            if (isset($things[$position]) && $things[$position] > 0) {
+                $lines[$things[$position]] = ($lines[$things[$position]] ?? 0.0) + $n;
+            }
+        }
+
+        $reason = __('Ausschuss Fertigung', 'taxmod-manufacturing') . ($extra === '' ? '' : ': ' . $extra);
+        $answer = apply_filters(self::SCRAP_FILTER, null, ['reference' => $order, 'place' => $built->box, 'lines' => $lines, 'reason' => $reason, 'title' => $built->label, 'date' => $today]);
+
+        if (is_wp_error($answer)) {
+            throw ManufacturingError::stockRefused($answer->get_error_message());
+        }
+
+        if ($answer === null) {
+            throw ManufacturingError::stockRefused(__('Das Lager hat nicht geantwortet.', 'taxmod-manufacturing'));
+        }
+
+        return true;
+    }
+
     public function canCut(): bool
     {
         return has_filter(self::CUT_SOURCES_FILTER) && has_filter(self::CUT_FILTER);

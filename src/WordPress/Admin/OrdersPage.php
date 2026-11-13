@@ -408,8 +408,17 @@ final class OrdersPage
         $number = static fn (string $key): ?int => isset($_POST[$key]) && $_POST[$key] !== '' ? absint($_POST[$key]) : null;
         $note   = isset($_POST['note']) ? sanitize_text_field(wp_unslash((string) $_POST['note'])) : null;
 
+        $scrap = [];
+
+        foreach ((array) ($_POST['scrap'] ?? []) as $position => $pieces) {
+            $scrap[absint($position)] = max(0.0, (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) $pieces))));
+        }
+
         $booked       = $this->service->updateAssembly($order, absint($_POST['assembly'] ?? 0), $fitted, $unused, $number('tested'), $number('done'), $note, $today, absint($_POST['sparte'] ?? 0) ?: null);
         $back['auftrag'] = $order;
+        // After the counts, which check themselves before booking anything: scrap is its own booking (D-1302).
+        $this->service->bookScrap($order, absint($_POST['assembly'] ?? 0), $scrap, sanitize_text_field(wp_unslash((string) ($_POST['scrap_reason'] ?? ''))), $today);
+
 
         return ['booked' => 'saved_booked', 'unbooked' => 'saved_unbooked'][$booked] ?? 'saved';
     }
@@ -597,6 +606,7 @@ final class OrdersPage
         $pieces = $order->count;
         $body   = '';
         $form   = 'taxmod-mf-a' . $assembly->id;
+        $scrap  = $boxed && ! $order->isClosed() && $this->service->canScrap();
 
         foreach ($rows as $row) {
             $fit = $row['position'] === 0 || $row['unused']
@@ -613,14 +623,18 @@ final class OrdersPage
                 . '<td style="white-space:nowrap">' . $fit . '</td>'
                 . '<td style="text-align:right">' . esc_html($boxed ? $count($row['present']) : '—') . '</td>'
                 . '<td style="text-align:right">' . ($boxed && $row['missing'] > 0.0 ? '<strong style="color:#b32d2e">' . esc_html($count($row['missing'])) . '</strong>' : '') . '</td>'
-                . '<td>' . $use . '</td></tr>';
+                . '<td>' . $use . '</td>'
+                . ($scrap ? '<td><input type="number" class="small-text" name="scrap[' . esc_attr((string) $row['position']) . ']" min="0" step="1" value="" aria-label="' . esc_attr__('Ausschuss', 'taxmod-manufacturing') . '"></td>' : '')
+                . '</tr>';
         }
 
         $table = '<table class="widefat striped" style="margin-top:.5em"><thead><tr>'
             . '<th>' . esc_html__('Referenz', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Teil', 'taxmod-manufacturing') . '</th>'
             . '<th style="text-align:right">' . esc_html__('Bedarf', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Bestückt (Teile)', 'taxmod-manufacturing') . '</th>'
             . '<th style="text-align:right">' . esc_html__('Im Gebinde', 'taxmod-manufacturing') . '</th><th style="text-align:right">' . esc_html__('Fehlt', 'taxmod-manufacturing') . '</th>'
-            . '<th>' . esc_html__('Option', 'taxmod-manufacturing') . '</th></tr></thead><tbody>' . $body . '</tbody></table>';
+            . '<th>' . esc_html__('Option', 'taxmod-manufacturing') . '</th>'
+            . ($scrap ? '<th title="' . esc_attr__('Heruntergefallen, defekt oder falsch bestückt: wird als Ausschuss aus dem Gebinde gebucht.', 'taxmod-manufacturing') . '">' . esc_html__('Ausschuss', 'taxmod-manufacturing') . '</th>' : '')
+            . '</tr></thead><tbody>' . $body . '</tbody></table>';
 
         $fittedBoards = Demand::boardsFitted($rows);
         // «alle auf n Platinen»: n × the parts per board in every field of this form.
@@ -638,6 +652,7 @@ final class OrdersPage
             . ListPage::toolbar([$this->saveButton(), $fill])
             . '<div style="display:flex;align-items:center;gap:1em;flex-wrap:wrap">'
             . $counts . $this->sparteChooser($assembly, $form)
+            . ($scrap ? '<label>' . esc_html__('Grund Ausschuss (optional)', 'taxmod-manufacturing') . ' <input type="text" name="scrap_reason" list="taxmod-mf-scrap-reasons"></label><datalist id="taxmod-mf-scrap-reasons"><option value="' . esc_attr__('heruntergefallen', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('defekt', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('falsch bestückt', 'taxmod-manufacturing') . '"></datalist>' : '')
             . ($this->service->structure()->hasField('assembly_note') ? '<label>' . esc_html__('Hinweis', 'taxmod-manufacturing') . ' <input type="text" class="regular-text" name="note" value="' . esc_attr($assembly->note) . '"></label>' : '')
             . '</div>'
             . $table . '</form>';
