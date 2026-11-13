@@ -159,6 +159,67 @@ final class ManufacturingService
         return $places;
     }
 
+    /** D-1303: the second inbound line on the place «Wareneingang Produktion»; the stage of a lot lives in the stock module. */
+    public const INBOUND_PLACE_FILTER = 'taxmod_stock_production_inbound';
+    public const LOT_STAGES_FILTER    = 'taxmod_stock_lot_stages';
+    public const SET_STAGE_FILTER     = 'taxmod_stock_set_lot_stage';
+
+    /** The stages of the line, in their order; repair and scrap stand beside it. */
+    public const LINE = ['stage_from_production', 'stage_in_test', 'stage_packed', 'stage_booked'];
+
+    public function productionInbound(): int
+    {
+        return has_filter(self::INBOUND_PLACE_FILTER) ? (int) apply_filters(self::INBOUND_PLACE_FILTER, null) : 0;
+    }
+
+    /**
+     * The lots on «Wareneingang Produktion» with their stage, in one read (CD-7).
+     *
+     * @return array{lots: array<int, array{stage: int, thing: int, quantity: float}>, stages: array<string, int>}
+     */
+    public function productionLots(): array
+    {
+        $place = $this->productionInbound();
+
+        if ($place === 0 || ! has_filter(self::LOT_STAGES_FILTER)) {
+            return ['lots' => [], 'stages' => []];
+        }
+
+        $answer = apply_filters(self::LOT_STAGES_FILTER, null, ['place' => $place]);
+
+        if (! is_array($answer)) {
+            return ['lots' => [], 'stages' => []];
+        }
+
+        $lots = [];
+
+        foreach (is_array($answer['lots'] ?? null) ? $answer['lots'] : [] as $lot => $row) {
+            if (is_array($row)) {
+                $lots[(int) $lot] = ['stage' => (int) ($row['stage'] ?? 0), 'thing' => (int) ($row['thing'] ?? 0), 'quantity' => (float) ($row['quantity'] ?? 0)];
+            }
+        }
+
+        return ['lots' => $lots, 'stages' => array_map('intval', is_array($answer['stages'] ?? null) ? $answer['stages'] : [])];
+    }
+
+    /** @param list<int> $lots */
+    public function setStage(array $lots, int $stage): void
+    {
+        if ($lots === [] || $stage <= 0) {
+            return;
+        }
+
+        if (! has_filter(self::SET_STAGE_FILTER)) {
+            throw ManufacturingError::stockRefused(__('Das Lager bietet die Stufen noch nicht an.', 'taxmod-manufacturing'));
+        }
+
+        $answer = apply_filters(self::SET_STAGE_FILTER, null, ['lots' => $lots, 'stage' => $stage]);
+
+        if (is_wp_error($answer)) {
+            throw ManufacturingError::stockRefused($answer->get_error_message());
+        }
+    }
+
     /** D-1301: reservations with the order as subject (D-1083), and «Box leer räumen». */
     public const RESERVE_FILTER      = 'taxmod_stock_reserve';
     public const RESERVATIONS_FILTER = 'taxmod_stock_reservations_of';
@@ -513,11 +574,21 @@ final class ManufacturingService
     /** Finished boards into the order's box as their own material (D-1143), tested (D-1177); fewer finished give them back. */
     private function bookOutput(BuildOrder $order, int $revision, int $boards, string $today, ?int $sparte): void
     {
-        if ($order->box === null) {
+        // D-1303: onto the place «Wareneingang Produktion» when the stock module names one, entering the second inbound line.
+        $inbound = $this->productionInbound();
+        $place   = $inbound > 0 ? $inbound : $order->box;
+
+        if ($place === null) {
             throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
         }
 
-        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $order->box, 'lines' => [$this->materialFor($revision, $sparte) => (float) $boards], 'title' => $order->label, 'date' => $today, 'tested' => true]);
+        $args = ['reference' => $order->id, 'place' => $place, 'lines' => [$this->materialFor($revision, $sparte) => (float) $boards], 'title' => $order->label, 'date' => $today, 'tested' => true];
+
+        if ($inbound > 0 && $boards > 0 && has_filter(self::LOT_STAGES_FILTER)) {
+            $args['stage'] = 'stage_from_production';
+        }
+
+        $answer = apply_filters(self::OUTPUT_FILTER, null, $args);
 
         if (is_wp_error($answer)) {
             throw ManufacturingError::stockRefused($answer->get_error_message());
