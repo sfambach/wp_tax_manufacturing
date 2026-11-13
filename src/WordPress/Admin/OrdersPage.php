@@ -83,7 +83,6 @@ final class OrdersPage
         ]));
         $beside = [
             ['boxes', __('Projektgebinde', 'taxmod-manufacturing'), null],
-            ['inbound', __('Wareneingang Produktion', 'taxmod-manufacturing'), null],
             ['open', __('Offen', 'taxmod-manufacturing'), count(array_filter($orders, static fn (BuildOrder $o): bool => ! $o->isClosed()))],
             ['cancelled', __('Abgebrochen', 'taxmod-manufacturing'), $in('order_cancelled')],
         ];
@@ -97,10 +96,6 @@ final class OrdersPage
 
         if ($tab === 'boxes') {
             return $html . $this->boxList($orders) . '</div>';
-        }
-
-        if ($tab === 'inbound') {
-            return $html . $this->inboundList() . '</div>';
         }
 
         [$lists, $labels, $boardOf] = $this->context($shown);
@@ -379,7 +374,6 @@ final class OrdersPage
                     'reorder'  => $this->reorder($order, $back),
                     'staging'  => $this->step($order, 'order_staging', $today, $back),
                     'clear'    => $this->clear($order, $today, $back),
-                    'stage'    => $this->moveLots($back),
                     'building' => $this->toBuilding($order, $today, $back),
                     'done'     => $this->step($order, 'order_done', $today, $back),
                     'cancel'   => $this->step($order, 'order_cancelled', $today, $back),
@@ -544,106 +538,6 @@ final class OrdersPage
         $back['auftrag'] = $order;
 
         return 'box';
-    }
-
-    /** @param array<string, string|int> $back */
-    private function moveLots(array &$back): string
-    {
-        $stages = $this->service->productionLots()['stages'];
-        $to     = sanitize_key((string) ($_POST['to'] ?? ''));
-        $lots   = array_values(array_filter(array_map('absint', (array) ($_POST['lots'] ?? []))));
-
-        $this->service->setStage($lots, $stages[$to] ?? 0);
-        $back['tab']   = 'inbound';
-        $back['stage'] = $to;
-
-        return $lots === [] ? 'nothing_picked' : 'moved';
-    }
-
-    /**
-     * D-1303: the second inbound line on «Wareneingang Produktion» — the lots of each stage, and the step to the next.
-     * The stage lives at the lot in the stock module; this page only reads and sets it.
-     */
-    private function inboundList(): string
-    {
-        $read   = $this->service->productionLots();
-        $stages = $read['stages'];
-
-        if ($stages === []) {
-            return '<p class="description">' . esc_html__('Das Lager kennt noch keinen «Lagerort Wareneingang Produktion» oder keine Stufen am Posten. Fertige Platinen kommen bis dahin ins Gebinde des Auftrags.', 'taxmod-manufacturing') . '</p>';
-        }
-
-        $names  = self::stageNames();
-        $next   = [
-            'stage_from_production' => ['stage_in_test'],
-            'stage_in_test'         => ['stage_packed', 'stage_repair'],
-            'stage_packed'          => ['stage_booked'],
-            'stage_repair'          => ['stage_in_test'],
-        ];
-        $byId   = array_flip($stages);
-        $active = sanitize_key((string) ($_GET['stage'] ?? 'stage_from_production'));
-        $active = isset($names[$active]) ? $active : 'stage_from_production';
-        $shown  = array_filter($read['lots'], static fn (array $l): bool => ($byId[$l['stage']] ?? 'stage_from_production') === $active);
-        $labels = $this->service->labelsOf(array_values(array_unique(array_column($shown, 'thing'))));
-        $rows   = '';
-
-        foreach ($shown as $lot => $row) {
-            $rows .= '<tr><th scope="row" class="check-column"><input type="checkbox" name="lots[]" value="' . esc_attr((string) $lot) . '" form="taxmod-mf-stage"></th>'
-                . '<td>' . esc_html($labels[$row['thing']] ?? '#' . $row['thing']) . '</td><td>' . esc_html('P-' . $lot) . '</td><td>' . esc_html((string) $row['quantity']) . '</td></tr>';
-        }
-
-        $buttons = [];
-
-        foreach ($next[$active] ?? [] as $to) {
-            $buttons[] = '<button type="submit" class="button" form="taxmod-mf-stage" name="to" value="' . esc_attr($to) . '">' . esc_html(sprintf(__('→ %s', 'taxmod-manufacturing'), $names[$to])) . '</button>';
-        }
-
-        return $this->inboundSteps($read, $active)
-            . '<form method="post" id="taxmod-mf-stage" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
-            . $this->hidden(['action' => self::ACTION, 'do' => 'stage', 'tab' => 'inbound']) . '</form>'
-            . ListPage::toolbar($buttons)
-            . ListPage::table([[__('Material', 'taxmod-manufacturing')], [__('Posten', 'taxmod-manufacturing'), '8em'], [__('Stück', 'taxmod-manufacturing'), '6em']],
-                $rows === '' ? '<tr class="no-items"><td class="colspanchange" colspan="4">' . esc_html__('Nichts in dieser Stufe.', 'taxmod-manufacturing') . '</td></tr>' : $rows);
-    }
-
-    /**
-     * D-1303: the second line under the Wareneingang, drawn by the stock's cockpit through its process bar filter.
-     * Nothing when the stock has no production inbound yet.
-     */
-    public function inboundBar(): string
-    {
-        $read = $this->service->productionLots();
-
-        return $read['stages'] === [] ? '' : $this->inboundSteps($read, '');
-    }
-
-    /** @return array<string, string> */
-    private static function stageNames(): array
-    {
-        return [
-            'stage_from_production' => __('Aus Fertigung', 'taxmod-manufacturing'),
-            'stage_in_test'         => __('In Test', 'taxmod-manufacturing'),
-            'stage_packed'          => __('Verpackt', 'taxmod-manufacturing'),
-            'stage_booked'          => __('Eingebucht', 'taxmod-manufacturing'),
-            'stage_repair'          => __('In Reparatur', 'taxmod-manufacturing'),
-            'stage_scrapped'        => __('Verschrottet', 'taxmod-manufacturing'),
-        ];
-    }
-
-    /** @param array{lots: array<int, array{stage: int, thing: int, quantity: float}>, stages: array<string, int>} $read */
-    private function inboundSteps(array $read, string $active): string
-    {
-        $names = self::stageNames();
-        $byId  = array_flip($read['stages']);
-        $sum   = static fn (string $key): int => (int) array_sum(array_column(array_filter($read['lots'], static fn (array $l): bool => ($byId[$l['stage']] ?? 'stage_from_production') === $key), 'quantity'));
-        $step  = static fn (string $key): array => [$key, $names[$key], $sum($key)];
-
-        return ListPage::steps(
-            array_map($step, \TaxmodManufacturing\WordPress\ManufacturingService::LINE),
-            $active,
-            fn (string $key): string => $this->url(['tab' => 'inbound', 'stage' => $key]),
-            [$step('stage_repair'), $step('stage_scrapped')],
-        );
     }
 
     /** @param array<string, string|int> $back */
@@ -1026,7 +920,6 @@ final class OrdersPage
             'reopened'  => __('Wieder aufgenommen.', 'taxmod-manufacturing'),
             'staging'   => __('In Bereitstellung.', 'taxmod-manufacturing'),
             'reserved'  => __('Abgehakte Teile für den Auftrag reserviert.', 'taxmod-manufacturing'),
-            'moved'     => __('Stufe gesetzt.', 'taxmod-manufacturing'),
             'cleared'   => __('Gebinde leer geräumt, alles zurück an seinen Platz.', 'taxmod-manufacturing'),
             'building'  => __('In Fertigung.', 'taxmod-manufacturing'),
         ][sanitize_key((string) ($_GET['msg'] ?? ''))] ?? '';
@@ -1083,7 +976,7 @@ final class OrdersPage
     {
         $tab = sanitize_key((string) ($_REQUEST['tab'] ?? 'boxes'));
 
-        return in_array($tab, ['boxes', 'inbound', 'open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_done'], true) ? $tab : 'boxes';
+        return in_array($tab, ['boxes', 'open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_done'], true) ? $tab : 'boxes';
     }
 
     private function inTab(BuildOrder $order, string $tab): bool

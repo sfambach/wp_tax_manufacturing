@@ -48,11 +48,6 @@ final class Plugin
             return $pages;
         });
 
-        // D-1303: the production line stands under the stock's Wareneingang; the stock passes its own bar, which stays.
-        add_filter('taxmod_logistics_process_bar', static fn (mixed $html, mixed $area = ''): string => $area === 'inbound'
-            ? (string) $html . (new OrdersPage())->inboundBar()
-            : (string) $html, 10, 2);
-
         // ⚠️ *Only where admin-post.php answers: `OrdersPage::ACTIONS` alone compiled the orders page on every page view (D-1187).*
         if (self::handlesAdminActions()) {
             foreach (OrdersPage::ACTIONS as $action) {
