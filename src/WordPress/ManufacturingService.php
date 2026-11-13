@@ -507,6 +507,50 @@ final class ManufacturingService
         return array_map('floatval', (new $stock())->presentIn($box));
     }
 
+    /** D-1325: the project boxes with their project and contents, read by the stock module in one go (CD-7). */
+    public const PROJECT_BOXES_FILTER = 'taxmod_stock_project_boxes';
+
+    /**
+     * Every project box (D-1030, D-1325): its project, its name and how many pieces lie in it. The stock module answers;
+     * without it the boxes come from the places in the model, without contents.
+     *
+     * @return array<int, array{project: int, label: string, pieces: ?float}> place → box
+     */
+    public function projectBoxes(): array
+    {
+        if (has_filter(self::PROJECT_BOXES_FILTER)) {
+            $answer = apply_filters(self::PROJECT_BOXES_FILTER, null, []);
+            $out    = [];
+
+            foreach (is_array($answer) ? $answer : [] as $place => $box) {
+                if (is_array($box) && (int) ($box['project'] ?? 0) > 0) {
+                    $out[(int) $place] = ['project' => (int) $box['project'], 'label' => (string) ($box['label'] ?? '#' . $place), 'pieces' => isset($box['pieces']) ? (float) $box['pieces'] : null];
+                }
+            }
+
+            return $out;
+        }
+
+        $s = $this->structure();
+
+        if (! $s->hasNode('location') || ! $s->hasField('location_project')) {
+            return [];
+        }
+
+        $places = $this->table('location');
+        $out    = [];
+
+        foreach ($places->ids() as $id) {
+            $project = (int) $places->first($id, $s->field('location_project'));
+
+            if ($project > 0) {
+                $out[$id] = ['project' => $project, 'label' => (string) ($places->first($id, $s->field('label')) ?? '#' . $id), 'pieces' => null];
+            }
+        }
+
+        return $out;
+    }
+
     /**
      * The places that belong to a project (D-1030 project boxes), for the box of an order.
      *

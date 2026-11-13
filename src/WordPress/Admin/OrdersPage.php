@@ -36,6 +36,12 @@ final class OrdersPage
 
     private const FORM = 'taxmod-mf-bulk';
 
+    /** @var array<int, string>|null read once per page, however many «+ Auftrag» dialogs it draws (CD-7) */
+    private ?array $projects = null;
+
+    /** @var array<int, array<int, string>>|null */
+    private ?array $boards = null;
+
     public function __construct(private readonly ManufacturingService $service = new ManufacturingService())
     {
     }
@@ -76,6 +82,7 @@ final class OrdersPage
             ['order_done', __('Fertiggestellt', 'taxmod-manufacturing'), $in('order_done')],
         ]));
         $beside = [
+            ['boxes', __('Projektgebinde', 'taxmod-manufacturing'), null],
             ['open', __('Offen', 'taxmod-manufacturing'), count(array_filter($orders, static fn (BuildOrder $o): bool => ! $o->isClosed()))],
             ['cancelled', __('Abgebrochen', 'taxmod-manufacturing'), $in('order_cancelled')],
         ];
@@ -86,6 +93,10 @@ final class OrdersPage
             . ListPage::steps($steps, $tab, fn (string $slug): string => $this->url(['tab' => $slug]), $beside, ['all', __('Alle', 'taxmod-manufacturing'), count($orders)])
             . ListPage::bulkBar(self::FORM, self::NONCE, [self::BULK_CANCEL => __('Abbrechen', 'taxmod-manufacturing'), self::BULK_REOPEN => __('Wieder aufnehmen', 'taxmod-manufacturing')],
                 sprintf(_n('%d Auftrag', '%d Aufträge', count($shown), 'taxmod-manufacturing'), count($shown)));
+
+        if ($tab === 'boxes') {
+            return $html . $this->boxList($orders) . '</div>';
+        }
 
         [$lists, $labels, $boardOf] = $this->context($shown);
         $rows             = '';
@@ -395,7 +406,8 @@ final class OrdersPage
 
         $chosen = array_values(array_filter(array_map('absint', (array) wp_unslash($_POST['boards'] ?? []))));
         $label  = $this->service->labelsOf([$project])[$project] ?? '#' . $project;
-        $id     = $this->service->create($project, $count, null, sprintf(__('Fertigung %1$s, %2$s', 'taxmod-manufacturing'), $label, current_time('Y-m-d')), $chosen);
+        $box    = absint($_POST['box'] ?? 0);
+        $id     = $this->service->create($project, $count, $box > 0 && isset($this->service->boxesOf($project)[$box]) ? $box : null, sprintf(__('Fertigung %1$s, %2$s', 'taxmod-manufacturing'), $label, current_time('Y-m-d')), $chosen);
 
         $back['auftrag'] = $id;
         $back['tab']     = 'open';
@@ -734,7 +746,7 @@ final class OrdersPage
 
         if (method_exists(ListPage::class, 'shownBy')) {
             // D-1311: the boards of the chosen project show in the dialog itself; the server still takes only that project's.
-            foreach ($this->service->boardsOfProjects(array_keys($projects)) as $project => $boards) {
+            foreach (array_intersect_key($this->boards, $projects) as $project => $boards) {
                 $body .= ListPage::shownBy('project', (string) $project, '<fieldset><legend>' . esc_html__('Platinen', 'taxmod-manufacturing') . '</legend>' . $this->boardBoxes($boards) . '</fieldset>');
             }
 
@@ -744,8 +756,8 @@ final class OrdersPage
         }
 
         return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
-            . $this->hidden(['action' => self::ACTION, 'tab' => $this->tab()])
-            . ListPage::dialogAction('taxmod-mf-new', __('Neuer Auftrag', 'taxmod-manufacturing'), __('Neuer Fertigungsauftrag', 'taxmod-manufacturing'), $body, 'do', 'create', __('Anlegen', 'taxmod-manufacturing'))
+            . $this->hidden(['action' => self::ACTION, 'tab' => $this->tab()] + ($box > 0 ? ['box' => (string) $box] : []))
+            . ListPage::dialogAction('taxmod-mf-new' . ($box > 0 ? '-' . $box : ''), $box > 0 ? __('+ Auftrag', 'taxmod-manufacturing') : __('Neuer Auftrag', 'taxmod-manufacturing'), __('Neuer Fertigungsauftrag', 'taxmod-manufacturing'), $body, 'do', 'create', __('Anlegen', 'taxmod-manufacturing'))
             . '</form>';
     }
 
@@ -897,9 +909,9 @@ final class OrdersPage
 
     private function tab(): string
     {
-        $tab = sanitize_key((string) ($_REQUEST['tab'] ?? 'open'));
+        $tab = sanitize_key((string) ($_REQUEST['tab'] ?? 'boxes'));
 
-        return in_array($tab, ['open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_done'], true) ? $tab : 'open';
+        return in_array($tab, ['boxes', 'open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_done'], true) ? $tab : 'boxes';
     }
 
     private function inTab(BuildOrder $order, string $tab): bool
