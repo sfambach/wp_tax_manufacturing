@@ -162,12 +162,15 @@ final class OrdersPage
             ['order_building', __('Bestückung', 'taxmod-manufacturing')],
             ['order_done', __('Fertiggestellt', 'taxmod-manufacturing')],
         ]));
+        // The order's own status stays marked apart from the open tab (architecture 13.11.).
+        $views   = array_map(static fn (array $v): array => $v[0] === $order->step ? [$v[0], sprintf(__('%s · aktuell', 'taxmod-manufacturing'), $v[1])] : $v, $views);
         $keys    = array_column($views, 0);
         $view    = sanitize_key((string) ($_GET['view'] ?? ''));
         $view    = in_array($view, $keys, true) ? $view : (in_array($order->step, $keys, true) ? $order->step : 'order_planned');
 
-        $html = $back . '<h2>' . esc_html($order->label) . '</h2>'
-            . ListPage::toolbar([$this->rowButtons($order, Demand::missingRows($demand))])
+        $list = $this->url(['tab' => $this->tab()]);
+        $html = (method_exists(ListPage::class, 'back') ? '' : $back) . '<h2>' . esc_html($order->label) . '</h2>'
+            . ListPage::toolbar([method_exists(ListPage::class, 'back') ? ListPage::back($list, __('Alle Aufträge', 'taxmod-manufacturing')) : '', $this->rowButtons($order, Demand::missingRows($demand))])
             . '<div style="display:flex;gap:2.5em;flex-wrap:wrap;margin:.5em 0 1em">' . $head . '</div>'
             . ListPage::steps($views, $view, fn (string $key): string => $this->url(['tab' => $this->tab(), 'auftrag' => $order->id, 'view' => $key]));
 
