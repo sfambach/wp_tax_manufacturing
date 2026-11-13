@@ -81,6 +81,7 @@ final class ManufacturingService
     public const BOOK_FILTER = 'taxmod_stock_book_build';
     public const PLACES_FILTER = 'taxmod_stock_places_of';
     public const OUTPUT_FILTER = 'taxmod_stock_book_output';
+    public const TEST_PLACE_FILTER = 'taxmod_stock_test_place';
     public const CREATE_THING_FILTER = 'taxmod_stock_create_thing';
     public const PICK_FILTER   = 'taxmod_stock_book_pick';
     /** D9 (D-1320): longer strips of the same kind a missing strip can be cut from, and the booking of the cut. */
@@ -510,14 +511,20 @@ final class ManufacturingService
         return $counts === [] ? 0 : min($counts);
     }
 
-    /** Finished boards into the order's box as their own material (D-1143), tested (D-1177); fewer finished give them back. */
+    /**
+     * Finished boards as their own material (D-1143), untested, one lot per piece, onto the stock's place «Test» when one is
+     * set, else into the order's box (D-1342); fewer finished give them back.
+     */
     private function bookOutput(BuildOrder $order, int $revision, int $boards, string $today, ?int $sparte): void
     {
-        if ($order->box === null) {
+        $test  = has_filter(self::TEST_PLACE_FILTER) ? (int) apply_filters(self::TEST_PLACE_FILTER, null) : 0;
+        $place = $boards > 0 && $test > 0 ? $test : $order->box;
+
+        if ($place === null) {
             throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
         }
 
-        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $order->box, 'lines' => [$this->materialFor($revision, $sparte) => (float) $boards], 'title' => $order->label, 'date' => $today, 'tested' => true]);
+        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $place, 'lines' => [$this->materialFor($revision, $sparte) => (float) $boards], 'title' => $order->label, 'date' => $today]);
 
         if (is_wp_error($answer)) {
             throw ManufacturingError::stockRefused($answer->get_error_message());
