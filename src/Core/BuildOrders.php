@@ -75,11 +75,12 @@ final class BuildOrders
             (string) ($orders->first($id, $s->field('label')) ?? '#' . $id),
             (int) $orders->first($id, $s->field('order_project')),
             max(1, (int) ($orders->first($id, $s->field('order_count')) ?? 1)),
-            $s->stepOf($orders->first($id, $s->field('order_status')), Structure::ORDER_STEPS) ?? 'order_planned',
+            $s->stepOf($orders->first($id, $s->field('order_status')), Structure::PROCESS) ?? 'order_planned',
             $box > 0 ? $box : null,
             $optional('order_started'),
             $optional('order_finished'),
             $parts,
+            (string) ($optional('order_shortage_reason') ?? ''),
         );
     }
 }

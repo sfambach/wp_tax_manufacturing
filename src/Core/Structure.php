@@ -30,20 +30,23 @@ final class Structure
     /** The steps of an order and of an assembly, in their order of the process. */
     public const ORDER_STEPS = ['order_planned', 'order_building', 'order_done', 'order_cancelled'];
 
+    /** D-1300: the process an order runs through; «Bereitstellung» is optional until the model has it. */
+    public const PROCESS = ['order_planned', 'order_staging', 'order_building', 'order_done', 'order_cancelled'];
+
     public const ASSEMBLY_STEPS = ['build_open', 'build_parts', 'build_assembled', 'build_tested', 'build_done'];
 
     // D-1143: the assembled board as a material of its own, one record per revision.
     // D-1261: the hardware branch, whose groups (Sparten) hold the assembled boards.
     private const OPTIONAL_NODES = ['location', 'assembled', 'lager', 'hardware'];
 
-    private const OPTIONAL_FIELDS = ['order_box', 'order_started', 'order_finished', 'order_note', 'assembly_note', 'assembly_tested', 'assembly_done',
+    private const OPTIONAL_FIELDS = ['order_shortage_reason', 'order_box', 'order_started', 'order_finished', 'order_note', 'assembly_note', 'assembly_tested', 'assembly_done',
         // D-954: the column «Best.» of a parts list and the reference designators; D-1030: the project a box belongs to.
         'position_fitting', 'position_ref', 'location_project', 'assembled_revision',
         // D-1178: the pins a socket strip loses at each cut, on the material's stock record.
         'lager_thing', 'lager_cut_loss'];
 
     /** D-954: the «Best.» values that matter here — «optional» may be left out, «nein» is never needed. */
-    private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no', 'fitting_external'];
+    private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no', 'fitting_external', 'order_staging'];
 
     /**
      * @param array<string, int> $nodes

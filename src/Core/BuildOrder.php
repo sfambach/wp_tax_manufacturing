@@ -16,6 +16,8 @@ final class BuildOrder
         public readonly ?string $started,
         public readonly ?string $finished,
         public readonly array $assemblies,
+        /** D-1301: why it went into building with parts missing; '' when it did not */
+        public readonly string $shortageReason = '',
     ) {
     }
 

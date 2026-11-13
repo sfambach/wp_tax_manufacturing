@@ -19,6 +19,11 @@ final class ManufacturingError extends \RuntimeException
         return new self('not_configured', $key);
     }
 
+    public static function shortageWithoutReason(int $order): self
+    {
+        return new self('shortage_without_reason', (string) $order);
+    }
+
     public static function noBoardChosen(int $project): self
     {
         return new self('no_board_chosen', (string) $project);

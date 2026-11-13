@@ -15,12 +15,12 @@ final class OrderChangesTest extends TestCase
         'nodes'  => ['project' => 1, 'board' => 2, 'board_revision' => 3, 'bom_position' => 4, 'order' => 5, 'assembly' => 6, 'fitting' => 7],
         'fields' => [
             'label' => 10, 'project_boards' => 11, 'board_revisions' => 12, 'revision_positions' => 13, 'position_part' => 14, 'position_count' => 15,
-            'order_project' => 20, 'order_count' => 21, 'order_status' => 22, 'order_assemblies' => 23, 'order_started' => 24, 'order_finished' => 25,
+            'order_project' => 20, 'order_count' => 21, 'order_status' => 22, 'order_assemblies' => 23, 'order_started' => 24, 'order_finished' => 25, 'order_shortage_reason' => 26,
             'assembly_revision' => 30, 'assembly_status' => 31, 'assembly_unused' => 32, 'assembly_note' => 33,
             'assembly_fitted' => 34, 'fitting_position' => 35, 'fitting_boards' => 36, 'assembly_tested' => 37, 'assembly_done' => 38,
         ],
         'values' => [
-            'order_planned' => 40, 'order_building' => 41, 'order_done' => 42, 'order_cancelled' => 43,
+            'order_planned' => 40, 'order_staging' => 44, 'order_building' => 41, 'order_done' => 42, 'order_cancelled' => 43,
             'build_open' => 50, 'build_parts' => 51, 'build_assembled' => 52, 'build_tested' => 53, 'build_done' => 54,
         ],
     ];
@@ -134,5 +134,24 @@ final class OrderChangesTest extends TestCase
         $orders = new Table([500 => [10 => ['Fertigung s7vrm'], 20 => ['100'], 21 => ['3'], 22 => [$status], 23 => array_map('strval', array_keys($assemblies))]]);
 
         return (new BuildOrders($this->s()))->one(500, $orders, new Table($assemblies), new Table($fittings));
+    }
+
+    public function testIntoBuildingWithMissingPartsNeedsAReasonAndKeepsOnlyIt(): void
+    {
+        $changes = new OrderChanges($this->s());
+        $order   = new \TaxmodManufacturing\Core\BuildOrder(9, 'A', 1, 2, 'order_staging', 70, null, null, []);
+
+        self::assertSame('44', (new OrderChanges($this->s()))->setStep(new \TaxmodManufacturing\Core\BuildOrder(9, 'A', 1, 2, 'order_planned', 70, null, null, []), 'order_staging', '2026-11-13')[0]['values']['22']);
+
+        try {
+            $changes->setStep($order, 'order_building', '2026-11-13', 3, ' ');
+            self::fail('a shortage without a reason must be refused');
+        } catch (ManufacturingError $e) {
+            self::assertSame('shortage_without_reason', $e->reason);
+        }
+
+        $values = $changes->setStep($order, 'order_building', '2026-11-13', 3, 'Spule kommt Montag')[0]['values'];
+        self::assertSame(['22' => '41', '24' => '2026-11-13', '26' => 'Spule kommt Montag'], $values);
+        self::assertSame('', $changes->setStep($order, 'order_building', '2026-11-13', 0, 'egal')[0]['values']['26']);
     }
 }

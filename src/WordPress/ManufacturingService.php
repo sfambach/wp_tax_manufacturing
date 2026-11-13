@@ -532,10 +532,10 @@ final class ManufacturingService
         return $out;
     }
 
-    /** @param 'order_done'|'order_cancelled'|'reopen' $to */
-    public function setStep(int $order, string $to, string $today): void
+    /** @param 'order_staging'|'order_building'|'order_done'|'order_cancelled'|'reopen' $to */
+    public function setStep(int $order, string $to, string $today, int $missing = 0, string $reason = ''): void
     {
-        $this->model->write((new OrderChanges($this->structure()))->setStep($this->order($order), $to, $today));
+        $this->model->write((new OrderChanges($this->structure()))->setStep($this->order($order), $to, $today, $missing, $reason));
     }
 
     /** @return list<int> the positions of a revision's parts list, in their order */

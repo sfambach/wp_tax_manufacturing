@@ -152,7 +152,7 @@ final class OrderChanges
 
         array_unshift($changes, ['op' => 'set_values', 'record' => (string) $assembly, 'values' => $values]);
 
-        if ($order->step === 'order_planned' && array_filter($fitted) !== []) {
+        if (in_array($order->step, ['order_planned', 'order_staging'], true) && array_filter($fitted) !== []) {
             $changes[] = ['op' => 'set_values', 'record' => (string) $order->id, 'values' => $this->stepValues('order_building', $order->started === null ? $today : null, null)];
         }
 
@@ -173,11 +173,39 @@ final class OrderChanges
      * Closing, cancelling or taking up again. «fertig» needs every assembly done; taking up goes back to «in Bau», or to
      * «geplant» while no assembly has left «offen».
      *
-     * @param 'order_done'|'order_cancelled'|'reopen' $to
+     * @param 'order_staging'|'order_building'|'order_done'|'order_cancelled'|'reopen' $to
+     * @param string $reason D-1301: why it goes into building although parts are missing; only the reason is kept, what is missing stays derived
      * @return list<array<string, mixed>>
      */
-    public function setStep(BuildOrder $order, string $to, string $today): array
+    public function setStep(BuildOrder $order, string $to, string $today, int $missing = 0, string $reason = ''): array
     {
+        if ($to === 'order_staging') {
+            if ($order->step !== 'order_planned' || ! $this->s->hasValue('order_staging')) {
+                throw ManufacturingError::unknownStatus($to);
+            }
+
+            return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $this->stepValues('order_staging', null, null)]];
+        }
+
+        if ($to === 'order_building') {
+            if (! in_array($order->step, ['order_planned', 'order_staging'], true)) {
+                throw ManufacturingError::unknownStatus($to);
+            }
+
+            // D-1301 «das muss eine aktive Entscheidung sein»: with parts missing only with a reason.
+            if ($missing > 0 && trim($reason) === '') {
+                throw ManufacturingError::shortageWithoutReason($order->id);
+            }
+
+            $values = $this->stepValues('order_building', $order->started === null ? $today : null, null);
+
+            if ($this->s->hasField('order_shortage_reason')) {
+                $values[(string) $this->s->field('order_shortage_reason')] = $missing > 0 ? trim($reason) : '';
+            }
+
+            return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $values]];
+        }
+
         if ($to === 'order_done') {
             if (! $order->isFinished()) {
                 throw ManufacturingError::assembliesNotDone($order->id);

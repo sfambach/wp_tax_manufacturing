@@ -67,17 +67,23 @@ final class OrdersPage
         }
 
         $tab   = $this->tab();
-        $tabs  = [
+        $in    = static fn (string $step): int => count(array_filter($orders, static fn (BuildOrder $o): bool => $o->step === $step));
+        // D-1300, D-1197: the process as arrow tiles with their counts; «Offen» and «Abgebrochen» beside it.
+        $steps = array_values(array_filter([
+            ['order_planned', __('Angelegt', 'taxmod-manufacturing'), $in('order_planned')],
+            $this->service->structure()->hasValue('order_staging') ? ['order_staging', __('Bereitstellung', 'taxmod-manufacturing'), $in('order_staging')] : null,
+            ['order_building', __('In Fertigung', 'taxmod-manufacturing'), $in('order_building')],
+            ['order_done', __('Fertiggestellt', 'taxmod-manufacturing'), $in('order_done')],
+        ]));
+        $beside = [
             ['open', __('Offen', 'taxmod-manufacturing'), count(array_filter($orders, static fn (BuildOrder $o): bool => ! $o->isClosed()))],
-            ['done', __('Fertig', 'taxmod-manufacturing'), count(array_filter($orders, static fn (BuildOrder $o): bool => $o->step === 'order_done'))],
-            ['cancelled', __('Abgebrochen', 'taxmod-manufacturing'), count(array_filter($orders, static fn (BuildOrder $o): bool => $o->step === 'order_cancelled'))],
-            ['all', __('Alle', 'taxmod-manufacturing'), count($orders)],
+            ['cancelled', __('Abgebrochen', 'taxmod-manufacturing'), $in('order_cancelled')],
         ];
         $shown = array_values(array_filter($orders, fn (BuildOrder $o): bool => $this->inTab($o, $tab)));
 
         $html .= $this->chooseBoards()
             . ListPage::toolbar([$this->createAction()])
-            . ListPage::tabs($tabs, $tab, fn (string $slug): string => $this->url(['tab' => $slug]))
+            . ListPage::steps($steps, $tab, fn (string $slug): string => $this->url(['tab' => $slug]), $beside, ['all', __('Alle', 'taxmod-manufacturing'), count($orders)])
             . ListPage::bulkBar(self::FORM, self::NONCE, [self::BULK_CANCEL => __('Abbrechen', 'taxmod-manufacturing'), self::BULK_REOPEN => __('Wieder aufnehmen', 'taxmod-manufacturing')],
                 sprintf(_n('%d Auftrag', '%d Aufträge', count($shown), 'taxmod-manufacturing'), count($shown)));
 
@@ -124,7 +130,7 @@ final class OrdersPage
         $facts            = [
             __('Projekt', 'taxmod-manufacturing')  => esc_html($labels[$order->project] ?? '#' . $order->project),
             __('Stück', 'taxmod-manufacturing')    => esc_html((string) $order->count),
-            __('Status', 'taxmod-manufacturing')   => esc_html($this->orderStepLabel($order->step)),
+            __('Status', 'taxmod-manufacturing')   => $this->stepCell($order, Demand::missingRows($demand)),
             __('Fehlende Pos.', 'taxmod-manufacturing') => esc_html($order->box === null ? '—' : (string) Demand::missingRows($demand)),
             __('Begonnen', 'taxmod-manufacturing') => esc_html($order->started ?? '—'),
             __('Fertig', 'taxmod-manufacturing')   => esc_html($order->finished ?? '—'),
@@ -136,7 +142,7 @@ final class OrdersPage
         }
 
         $html = $back . '<h2>' . esc_html($order->label) . '</h2>'
-            . ListPage::toolbar([$this->rowButtons($order)])
+            . ListPage::toolbar([$this->rowButtons($order, Demand::missingRows($demand))])
             . '<div style="display:flex;gap:2.5em;flex-wrap:wrap;margin:.5em 0 1em">' . $head . '</div>'
             . $this->boxForm($order);
 
@@ -352,6 +358,8 @@ final class OrdersPage
                     'box'      => $this->box($order, $back),
                     'pick'     => $this->pick($order, $today, $back),
                     'reorder'  => $this->reorder($order, $back),
+                    'staging'  => $this->step($order, 'order_staging', $today, $back),
+                    'building' => $this->toBuilding($order, $today, $back),
                     'done'     => $this->step($order, 'order_done', $today, $back),
                     'cancel'   => $this->step($order, 'order_cancelled', $today, $back),
                     'reopen'   => $this->step($order, 'reopen', $today, $back),
@@ -511,7 +519,24 @@ final class OrdersPage
     }
 
     /**
-     * @param 'order_done'|'order_cancelled'|'reopen' $to
+     * D-1301: into building; the parts still missing are read now, and with any missing the reason must be given.
+     *
+     * @param array<string, string|int> $back
+     */
+    private function toBuilding(int $order, string $today, array &$back): string
+    {
+        $built           = $this->service->order($order);
+        [$lists, , $boardOf] = $this->context([$built]);
+        $missing         = Demand::missingRows(Demand::of($built->assemblies, $lists, $built->count, $this->service->presentIn($built->box), $boardOf));
+        $back['auftrag'] = $order;
+
+        $this->service->setStep($order, 'order_building', $today, $missing, sanitize_text_field(wp_unslash((string) ($_POST['reason'] ?? ''))));
+
+        return 'building';
+    }
+
+    /**
+     * @param 'order_staging'|'order_done'|'order_cancelled'|'reopen' $to
      * @param array<string, string|int> $back
      */
     private function step(int $order, string $to, string $today, array &$back): string
@@ -521,7 +546,7 @@ final class OrdersPage
             $back['auftrag'] = $order;
         }
 
-        return ['order_done' => 'closed', 'order_cancelled' => 'cancelled', 'reopen' => 'reopened'][$to];
+        return ['order_staging' => 'staging', 'order_done' => 'closed', 'order_cancelled' => 'cancelled', 'reopen' => 'reopened'][$to];
     }
 
     /**
@@ -535,7 +560,7 @@ final class OrdersPage
             '<strong><a href="' . esc_url($this->url(['auftrag' => $order->id, 'tab' => $this->tab()])) . '">' . esc_html($order->label) . '</a></strong>',
             esc_html($labels[$order->project] ?? '#' . $order->project),
             esc_html((string) $order->count),
-            esc_html($this->orderStepLabel($order->step)),
+            $this->stepCell($order, $order->box === null ? 0 : Demand::missingRows($demand)),
             esc_html(implode(' · ', array_map(static fn (Assembly $a): string => Demand::boardsFitted($demand[$a->id] ?? []) . '/' . $a->done, $order->assemblies))),
             $order->box === null ? '<em>' . esc_html__('keins', 'taxmod-manufacturing') . '</em>' : esc_html($labels[$order->box] ?? '#' . $order->box),
             esc_html($order->box === null ? '—' : (string) Demand::missingRows($demand)),
@@ -553,7 +578,7 @@ final class OrdersPage
 
         $details = '<ul style="margin:.5em 0">' . $details . '</ul><p><a class="button" href="' . esc_url($this->url(['auftrag' => $order->id, 'tab' => $this->tab()])) . '">' . esc_html__('Öffnen', 'taxmod-manufacturing') . '</a></p>';
 
-        return ListPage::row(self::FORM, (string) $order->id, $cells, $this->rowButtons($order), $details);
+        return ListPage::row(self::FORM, (string) $order->id, $cells, $this->rowButtons($order, $order->box === null ? 0 : Demand::missingRows($demand)), $details);
     }
 
     /** The order's box: everything lying on it and in it counts as there (his word 2026-11-04). */
@@ -575,9 +600,23 @@ final class OrdersPage
             ]], $this->saveButton()) . '</form>';
     }
 
-    private function rowButtons(BuildOrder $order): string
+    private function rowButtons(BuildOrder $order, int $missing = 0): string
     {
         $buttons = '';
+
+        if ($order->step === 'order_planned' && $this->service->structure()->hasValue('order_staging')) {
+            $buttons .= $this->dialogForm('staging', $order, __('In Bereitstellung geben', 'taxmod-manufacturing'), __('In Bereitstellung geben?', 'taxmod-manufacturing'),
+                esc_html__('Die Teile werden jetzt ins Gebinde umgelagert oder reserviert.', 'taxmod-manufacturing'));
+        }
+
+        if (in_array($order->step, ['order_planned', 'order_staging'], true)) {
+            $buttons .= $missing === 0 || $order->box === null
+                ? $this->dialogForm('building', $order, __('In Fertigung geben', 'taxmod-manufacturing'), __('In Fertigung geben?', 'taxmod-manufacturing'),
+                    esc_html__('Alle Teile sind bereit.', 'taxmod-manufacturing'))
+                : $this->dialogForm('building', $order, __('Trotzdem in Fertigung geben …', 'taxmod-manufacturing'), __('Trotzdem in Fertigung geben?', 'taxmod-manufacturing'),
+                    esc_html(sprintf(_n('Es fehlt noch %d Position. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', 'Es fehlen noch %d Positionen. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', $missing, 'taxmod-manufacturing'), $missing))
+                    . '</p><p><label>' . esc_html__('Grund', 'taxmod-manufacturing') . '<br><input type="text" class="regular-text" name="reason" required></label>');
+        }
 
         if (! $order->isClosed() && $order->isFinished()) {
             $buttons .= $this->dialogForm('done', $order, __('Abschließen', 'taxmod-manufacturing'), __('Auftrag abschließen?', 'taxmod-manufacturing'),
@@ -804,6 +843,8 @@ final class OrdersPage
             'closed'    => __('Auftrag abgeschlossen. «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'),
             'cancelled' => __('Abgebrochen. «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'),
             'reopened'  => __('Wieder aufgenommen.', 'taxmod-manufacturing'),
+            'staging'   => __('In Bereitstellung.', 'taxmod-manufacturing'),
+            'building'  => __('In Fertigung.', 'taxmod-manufacturing'),
         ][sanitize_key((string) ($_GET['msg'] ?? ''))] ?? '';
 
         return $text === '' ? '' : '<div class="notice notice-success"><p>' . esc_html($text) . '</p></div>';
@@ -813,6 +854,7 @@ final class OrdersPage
     {
         return match ($error->reason) {
             'not_configured'           => sprintf(__('Im Modell fehlt %s.', 'taxmod-manufacturing'), $error->detail),
+            'shortage_without_reason'  => __('Es fehlen noch Teile: bitte einen Grund angeben.', 'taxmod-manufacturing'),
             'no_board_chosen'          => __('Keine Platine gewählt.', 'taxmod-manufacturing'),
             'project_without_boards'   => __('Das Projekt hat keine Platine mit Revision.', 'taxmod-manufacturing'),
             'count_not_positive'       => __('Die Stückzahl muss eine ganze Zahl ab 1 sein.', 'taxmod-manufacturing'),
@@ -830,10 +872,23 @@ final class OrdersPage
         };
     }
 
+    /** The step, and «Fehlteile» while an order that went into building with parts missing still lacks some (D-1301). */
+    private function stepCell(BuildOrder $order, int $missing): string
+    {
+        $html = esc_html($this->orderStepLabel($order->step));
+
+        if ($order->step === 'order_building' && $order->shortageReason !== '' && $missing > 0) {
+            $html .= ' <strong title="' . esc_attr($order->shortageReason) . '">' . esc_html__('Fehlteile', 'taxmod-manufacturing') . '</strong>';
+        }
+
+        return $html;
+    }
+
     private function orderStepLabel(string $step): string
     {
         return [
             'order_planned'   => __('geplant', 'taxmod-manufacturing'),
+            'order_staging'   => __('Bereitstellung', 'taxmod-manufacturing'),
             'order_building'  => __('in Bau', 'taxmod-manufacturing'),
             'order_done'      => __('fertig', 'taxmod-manufacturing'),
             'order_cancelled' => __('abgebrochen', 'taxmod-manufacturing'),
@@ -844,15 +899,16 @@ final class OrdersPage
     {
         $tab = sanitize_key((string) ($_REQUEST['tab'] ?? 'open'));
 
-        return in_array($tab, ['open', 'done', 'cancelled', 'all'], true) ? $tab : 'open';
+        return in_array($tab, ['open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_done'], true) ? $tab : 'open';
     }
 
     private function inTab(BuildOrder $order, string $tab): bool
     {
         return match ($tab) {
-            'done'      => $order->step === 'order_done',
-            'cancelled' => $order->step === 'order_cancelled',
-            'all'       => true,
+            'done', 'order_done' => $order->step === 'order_done',
+            'cancelled'          => $order->step === 'order_cancelled',
+            'order_planned', 'order_staging', 'order_building' => $order->step === $tab,
+            'all'                => true,
             default     => ! $order->isClosed(),
         };
     }
