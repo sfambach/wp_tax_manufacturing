@@ -81,11 +81,12 @@ final class OrdersPage
             ['order_planned', __('Angelegt', 'taxmod-manufacturing'), $in('order_planned')],
             $this->service->structure()->hasValue('order_staging') ? ['order_staging', __('Bereitstellung', 'taxmod-manufacturing'), $in('order_staging')] : null,
             ['order_building', __('In Fertigung', 'taxmod-manufacturing'), $in('order_building')],
-            ['order_done', __('Fertiggestellt', 'taxmod-manufacturing'), $in('order_done')],
         ]));
-        $beside = [
-            ['cancelled', __('Abgebrochen', 'taxmod-manufacturing'), $in('order_cancelled')],
-        ];
+        $ends   = [['order_done', __('Fertiggestellt', 'taxmod-manufacturing'), $in('order_done')], ['cancelled', __('Abgebrochen', 'taxmod-manufacturing'), $in('order_cancelled')]];
+        // D-1346: the two ends side by side came with the modeller 0.2.86; before it «Abgebrochen» stands beside as a tab.
+        $stacked = version_compare(\Taxmod\WordPress\Plugin::VERSION, '0.2.86', '>=');
+        $steps[] = $stacked ? $ends : $ends[0];
+        $beside  = $stacked ? [] : [$ends[1]];
         $shown = array_values(array_filter($orders, fn (BuildOrder $o): bool => $this->inTab($o, $tab)));
 
         $html .= $this->chooseBoards()
