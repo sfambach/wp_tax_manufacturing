@@ -76,8 +76,9 @@ final class OrdersPage
         $in    = static fn (string $step): int => count(array_filter($orders, static fn (BuildOrder $o): bool => $o->step === $step));
         // D-1300, D-1197, D-1325: the process as arrow tiles with their counts, starting at the project boxes an order grows
         // out of; «Abgebrochen» ends it beside «Fertiggestellt». «Offen» fell away: it counted what «Angelegt» counts (his word 13.11.).
+        $boxes = $this->service->projectBoxes();
         $steps = array_values(array_filter([
-            ['boxes', __('Projektgebinde', 'taxmod-manufacturing')],
+            ['boxes', __('Projektgebinde', 'taxmod-manufacturing'), count($boxes)],
             ['order_planned', __('Angelegt', 'taxmod-manufacturing'), $in('order_planned')],
             $this->service->structure()->hasValue('order_staging') ? ['order_staging', __('Bereitstellung', 'taxmod-manufacturing'), $in('order_staging')] : null,
             ['order_building', __('In Fertigung', 'taxmod-manufacturing'), $in('order_building')],
@@ -96,7 +97,7 @@ final class OrdersPage
                 sprintf(_n('%d Auftrag', '%d Aufträge', count($shown), 'taxmod-manufacturing'), count($shown)));
 
         if ($tab === 'boxes') {
-            return $html . $this->boxList($orders) . '</div>';
+            return $html . $this->boxList($orders, $boxes) . '</div>';
         }
 
         [$lists, $labels, $boardOf] = $this->context($shown);
@@ -791,10 +792,10 @@ final class OrdersPage
      * lies in it, its open orders, and «+ Auftrag» with project and box filled in.
      *
      * @param list<BuildOrder> $orders
+     * @param array<int, array{project: int, label: string, pieces: ?float}> $boxes place → box, read once by the page
      */
-    private function boxList(array $orders): string
+    private function boxList(array $orders, array $boxes): string
     {
-        $boxes  = $this->service->projectBoxes();
         $labels = $this->service->labelsOf(array_values(array_unique(array_column($boxes, 'project'))));
         $count  = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
         $rows   = '';
