@@ -154,12 +154,39 @@ final class OrdersPage
             $head .= '<div><span class="description">' . esc_html($label) . '</span><br><strong>' . $value . '</strong></div>';
         }
 
+        // His word 2026-11-13: the order's menu holds its steps; fitting opens only once the order is in production.
+        $started = in_array($order->step, ['order_building', 'order_done'], true) || ($order->step === 'order_cancelled' && $order->started !== null);
+        $views   = array_values(array_filter([
+            ['order_planned', __('Angelegt', 'taxmod-manufacturing')],
+            $this->service->structure()->hasValue('order_staging') ? ['order_staging', __('Bereitstellung', 'taxmod-manufacturing')] : null,
+            ['order_building', __('Bestückung', 'taxmod-manufacturing')],
+            ['order_done', __('Fertiggestellt', 'taxmod-manufacturing')],
+        ]));
+        $keys    = array_column($views, 0);
+        $view    = sanitize_key((string) ($_GET['view'] ?? ''));
+        $view    = in_array($view, $keys, true) ? $view : (in_array($order->step, $keys, true) ? $order->step : 'order_planned');
+
         $html = $back . '<h2>' . esc_html($order->label) . '</h2>'
             . ListPage::toolbar([$this->rowButtons($order, Demand::missingRows($demand))])
             . '<div style="display:flex;gap:2.5em;flex-wrap:wrap;margin:.5em 0 1em">' . $head . '</div>'
-            . $this->boxForm($order);
+            . ListPage::steps($views, $view, fn (string $key): string => $this->url(['tab' => $this->tab(), 'auftrag' => $order->id, 'view' => $key]));
 
-        $html .= $this->pickList($order, $demand);
+        if ($view === 'order_planned') {
+            // Without the stage «Bereitstellung» in the model, the pick list stays where the box is chosen.
+            return $html . $this->boxForm($order) . (in_array('order_staging', $keys, true) ? '' : $this->pickList($order, $demand));
+        }
+
+        if ($view === 'order_staging') {
+            return $html . ($this->pickList($order, $demand) ?: '<p class="description">' . esc_html__('Nichts mehr bereitzustellen.', 'taxmod-manufacturing') . '</p>');
+        }
+
+        if ($view === 'order_building' && ! $started) {
+            return $html . '<p class="description">' . esc_html__('Bestücken geht erst, wenn der Auftrag in Fertigung ist.', 'taxmod-manufacturing') . '</p>';
+        }
+
+        if ($view === 'order_done' && $order->step !== 'order_done') {
+            return $html . '<p class="description">' . esc_html__('Der Auftrag ist noch nicht fertiggestellt.', 'taxmod-manufacturing') . '</p>';
+        }
 
         foreach ($order->assemblies as $assembly) {
             $html .= $this->assemblyForm($order, $assembly, $labels, $lists[$assembly->revision] ?? [], $demand[$assembly->id] ?? []);
