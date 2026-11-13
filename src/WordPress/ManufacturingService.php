@@ -159,6 +159,110 @@ final class ManufacturingService
         return $places;
     }
 
+    /** D-1301: reservations with the order as subject (D-1083), and «Box leer räumen». */
+    public const RESERVE_FILTER      = 'taxmod_stock_reserve';
+    public const RESERVATIONS_FILTER = 'taxmod_stock_reservations_of';
+    public const RETURN_FILTER       = 'taxmod_stock_book_return';
+
+    public function canReserve(): bool
+    {
+        return has_filter(self::RESERVE_FILTER) && has_filter(self::RESERVATIONS_FILTER);
+    }
+
+    /**
+     * The open reservations of these orders, per part, asked once for all (CD-7).
+     *
+     * @param list<int> $orders
+     * @return array<int, array<int, float>> order → thing → pieces reserved
+     */
+    public function reservedFor(array $orders): array
+    {
+        if ($orders === [] || ! has_filter(self::RESERVATIONS_FILTER)) {
+            return [];
+        }
+
+        $answer = apply_filters(self::RESERVATIONS_FILTER, null, ['subjects' => array_values($orders)]);
+        $out    = [];
+
+        foreach (is_array($answer) ? $answer : [] as $order => $lines) {
+            foreach (is_array($lines) ? $lines : [] as $line) {
+                if (is_array($line) && (int) ($line['thing'] ?? 0) > 0) {
+                    $out[(int) $order][(int) $line['thing']] = ($out[(int) $order][(int) $line['thing']] ?? 0.0) + (float) ($line['quantity'] ?? 0);
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * What counts as there for an order: its box and what is reserved for it (D-1301 «Gebinde und Reservierung»).
+     *
+     * @param array<int, float>|null $reserved thing → pieces, from {@see reservedFor()}; null asks for this order alone
+     * @return array<int, float> thing → pieces
+     */
+    public function available(BuildOrder $order, ?array $reserved = null): array
+    {
+        $there = $this->presentIn($order->box);
+
+        foreach ($reserved ?? ($this->reservedFor([$order->id])[$order->id] ?? []) as $thing => $pieces) {
+            $there[$thing] = ($there[$thing] ?? 0.0) + $pieces;
+        }
+
+        return $there;
+    }
+
+    /**
+     * Reserves parts for the order where they lie (D-1083): one act at the stock module.
+     *
+     * @param array<int, float> $pieces thing → pieces
+     */
+    public function reserve(int $order, array $pieces, string $today): void
+    {
+        $built = $this->order($order);
+        $rows  = [];
+
+        foreach ($pieces as $thing => $n) {
+            if ($n > 0.0) {
+                $rows[] = ['thing' => $thing, 'quantity' => (string) $n];
+            }
+        }
+
+        if ($rows === []) {
+            return;
+        }
+
+        if (! has_filter(self::RESERVE_FILTER)) {
+            throw ManufacturingError::stockRefused(__('Das Lager bietet das Reservieren noch nicht an.', 'taxmod-manufacturing'));
+        }
+
+        $answer = apply_filters(self::RESERVE_FILTER, null, ['subject' => $order, 'rows' => $rows, 'deadline' => '', 'date' => $today, 'title' => $built->label]);
+
+        if (is_wp_error($answer)) {
+            throw ManufacturingError::stockRefused($answer->get_error_message());
+        }
+    }
+
+    /** «Box leer räumen» (his word 11.11.): everything in the box goes back to where it came from, one transfer. */
+    public function clearBox(int $order, string $today): void
+    {
+        $built = $this->order($order);
+
+        if ($built->box === null) {
+            throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
+        }
+
+        if (! has_filter(self::RETURN_FILTER)) {
+            throw ManufacturingError::stockRefused(__('Das Lager bietet das Zurückbuchen noch nicht an.', 'taxmod-manufacturing'));
+        }
+
+        $answer = apply_filters(self::RETURN_FILTER, null, ['box' => $built->box, 'reference' => $order, 'date' => $today, 'title' => $built->label]);
+
+        if (is_wp_error($answer)) {
+            throw ManufacturingError::stockRefused($answer->get_error_message());
+        }
+    }
+
     /** D-1302: parts lost while building go out of the box as Verbrauch › Defekt/Ausschuss (D-1297); the stock module books it. */
     public const SCRAP_FILTER = 'taxmod_stock_book_scrap';
 

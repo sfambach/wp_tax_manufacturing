@@ -99,10 +99,11 @@ final class OrdersPage
         }
 
         [$lists, $labels, $boardOf] = $this->context($shown);
+        $reserved         = $this->service->reservedFor(array_map(static fn (BuildOrder $o): int => $o->id, $shown));
         $rows             = '';
 
         foreach ($shown as $order) {
-            $rows .= $this->row($order, $labels, $lists, Demand::of($order->assemblies, $lists, $order->count, $this->service->presentIn($order->box), $boardOf));
+            $rows .= $this->row($order, $labels, $lists, Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order, $reserved[$order->id] ?? []), $boardOf));
         }
 
         if ($rows === '') {
@@ -137,7 +138,7 @@ final class OrdersPage
 
         $order            = $found[0];
         [$lists, $labels, $boardOf] = $this->context([$order]);
-        $demand           = Demand::of($order->assemblies, $lists, $order->count, $this->service->presentIn($order->box), $boardOf);
+        $demand           = Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order), $boardOf);
         $facts            = [
             __('Projekt', 'taxmod-manufacturing')  => esc_html($labels[$order->project] ?? '#' . $order->project),
             __('Stück', 'taxmod-manufacturing')    => esc_html((string) $order->count),
@@ -253,6 +254,8 @@ final class OrdersPage
             . '<div class="taxmod-mf-noprint">' . ListPage::toolbar([
                 $reorder,
                 $canPick ? '<button type="submit" class="button button-primary" form="taxmod-mf-pick">' . esc_html__('Abgehakte ins Gebinde umbuchen', 'taxmod-manufacturing') . '</button>' : '',
+                // D-1301: or leave them where they lie, reserved for this order (Handlager).
+                $canPick && $this->service->canReserve() ? '<button type="submit" class="button" form="taxmod-mf-pick" name="mode" value="reserve">' . esc_html__('Abgehakte reservieren', 'taxmod-manufacturing') . '</button>' : '',
                 '<button type="button" class="button" onclick="window.print()">' . esc_html__('Drucken', 'taxmod-manufacturing') . '</button>',
             ]) . '</div>'
             . $note
@@ -370,6 +373,7 @@ final class OrdersPage
                     'pick'     => $this->pick($order, $today, $back),
                     'reorder'  => $this->reorder($order, $back),
                     'staging'  => $this->step($order, 'order_staging', $today, $back),
+                    'clear'    => $this->clear($order, $today, $back),
                     'building' => $this->toBuilding($order, $today, $back),
                     'done'     => $this->step($order, 'order_done', $today, $back),
                     'cancel'   => $this->step($order, 'order_cancelled', $today, $back),
@@ -452,7 +456,7 @@ final class OrdersPage
     {
         $built            = $this->service->order($order);
         [$lists, , $boardOf] = $this->context([$built]);
-        $demand           = Demand::of($built->assemblies, $lists, $built->count, $this->service->presentIn($built->box), $boardOf);
+        $demand           = Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built), $boardOf);
         $things           = array_values(array_unique(array_merge(...array_map(static fn (array $rows): array => array_column($rows, 'thing'), array_values($demand)) ?: [[]])));
         $quantities       = [];
         $back['auftrag']  = $order;
@@ -514,6 +518,18 @@ final class OrdersPage
             $this->service->bookCut($order, $cuts, $today);
         }
 
+        if ($lines !== [] && sanitize_key((string) ($_POST['mode'] ?? '')) === 'reserve') {
+            $pieces = [];
+
+            foreach ($lines as $line) {
+                $pieces[$line['thing']] = ($pieces[$line['thing']] ?? 0.0) + $line['qty'];
+            }
+
+            $this->service->reserve($order, $pieces, $today);
+
+            return 'reserved';
+        }
+
         if ($lines !== []) {
             $this->service->bookPick($order, $lines, $today);
         }
@@ -530,6 +546,15 @@ final class OrdersPage
         return 'box';
     }
 
+    /** @param array<string, string|int> $back */
+    private function clear(int $order, string $today, array &$back): string
+    {
+        $this->service->clearBox($order, $today);
+        $back['auftrag'] = $order;
+
+        return 'cleared';
+    }
+
     /**
      * D-1301: into building; the parts still missing are read now, and with any missing the reason must be given.
      *
@@ -539,7 +564,7 @@ final class OrdersPage
     {
         $built           = $this->service->order($order);
         [$lists, , $boardOf] = $this->context([$built]);
-        $missing         = Demand::missingRows(Demand::of($built->assemblies, $lists, $built->count, $this->service->presentIn($built->box), $boardOf));
+        $missing         = Demand::missingRows(Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built), $boardOf));
         $back['auftrag'] = $order;
 
         $this->service->setStep($order, 'order_building', $today, $missing, sanitize_text_field(wp_unslash((string) ($_POST['reason'] ?? ''))));
@@ -633,6 +658,11 @@ final class OrdersPage
         if (! $order->isClosed() && $order->isFinished()) {
             $buttons .= $this->dialogForm('done', $order, __('Abschließen', 'taxmod-manufacturing'), __('Auftrag abschließen?', 'taxmod-manufacturing'),
                 esc_html__('Alle Platinen aller Baugruppen sind fertig. Der Auftrag wird als fertig markiert; «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'));
+        }
+
+        if ($order->box !== null && has_filter(ManufacturingService::RETURN_FILTER)) {
+            $buttons .= $this->dialogForm('clear', $order, __('Box leer räumen', 'taxmod-manufacturing'), __('Gebinde leer räumen?', 'taxmod-manufacturing'),
+                esc_html__('Alles im Gebinde geht zurück an den Platz, von dem es kam. Ein Vorgang, rückgängig über Storno.', 'taxmod-manufacturing'));
         }
 
         if ($order->isClosed()) {
@@ -895,6 +925,8 @@ final class OrdersPage
             'cancelled' => __('Abgebrochen. «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'),
             'reopened'  => __('Wieder aufgenommen.', 'taxmod-manufacturing'),
             'staging'   => __('In Bereitstellung.', 'taxmod-manufacturing'),
+            'reserved'  => __('Abgehakte Teile für den Auftrag reserviert.', 'taxmod-manufacturing'),
+            'cleared'   => __('Gebinde leer geräumt, alles zurück an seinen Platz.', 'taxmod-manufacturing'),
             'building'  => __('In Fertigung.', 'taxmod-manufacturing'),
         ][sanitize_key((string) ($_GET['msg'] ?? ''))] ?? '';
 
