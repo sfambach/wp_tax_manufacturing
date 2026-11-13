@@ -731,14 +731,53 @@ final class OrdersPage
         return '<label>' . esc_html__('Hardware-Sparte', 'taxmod-manufacturing') . ' ' . (is_string($chooser) ? $chooser : '') . '</label>';
     }
 
-    private function createAction(): string
+    /**
+     * D-1325 (his word: «bei der Fertigung mit dem Projektgebinde starten»): the project boxes, each with its project, what
+     * lies in it, its open orders, and «+ Auftrag» with project and box filled in.
+     *
+     * @param list<BuildOrder> $orders
+     */
+    private function boxList(array $orders): string
+    {
+        $boxes  = $this->service->projectBoxes();
+        $labels = $this->service->labelsOf(array_values(array_unique(array_column($boxes, 'project'))));
+        $count  = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
+        $rows   = '';
+
+        foreach ($boxes as $place => $box) {
+            $open   = array_filter($orders, static fn (BuildOrder $o): bool => $o->box === $place && ! $o->isClosed());
+            $links  = implode(', ', array_map(fn (BuildOrder $o): string => '<a href="' . esc_url($this->url(['auftrag' => $o->id])) . '">' . esc_html($o->label) . '</a>', $open));
+            $rows  .= ListPage::row('taxmod-mf-boxes', (string) $place, [
+                esc_html($box['label']),
+                esc_html($labels[$box['project']] ?? '#' . $box['project']),
+                esc_html($box['pieces'] === null ? '—' : $count($box['pieces'])),
+                $links === '' ? '—' : $links,
+            ], $this->createAction($box['project'], $place), '');
+        }
+
+        if ($rows === '') {
+            $rows = '<tr class="no-items"><td class="colspanchange" colspan="6">' . esc_html__('Keine Projektgebinde. Ein Gebinde wird zum Projektgebinde, wenn es im Lager ein Projekt bekommt.', 'taxmod-manufacturing') . '</td></tr>';
+        }
+
+        return ListPage::table([
+            [__('Gebinde', 'taxmod-manufacturing')],
+            [__('Projekt', 'taxmod-manufacturing')],
+            [__('Inhalt (Stück)', 'taxmod-manufacturing'), '8em'],
+            [__('Offene Aufträge', 'taxmod-manufacturing')],
+        ], $rows);
+    }
+
+    /** «+ Auftrag»; from a project box (D-1325) with its project and the box filled in. */
+    private function createAction(int $project = 0, int $box = 0): string
     {
         $options = '<option value="">' . esc_html__('— Projekt wählen —', 'taxmod-manufacturing') . '</option>';
 
-        $projects = $this->service->projects();
+        $this->projects ??= $this->service->projects();
+        $this->boards   ??= $this->service->boardsOfProjects(array_keys($this->projects));
+        $projects       = $project > 0 ? array_intersect_key($this->projects, [$project => true]) : $this->projects;
 
         foreach ($projects as $id => $label) {
-            $options .= '<option value="' . esc_attr((string) $id) . '">' . esc_html($label) . '</option>';
+            $options .= '<option value="' . esc_attr((string) $id) . '"' . selected($id, $project, false) . '>' . esc_html($label) . '</option>';
         }
 
         $body = '<label class="taxmod-dialog-field" style="display:block;margin-bottom:.5em">' . esc_html__('Projekt', 'taxmod-manufacturing') . '<br><select name="project" required>' . $options . '</select></label>'
