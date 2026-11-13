@@ -519,13 +519,7 @@ final class OrdersPage
         }
 
         if ($lines !== [] && sanitize_key((string) ($_POST['mode'] ?? '')) === 'reserve') {
-            $pieces = [];
-
-            foreach ($lines as $line) {
-                $pieces[$line['thing']] = ($pieces[$line['thing']] ?? 0.0) + $line['qty'];
-            }
-
-            $this->service->reserve($order, $pieces, $today);
+            $this->service->reserve($order, $lines, $today);
 
             return 'reserved';
         }

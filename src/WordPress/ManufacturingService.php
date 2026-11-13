@@ -213,18 +213,18 @@ final class ManufacturingService
     }
 
     /**
-     * Reserves parts for the order where they lie (D-1083): one act at the stock module.
+     * Reserves parts for the order where they lie (D-1083): one act at the stock module, which picks the lots at each place.
      *
-     * @param array<int, float> $pieces thing → pieces
+     * @param list<array{thing: int, from: int, qty: float}> $lines from the picking list
      */
-    public function reserve(int $order, array $pieces, string $today): void
+    public function reserve(int $order, array $lines, string $today): void
     {
         $built = $this->order($order);
         $rows  = [];
 
-        foreach ($pieces as $thing => $n) {
-            if ($n > 0.0) {
-                $rows[] = ['thing' => $thing, 'quantity' => (string) $n];
+        foreach ($lines as $line) {
+            if ($line['qty'] > 0.0) {
+                $rows[] = ['thing' => $line['thing'], 'place' => $line['from'], 'quantity' => (string) $line['qty']];
             }
         }
 
