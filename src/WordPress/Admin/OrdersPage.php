@@ -74,16 +74,16 @@ final class OrdersPage
 
         $tab   = $this->tab();
         $in    = static fn (string $step): int => count(array_filter($orders, static fn (BuildOrder $o): bool => $o->step === $step));
-        // D-1300, D-1197: the process as arrow tiles with their counts; «Offen» and «Abgebrochen» beside it.
+        // D-1300, D-1197, D-1325: the process as arrow tiles with their counts, starting at the project boxes an order grows
+        // out of; «Abgebrochen» ends it beside «Fertiggestellt». «Offen» fell away: it counted what «Angelegt» counts (his word 13.11.).
         $steps = array_values(array_filter([
+            ['boxes', __('Projektgebinde', 'taxmod-manufacturing')],
             ['order_planned', __('Angelegt', 'taxmod-manufacturing'), $in('order_planned')],
             $this->service->structure()->hasValue('order_staging') ? ['order_staging', __('Bereitstellung', 'taxmod-manufacturing'), $in('order_staging')] : null,
             ['order_building', __('In Fertigung', 'taxmod-manufacturing'), $in('order_building')],
             ['order_done', __('Fertiggestellt', 'taxmod-manufacturing'), $in('order_done')],
         ]));
         $beside = [
-            ['boxes', __('Projektgebinde', 'taxmod-manufacturing'), null],
-            ['open', __('Offen', 'taxmod-manufacturing'), count(array_filter($orders, static fn (BuildOrder $o): bool => ! $o->isClosed()))],
             ['cancelled', __('Abgebrochen', 'taxmod-manufacturing'), $in('order_cancelled')],
         ];
         $shown = array_values(array_filter($orders, fn (BuildOrder $o): bool => $this->inTab($o, $tab)));
