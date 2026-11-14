@@ -1044,7 +1044,8 @@ final class OrdersPage
     private function tab(): string
     {
         $slug = sanitize_key((string) ($_GET['module'] ?? ''));
-        $tab  = sanitize_key((string) ($_REQUEST['tab'] ?? (array_search($slug, self::VIEWS, true) ?: 'boxes')));
+        // The navigation may send an empty «tab»; then the menu point's slug names the view.
+        $tab  = sanitize_key((string) ($_REQUEST['tab'] ?? '')) ?: (array_search($slug, self::VIEWS, true) ?: 'boxes');
 
         return in_array($tab, self::TABS, true) ? $tab : 'boxes';
     }

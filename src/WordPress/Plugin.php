@@ -42,7 +42,8 @@ final class Plugin
             $labels = OrdersPage::viewLabels();
 
             foreach (OrdersPage::VIEWS as $view => $slug) {
-                $pages[] = ['slug' => $slug, 'label' => $labels[$view], 'area' => 'production', 'render' => static fn (): string => (new OrdersPage())->render()];
+                // The area head «Fertigung» opens the first point instead of an overview of tiles (stock 0.64.78; an older stock ignores it).
+                $pages[] = ['slug' => $slug, 'label' => $labels[$view], 'area' => 'production', 'opens_area' => $view === 'boxes', 'render' => static fn (): string => (new OrdersPage())->render()];
             }
 
             return $pages;
