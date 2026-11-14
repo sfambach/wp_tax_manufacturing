@@ -38,15 +38,8 @@ final class Plugin
         // D-1085: a module's page opens inside the logistics frame; the stock module draws the navigation.
         add_filter('taxmod_logistics_pages', static function (mixed $pages): array {
             $pages  = is_array($pages) ? $pages : [];
-            // His word 2026-11-14: one menu point per arrow of the process bar, in its order.
-            $labels = [
-                'boxes'          => __('Projektgebinde', 'taxmod-manufacturing'),
-                'order_planned'  => __('Angelegt', 'taxmod-manufacturing'),
-                'order_staging'  => __('Bereitstellung', 'taxmod-manufacturing'),
-                'order_building' => __('In Fertigung', 'taxmod-manufacturing'),
-                'order_done'     => __('Fertiggestellt', 'taxmod-manufacturing'),
-                'cancelled'      => __('Abgebrochen', 'taxmod-manufacturing'),
-            ];
+            // His word 2026-11-14: one menu point per arrow of the process bar, in its order, named like the arrow.
+            $labels = OrdersPage::viewLabels();
 
             foreach (OrdersPage::VIEWS as $view => $slug) {
                 $pages[] = ['slug' => $slug, 'label' => $labels[$view], 'area' => 'production', 'render' => static fn (): string => (new OrdersPage())->render()];

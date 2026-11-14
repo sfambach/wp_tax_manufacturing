@@ -36,6 +36,22 @@ final class OrdersPage
         'cancelled'      => self::SLUG . '-abgebrochen',
     ];
 
+    /** @return array<string, string> view → its name, the same for the menu point and the arrow */
+    public static function viewLabels(): array
+    {
+        return [
+            'boxes'          => __('Projektgebinde', 'taxmod-manufacturing'),
+            'order_planned'  => __('Angelegt', 'taxmod-manufacturing'),
+            'order_staging'  => __('Bereitstellung', 'taxmod-manufacturing'),
+            'order_building' => __('In Fertigung', 'taxmod-manufacturing'),
+            'order_done'     => __('Fertiggestellt', 'taxmod-manufacturing'),
+            'cancelled'      => __('Abgebrochen', 'taxmod-manufacturing'),
+        ];
+    }
+
+    /** Every view the list knows; «open», «done» and «all» stay for old links. */
+    public const TABS = ['boxes', 'open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_done'];
+
     public const ACTION = 'taxmod_manufacturing';
 
     public const BULK_CANCEL = 'taxmod_manufacturing_cancel';
@@ -73,6 +89,13 @@ final class OrdersPage
             return $html . '<div class="notice notice-warning"><p>' . esc_html__('Das Modell der Fertigung ist noch nicht eingespielt. Es fehlen:', 'taxmod-manufacturing') . ' <code>' . esc_html(implode(', ', $missing)) . '</code></p></div></div>';
         }
 
+        $asked = sanitize_key((string) ($_GET['tab'] ?? ''));
+
+        if ($asked !== '' && ! in_array($asked, self::TABS, true)) {
+            return $html . '<div class="notice notice-error"><p>' . esc_html__('Diese Ansicht gibt es nicht.', 'taxmod-manufacturing')
+                . ' <a href="' . esc_url($this->url(['tab' => 'boxes'])) . '">' . esc_html__('Zu den Projektgebinden', 'taxmod-manufacturing') . '</a></p></div></div>';
+        }
+
         try {
             $orders = $this->service->orders();
         } catch (ManufacturingError $error) {
@@ -90,13 +113,14 @@ final class OrdersPage
         // D-1300, D-1197, D-1325: the process as arrow tiles with their counts, starting at the project boxes an order grows
         // out of; «Abgebrochen» ends it beside «Fertiggestellt». «Offen» fell away: it counted what «Angelegt» counts (his word 13.11.).
         $boxes = $this->service->projectBoxes();
+        $name  = self::viewLabels();
         $steps = array_values(array_filter([
-            ['boxes', __('Projektgebinde', 'taxmod-manufacturing'), count($boxes)],
-            ['order_planned', __('Angelegt', 'taxmod-manufacturing'), $in('order_planned')],
-            $this->service->structure()->hasValue('order_staging') ? ['order_staging', __('Bereitstellung', 'taxmod-manufacturing'), $in('order_staging')] : null,
-            ['order_building', __('In Fertigung', 'taxmod-manufacturing'), $in('order_building')],
+            ['boxes', $name['boxes'], count($boxes)],
+            ['order_planned', $name['order_planned'], $in('order_planned')],
+            $this->service->structure()->hasValue('order_staging') ? ['order_staging', $name['order_staging'], $in('order_staging')] : null,
+            ['order_building', $name['order_building'], $in('order_building')],
         ]));
-        $ends   = [['order_done', __('Fertiggestellt', 'taxmod-manufacturing'), $in('order_done')], ['cancelled', __('Abgebrochen', 'taxmod-manufacturing'), $in('order_cancelled')]];
+        $ends   = [['order_done', $name['order_done'], $in('order_done')], ['cancelled', $name['cancelled'], $in('order_cancelled')]];
         // D-1346: the two ends side by side came with the modeller 0.2.86; before it «Abgebrochen» stands beside as a tab.
         $stacked = version_compare(\Taxmod\WordPress\Plugin::VERSION, '0.2.86', '>=');
         $steps[] = $stacked ? $ends : $ends[0];
@@ -1022,7 +1046,7 @@ final class OrdersPage
         $slug = sanitize_key((string) ($_GET['module'] ?? ''));
         $tab  = sanitize_key((string) ($_REQUEST['tab'] ?? (array_search($slug, self::VIEWS, true) ?: 'boxes')));
 
-        return in_array($tab, ['boxes', 'open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_done'], true) ? $tab : 'boxes';
+        return in_array($tab, self::TABS, true) ? $tab : 'boxes';
     }
 
     private function inTab(BuildOrder $order, string $tab): bool
