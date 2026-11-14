@@ -23,6 +23,19 @@ final class OrdersPage
 {
     public const SLUG = \TaxmodManufacturing\WordPress\Plugin::ORDERS_PAGE;
 
+    /**
+     * His word 2026-11-14: the menu under Fertigung holds the points of the process bar. Each point is a module page of its own,
+     * all drawn by this page; the open view follows from the page's slug, so menu and arrow are the same place.
+     */
+    public const VIEWS = [
+        'boxes'          => self::SLUG,
+        'order_planned'  => self::SLUG . '-angelegt',
+        'order_staging'  => self::SLUG . '-bereitstellung',
+        'order_building' => self::SLUG . '-in-fertigung',
+        'order_done'     => self::SLUG . '-fertiggestellt',
+        'cancelled'      => self::SLUG . '-abgebrochen',
+    ];
+
     public const ACTION = 'taxmod_manufacturing';
 
     public const BULK_CANCEL = 'taxmod_manufacturing_cancel';
@@ -1006,7 +1019,8 @@ final class OrdersPage
 
     private function tab(): string
     {
-        $tab = sanitize_key((string) ($_REQUEST['tab'] ?? 'boxes'));
+        $slug = sanitize_key((string) ($_GET['module'] ?? ''));
+        $tab  = sanitize_key((string) ($_REQUEST['tab'] ?? (array_search($slug, self::VIEWS, true) ?: 'boxes')));
 
         return in_array($tab, ['boxes', 'open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_done'], true) ? $tab : 'boxes';
     }
@@ -1035,6 +1049,13 @@ final class OrdersPage
     /** @param array<string, string|int> $args */
     private function url(array $args): string
     {
+        $view = (string) ($args['tab'] ?? '');
+
+        if (isset(self::VIEWS[$view])) {
+            $args['module'] = self::VIEWS[$view];
+            unset($args['tab']);
+        }
+
         return add_query_arg(array_filter(['page' => 'taxmod-lager-modul', 'module' => self::SLUG] + $args, static fn ($v): bool => $v !== '' && $v !== 0), admin_url('admin.php'));
     }
 }
