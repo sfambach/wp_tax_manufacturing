@@ -162,78 +162,154 @@ final class OrdersPage
     }
 
     /**
-     * One order on its own page: head, box, and every board with its demand list (his word 2026-11-04 «mach doch lieber eine detailansicht»).
+     * One order on its own page (D-1376): the status on top, the step back and forward, the order's fields — count and revision
+     * while it is «Angelegt» — and below them what belongs to its status: the pick list, the fitting.
      *
      * @param list<BuildOrder> $orders
      */
     private function detail(array $orders, int $id): string
     {
         $found = array_values(array_filter($orders, static fn (BuildOrder $o): bool => $o->id === $id));
-        $back  = '<p><a href="' . esc_url($this->url(['tab' => $this->tab()])) . '">← ' . esc_html__('Alle Aufträge', 'taxmod-manufacturing') . '</a></p>';
+        $list  = $this->url(['tab' => $this->tab()]);
 
         if ($found === []) {
-            return $back . '<div class="notice notice-error"><p>' . esc_html__('Diesen Auftrag gibt es nicht.', 'taxmod-manufacturing') . '</p></div>';
+            return '<div class="notice notice-error"><p>' . esc_html__('Diesen Auftrag gibt es nicht.', 'taxmod-manufacturing')
+                . ' <a href="' . esc_url($list) . '">' . esc_html__('Zur Liste', 'taxmod-manufacturing') . '</a></p></div>';
         }
 
-        $order            = $found[0];
+        if (! method_exists(ListPage::class, 'record')) {
+            return '<div class="notice notice-error"><p>' . esc_html__('Die Auftragsansicht braucht den Taxonomy Modeller ab 0.2.101.', 'taxmod-manufacturing') . '</p></div>';
+        }
+
+        $order   = $found[0];
         [$lists, $labels, $boardOf] = $this->context([$order]);
-        $demand           = Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order), $boardOf);
-        $facts            = [
-            __('Projekt', 'taxmod-manufacturing')  => esc_html($labels[$order->project] ?? '#' . $order->project),
-            __('Stück', 'taxmod-manufacturing')    => esc_html((string) $order->count),
-            __('Status', 'taxmod-manufacturing')   => $this->stepCell($order, Demand::missingRows($demand)),
-            __('Fehlende Pos.', 'taxmod-manufacturing') => esc_html($order->box === null ? '—' : (string) Demand::missingRows($demand)),
-            __('Begonnen', 'taxmod-manufacturing') => esc_html($order->started ?? '—'),
-            __('Fertig', 'taxmod-manufacturing')   => esc_html($order->finished ?? '—'),
-        ];
-        $head = '';
-
-        foreach ($facts as $label => $value) {
-            $head .= '<div><span class="description">' . esc_html($label) . '</span><br><strong>' . $value . '</strong></div>';
-        }
-
-        // His word 2026-11-13: the order's menu holds its steps; fitting opens only once the order is in production.
+        $demand  = Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order), $boardOf);
+        $missing = Demand::missingRows($demand);
+        $name    = self::viewLabels();
+        $staging = $this->service->structure()->hasValue('order_staging');
+        $fitted  = array_filter($order->assemblies, static fn (Assembly $a): bool => array_filter(array_column($a->fitted, 'boards')) !== []) !== [];
         $started = in_array($order->step, ['order_building', 'order_done'], true) || ($order->step === 'order_cancelled' && $order->started !== null);
-        $views   = array_values(array_filter([
-            ['order_planned', __('Angelegt', 'taxmod-manufacturing')],
-            $this->service->structure()->hasValue('order_staging') ? ['order_staging', __('Bereitstellung', 'taxmod-manufacturing')] : null,
-            ['order_building', __('Bestückung', 'taxmod-manufacturing')],
-            ['order_done', __('Fertiggestellt', 'taxmod-manufacturing')],
+        $form    = 'taxmod-mf-step-' . $order->id;
+        $steps   = array_values(array_filter([
+            ['order_planned', $name['order_planned']],
+            $staging ? ['order_staging', $name['order_staging']] : null,
+            ['order_building', $name['order_building']],
+            [['order_done', $name['order_done']], ['order_cancelled', $name['cancelled']]],
         ]));
-        // The order's own status stays marked apart from the open tab (architecture 13.11.).
-        $views   = array_map(static fn (array $v): array => $v[0] === $order->step ? [$v[0], sprintf(__('%s · aktuell', 'taxmod-manufacturing'), $v[1])] : $v, $views);
-        $keys    = array_column($views, 0);
-        $view    = sanitize_key((string) ($_GET['view'] ?? ''));
-        $view    = in_array($view, $keys, true) ? $view : (in_array($order->step, $keys, true) ? $order->step : 'order_planned');
 
-        $list = $this->url(['tab' => $this->tab()]);
-        $html = (method_exists(ListPage::class, 'back') ? '' : $back) . '<h2>' . esc_html($order->label) . '</h2>'
-            . ListPage::toolbar([method_exists(ListPage::class, 'back') ? ListPage::back($list, __('Alle Aufträge', 'taxmod-manufacturing')) : '', $this->rowButtons($order, Demand::missingRows($demand))])
-            . '<div style="display:flex;gap:2.5em;flex-wrap:wrap;margin:.5em 0 1em">' . $head . '</div>'
-            . ListPage::steps($views, $view, fn (string $key): string => $this->url(['tab' => $this->tab(), 'auftrag' => $order->id, 'view' => $key]));
+        // D-1376: the step back while nothing is fitted; else the left place leads to the list.
+        $previous = match (true) {
+            $order->step === 'order_staging'                => 'order_planned',
+            $order->step === 'order_building' && ! $fitted => $staging ? 'order_staging' : 'order_planned',
+            default                                         => '',
+        };
+        $back = $previous === ''
+            ? ListPage::stepButton(__('Liste', 'taxmod-manufacturing'), false, $list)
+            : ListPage::stepButton($name[$previous], false, '', 'do', 'back', $form);
 
-        if ($view === 'order_planned') {
-            // Without the stage «Bereitstellung» in the model, the pick list stays where the box is chosen.
-            return $html . $this->boxForm($order) . (in_array('order_staging', $keys, true) ? '' : $this->pickList($order, $demand));
+        $forward = match (true) {
+            $order->step === 'order_planned' && $staging => ListPage::stepButton($name['order_staging'], true, '', 'do', 'staging', $form),
+            in_array($order->step, ['order_planned', 'order_staging'], true) => $missing > 0 && $order->box !== null
+                ? $this->dialogForm('building', $order, $name['order_building'] . ' →', __('In Fertigung geben, obwohl Teile fehlen?', 'taxmod-manufacturing'),
+                    esc_html(sprintf(_n('Es fehlt noch %d Position. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', 'Es fehlen noch %d Positionen. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', $missing, 'taxmod-manufacturing'), $missing))
+                    . '</p><p><label>' . esc_html__('Grund', 'taxmod-manufacturing') . '<br><input type="text" class="regular-text" name="reason" required></label>')
+                : ListPage::stepButton($name['order_building'], true, '', 'do', 'building', $form),
+            $order->step === 'order_building' && $order->isFinished() => ListPage::stepButton($name['order_done'], true, '', 'do', 'done', $form),
+            default => '',
+        };
+
+        $actions = [];
+
+        if ($order->box !== null && has_filter(ManufacturingService::RETURN_FILTER)) {
+            $actions[] = $this->dialogForm('clear', $order, __('Gebinde leer räumen', 'taxmod-manufacturing'), __('Gebinde leer räumen?', 'taxmod-manufacturing'),
+                esc_html__('Alles im Gebinde geht zurück an den Platz, von dem es kam. Ein Vorgang, rückgängig über Storno.', 'taxmod-manufacturing'));
         }
 
-        if ($view === 'order_staging') {
-            return $html . ($this->pickList($order, $demand) ?: '<p class="description">' . esc_html__('Nichts mehr bereitzustellen.', 'taxmod-manufacturing') . '</p>');
+        $actions[] = $order->isClosed()
+            ? $this->dialogForm('reopen', $order, __('Wieder aufnehmen', 'taxmod-manufacturing'), __('Auftrag wieder aufnehmen?', 'taxmod-manufacturing'),
+                esc_html__('Der Auftrag kommt zurück, mit dem Stand seiner Platinen.', 'taxmod-manufacturing'))
+            : $this->dialogForm('cancel', $order, __('Abbrechen', 'taxmod-manufacturing'), __('Auftrag abbrechen?', 'taxmod-manufacturing'),
+                esc_html__('Nichts wird gelöscht; «Wieder aufnehmen» holt ihn zurück.', 'taxmod-manufacturing'));
+
+        $sections = [];
+        $picks    = $order->isClosed() ? '' : $this->pickList($order, $demand);
+
+        if ($picks !== '') {
+            $sections[] = ['title' => __('Pickliste', 'taxmod-manufacturing'), 'html' => $picks, 'open' => ! $started];
         }
 
-        if ($view === 'order_building' && ! $started) {
-            return $html . '<p class="description">' . esc_html__('Bestücken geht erst, wenn der Auftrag in Fertigung ist.', 'taxmod-manufacturing') . '</p>';
+        if ($started) {
+            $fitting = '';
+
+            foreach ($order->assemblies as $assembly) {
+                $fitting .= $this->assemblyForm($order, $assembly, $labels, $lists[$assembly->revision] ?? [], $demand[$assembly->id] ?? []);
+            }
+
+            $sections[] = ['title' => __('Bestückung', 'taxmod-manufacturing'), 'html' => $fitting];
         }
 
-        if ($view === 'order_done' && $order->step !== 'order_done') {
-            return $html . '<p class="description">' . esc_html__('Der Auftrag ist noch nicht fertiggestellt.', 'taxmod-manufacturing') . '</p>';
+        return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+            . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => 'detail']) . '</form>'
+            . ListPage::record($order->label, $steps, $order->step, $back, $forward, $actions, $this->headForm($order, $labels, $missing), $sections);
+    }
+
+    /**
+     * D-1376: the order's fields through the form renderer. Count and the board's revision change while it is «Angelegt»
+     * (one revision per order for now), the box while it is open; the rest is shown.
+     *
+     * @param array<int, string> $labels
+     */
+    private function headForm(BuildOrder $order, array $labels, int $missing): string
+    {
+        $planned  = $order->step === 'order_planned';
+        $id       = 'taxmod-mf-head-' . $order->id;
+        $revision = count($order->assemblies) === 1 ? $order->assemblies[0]->revision : 0;
+        $named    = $this->service->labelsOf(array_column($order->assemblies, 'revision'));
+        $boards   = $this->service->boardsOfRevisions(array_column($order->assemblies, 'revision'));
+        $boardOf  = $this->service->labelsOf(array_values($boards));
+        $board    = static fn (int $rev): string => trim(($boardOf[$boards[$rev] ?? 0] ?? '') . ' · ' . ($named[$rev] ?? '#' . $rev), ' ·');
+        $text     = static fn (string $value): string => '<strong>' . esc_html($value) . '</strong>';
+
+        if ($planned && $revision > 0) {
+            $options = '';
+
+            foreach ($this->service->siblingRevisions($revision) as $rev => $label) {
+                $options .= '<option value="' . esc_attr((string) $rev) . '"' . selected($rev, $revision, false) . '>' . esc_html(($boardOf[$boards[$revision] ?? 0] ?? '') . ' · ' . $label) . '</option>';
+            }
+
+            $boardControl = '<select name="revision" id="' . esc_attr($id) . '-revision">' . $options . '</select>';
+        } else {
+            $boardControl = $text(implode(', ', array_map(static fn (Assembly $a): string => $board($a->revision), $order->assemblies)));
         }
 
-        foreach ($order->assemblies as $assembly) {
-            $html .= $this->assemblyForm($order, $assembly, $labels, $lists[$assembly->revision] ?? [], $demand[$assembly->id] ?? []);
+        $boxes = '<option value="0">' . esc_html__('— kein Gebinde —', 'taxmod-manufacturing') . '</option>';
+
+        foreach ($this->service->boxesOf($order->project) as $box => $label) {
+            $boxes .= '<option value="' . esc_attr((string) $box) . '"' . selected($box, $order->box, false) . '>' . esc_html($label) . '</option>';
         }
 
-        return $html;
+        $rows = [
+            ['label' => __('Projekt', 'taxmod-manufacturing'), 'control' => $text($labels[$order->project] ?? '#' . $order->project)],
+            ['label' => _n('Platine', 'Platinen', count($order->assemblies), 'taxmod-manufacturing'), 'control' => $boardControl, 'for' => $planned && $revision > 0 ? $id . '-revision' : ''],
+            ['label' => __('Stück', 'taxmod-manufacturing'), 'for' => $planned ? $id . '-count' : '', 'control' => $planned
+                ? '<input type="number" class="small-text" min="1" step="1" name="count" id="' . esc_attr($id) . '-count" value="' . esc_attr((string) $order->count) . '">'
+                : $text((string) $order->count)],
+            ['label' => __('Gebinde', 'taxmod-manufacturing'), 'for' => $order->isClosed() ? '' : $id . '-box', 'control' => $order->isClosed()
+                ? $text($order->box === null ? '—' : ($this->service->labelsOf([$order->box])[$order->box] ?? '#' . $order->box))
+                : '<select name="box" id="' . esc_attr($id) . '-box">' . $boxes . '</select>',
+                'hint' => __('Was im Gebinde und darunter liegt, zählt als vorhanden. Projekt-Gebinde legst du im Lager an.', 'taxmod-manufacturing')],
+            ['label' => __('Fehlende Pos.', 'taxmod-manufacturing'), 'control' => $text($order->box === null ? '—' : (string) $missing)],
+            ['label' => __('Begonnen', 'taxmod-manufacturing'), 'control' => $text($order->started ?? '—')],
+            ['label' => __('Fertig', 'taxmod-manufacturing'), 'control' => $text($order->finished ?? '—')],
+        ];
+
+        if ($order->shortageReason !== '') {
+            $rows[] = ['label' => __('Grund Fehlteile', 'taxmod-manufacturing'), 'control' => $text($order->shortageReason)];
+        }
+
+        return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+            . $this->hidden(['action' => self::ACTION, 'do' => 'head', 'order' => (string) $order->id, 'tab' => $this->tab()])
+            . ListPage::form($rows, $order->isClosed() ? '' : $this->saveButton()) . '</form>';
     }
 
     /**
@@ -439,6 +515,8 @@ final class OrdersPage
                     'create'   => $this->create($back),
                     'assembly' => $this->updateAssembly($order, $today, $back),
                     'box'      => $this->box($order, $back),
+                    'head'     => $this->head($order, $back),
+                    'back'     => $this->stepBack($order, $back),
                     'pick'     => $this->pick($order, $today, $back),
                     'reorder'  => $this->reorder($order, $back),
                     'staging'  => $this->step($order, 'order_staging', $today, $back),
@@ -610,6 +688,33 @@ final class OrdersPage
     }
 
     /** @param array<string, string|int> $back */
+    private function head(int $order, array &$back): string
+    {
+        $built           = $this->service->order($order);
+        $back['auftrag'] = $order;
+
+        if ($built->step === 'order_planned') {
+            $revision = absint($_POST['revision'] ?? 0);
+            $this->service->setHead($order, sanitize_text_field(wp_unslash((string) ($_POST['count'] ?? ''))), $revision > 0 ? $revision : null);
+        }
+
+        if (isset($_POST['box']) && absint($_POST['box']) !== (int) $built->box) {
+            $this->service->setBox($order, absint($_POST['box']));
+        }
+
+        return 'head';
+    }
+
+    /** @param array<string, string|int> $back */
+    private function stepBack(int $order, array &$back): string
+    {
+        $this->service->stepBack($order);
+        $back['auftrag'] = $order;
+
+        return 'stepped_back';
+    }
+
+    /** @param array<string, string|int> $back */
     private function clear(int $order, string $today, array &$back): string
     {
         $this->service->clearBox($order, $today);
@@ -679,25 +784,6 @@ final class OrdersPage
         $details = '<ul style="margin:.5em 0">' . $details . '</ul><p><a class="button" href="' . esc_url($this->url(['auftrag' => $order->id, 'tab' => $this->tab()])) . '">' . esc_html__('Öffnen', 'taxmod-manufacturing') . '</a></p>';
 
         return ListPage::row(self::FORM, (string) $order->id, $cells, $this->rowButtons($order, $order->box === null ? 0 : Demand::missingRows($demand)), $details);
-    }
-
-    /** The order's box: everything lying on it and in it counts as there (his word 2026-11-04). */
-    private function boxForm(BuildOrder $order): string
-    {
-        $options = '<option value="0">' . esc_html__('— kein Gebinde —', 'taxmod-manufacturing') . '</option>';
-
-        foreach ($this->service->boxesOf($order->project) as $id => $label) {
-            $options .= '<option value="' . esc_attr((string) $id) . '"' . selected($id, $order->box, false) . '>' . esc_html($label) . '</option>';
-        }
-
-        return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'
-            . wp_nonce_field(self::NONCE, '_wpnonce', true, false) . $this->hidden(['action' => self::ACTION, 'do' => 'box', 'order' => (string) $order->id, 'tab' => $this->tab()])
-            . ListPage::form([[
-                'label'   => __('Gebinde', 'taxmod-manufacturing'),
-                'control' => '<select name="box" id="taxmod-mf-box-' . esc_attr((string) $order->id) . '">' . $options . '</select>',
-                'hint'    => __('Was im Gebinde und darunter liegt, zählt als vorhanden. Projekt-Gebinde legst du im Lager an.', 'taxmod-manufacturing'),
-                'for'     => 'taxmod-mf-box-' . $order->id,
-            ]], $this->saveButton()) . '</form>';
     }
 
     private function rowButtons(BuildOrder $order, int $missing = 0): string
@@ -980,6 +1066,8 @@ final class OrdersPage
             'saved_booked'   => __('Platine gespeichert, Verbrauch im Lager gebucht.', 'taxmod-manufacturing'),
             'saved_unbooked' => __('Platine gespeichert. Der Verbrauch ist noch nicht gebucht: das Lager bietet die Buchung noch nicht an.', 'taxmod-manufacturing'),
             'box'       => __('Gebinde gespeichert.', 'taxmod-manufacturing'),
+            'head'      => __('Auftrag gespeichert.', 'taxmod-manufacturing'),
+            'stepped_back' => __('Einen Schritt zurück.', 'taxmod-manufacturing'),
             'reordered' => __('Fehlendes als Bedarf im Einkauf angelegt.', 'taxmod-manufacturing'),
             'nothing_missing' => __('Es fehlt nichts, was nirgends am Lager liegt.', 'taxmod-manufacturing'),
             'picked'    => __('Abgehakte Teile ins Gebinde umgebucht.', 'taxmod-manufacturing'),
