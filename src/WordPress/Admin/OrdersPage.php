@@ -288,17 +288,17 @@ final class OrdersPage
         $html = '';
 
         foreach ($order->assemblies as $assembly) {
-            $rows = array_filter($demand[$assembly->id] ?? [], static fn (array $row): bool => $row['position'] > 0);
-
-            if ($rows === []) {
-                continue;
-            }
-
-            $list = '';
+            $all  = $demand[$assembly->id] ?? [];
+            $rows = array_filter($all, static fn (array $row): bool => $row['position'] > 0);
+            $miss = static fn (array $row): string => $row['missing'] > 0.0 ? ' · ' . sprintf(__('fehlt %s', 'taxmod-manufacturing'), rtrim(rtrim(number_format($row['missing'], 2, ',', ''), '0'), ',')) : '';
+            // His word 2026-11-15 «die platine wird auch nicht aufgelistet»: the bare board heads the list; it is always built.
+            $list = isset($all[0]) && $all[0]['position'] === 0
+                ? '<li><label><input type="checkbox" checked disabled> ' . esc_html(sprintf(__('Platine: %s', 'taxmod-manufacturing'), $labels[$all[0]['thing']] ?? '#' . $all[0]['thing']) . $miss($all[0])) . '</label></li>'
+                : '';
 
             foreach ($rows as $row) {
                 $list .= '<li><label><input type="checkbox" name="build[]" value="' . esc_attr((string) $row['position']) . '"' . checked(! $row['unused'], true, false) . '> '
-                    . esc_html($labels[$row['thing']] ?? '#' . $row['thing']) . '</label>'
+                    . esc_html(($labels[$row['thing']] ?? '#' . $row['thing']) . ($row['unused'] ? '' : $miss($row))) . '</label>'
                     . '<input type="hidden" name="optional[]" value="' . esc_attr((string) $row['position']) . '"></li>';
             }
 
@@ -438,11 +438,12 @@ final class OrdersPage
             foreach ($rows as $row) {
                 $position = (int) $row['position'];
 
-                if ($position === 0 || ($row['missing'] <= 0.0 && ! isset($assigned[$position]))) {
+                // The bare board (position 0) is chosen from stock too, only without a position to keep (D-1388).
+                if ($row['missing'] <= 0.0 && ! isset($assigned[$position])) {
                     continue;
                 }
 
-                $wanted = $base[$position] ?? $row['thing'];
+                $wanted = $position === 0 ? $row['thing'] : ($base[$position] ?? $row['thing']);
                 $shown  = '';
 
                 foreach ($assigned[$position] ?? [] as $at) {
@@ -472,7 +473,7 @@ final class OrdersPage
                         . '</form>'
                     : '';
 
-                $body .= '<tr><td>' . esc_html($refs[$position] ?? '') . '</td><td>' . esc_html($labels[$wanted] ?? '#' . $wanted) . '</td>'
+                $body .= '<tr><td>' . esc_html($position === 0 ? __('Platine', 'taxmod-manufacturing') : ($refs[$position] ?? '')) . '</td><td>' . esc_html($labels[$wanted] ?? '#' . $wanted) . '</td>'
                     . '<td style="text-align:right">' . esc_html($count($row['missing'])) . '</td>'
                     . '<td>' . ($shown !== '' ? $shown : '<strong style="color:#b32d2e">' . esc_html__('nicht zugewiesen', 'taxmod-manufacturing') . '</strong>') . '</td>'
                     . '<td>' . $dialog . '</td></tr>';
@@ -509,11 +510,11 @@ final class OrdersPage
         $position        = absint($_POST['position'] ?? 0);
         $back['auftrag'] = $order;
 
-        if ($thing === 0 || $place === 0 || $qty <= 0.0 || $position === 0) {
+        if ($thing === 0 || $place === 0 || $qty <= 0.0) {
             return 'nothing_picked';
         }
 
-        $this->service->reserve($order, [['thing' => $thing, 'from' => $place, 'qty' => $qty, 'position' => $position]], $today);
+        $this->service->reserve($order, [['thing' => $thing, 'from' => $place, 'qty' => $qty] + ($position > 0 ? ['position' => $position] : [])], $today);
 
         return 'assigned';
     }
