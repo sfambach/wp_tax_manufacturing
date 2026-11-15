@@ -1075,7 +1075,20 @@ final class OrdersPage
             $options .= '<option value="' . esc_attr((string) $id) . '"' . selected($id, $project, false) . '>' . esc_html($label) . '</option>';
         }
 
-        $body = '<label class="taxmod-dialog-field" style="display:block;margin-bottom:.5em">' . esc_html__('Projekt', 'taxmod-manufacturing') . '<br><select name="project" required>' . $options . '</select></label>'
+        $formId = 'taxmod-mf-new-form' . ($box > 0 ? '-' . $box : '');
+        // His word 2026-11-15: «nimm … tree chooser der hat das ja alles schon und schränke auf die projekte ein» — the modeller's
+        // record chooser, limited to the projects; its choice is a radio «project», which the board parts below follow (D-1311).
+        $chooser = $project === 0 && has_filter('taxmod_record_chooser')
+            ? (string) apply_filters('taxmod_record_chooser', '', [
+                'name'       => 'project',
+                'node'       => $this->service->structure()->node('project'),
+                'label_field' => $this->service->structure()->field('label'),
+                'unpickable' => array_keys(array_diff_key($this->projects, $this->boards)),
+                'form'       => $formId,
+            ])
+            : '';
+        $picker = $chooser !== '' ? $chooser : '<select name="project" required>' . $options . '</select>';
+        $body   = '<div class="taxmod-dialog-field" style="margin-bottom:.5em">' . esc_html__('Projekt', 'taxmod-manufacturing') . '<br>' . $picker . '</div>'
             . '<label class="taxmod-dialog-field" style="display:block">' . esc_html__('Stückzahl', 'taxmod-manufacturing') . '<br><input type="number" name="count" min="1" step="1" value="1" required></label>';
 
         if (method_exists(ListPage::class, 'shownBy')) {
@@ -1089,7 +1102,7 @@ final class OrdersPage
             $body .= '<p>' . esc_html__('Im nächsten Schritt wählst du, welche Platinen des Projekts gebaut werden.', 'taxmod-manufacturing') . '</p>';
         }
 
-        return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+        return '<form method="post" id="' . esc_attr($formId) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'tab' => $this->tab()] + ($box > 0 ? ['box' => (string) $box] : []))
             . ListPage::dialogAction('taxmod-mf-new' . ($box > 0 ? '-' . $box : ''), $box > 0 ? __('+ Auftrag', 'taxmod-manufacturing') : __('Neuer Auftrag', 'taxmod-manufacturing'), __('Neuer Fertigungsauftrag', 'taxmod-manufacturing'), $body, 'do', 'create', __('Anlegen', 'taxmod-manufacturing'))
             . '</form>';
