@@ -439,7 +439,7 @@ final class OrdersPage
                 : esc_html($line['place'] === null ? '' : $count($line['take']));
             $body .= '<tr><td>' . $tick . '</td><td>' . $this->part($line['thing'], $labels, $order) . '</td>'
                 . '<td>' . ($line['place'] === null
-                    ? '<strong style="color:#b32d2e">' . esc_html($canPick ? __('nirgends am Lager', 'taxmod-manufacturing') : __('Lagerort unbekannt', 'taxmod-manufacturing')) . '</strong>'
+                    ? '<strong style="color:#b32d2e">' . esc_html($canPick ? __('nicht zugewiesen', 'taxmod-manufacturing') : __('Lagerort unbekannt', 'taxmod-manufacturing')) . '</strong>'
                     : esc_html($labels[$line['place']] ?? '#' . $line['place'])) . '</td>'
                 . '<td style="text-align:right">' . esc_html($line['place'] === null ? '' : $count($line['there'])) . '</td>'
                 . '<td style="text-align:right">' . esc_html($count($line['missing'])) . '</td><td>' . $take . '</td></tr>';
