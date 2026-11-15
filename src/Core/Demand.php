@@ -29,12 +29,10 @@ final class Demand
      * @param array<int, list<array{id: int, thing: int, count: float, fitting: string}>> $positions revision → positions;
      *        fitting: '' (fitted), 'optional' or 'no'
      * @param array<int, float> $present thing → pieces in the box
-     * @param array<int, int> $boardOf revision → its board record, which is what the bare board is stocked as (D-1322);
-     *        a revision not in it stands for itself
      * @return array<int, list<array{position: int, thing: int, count: float, needed: float, boards: int, open: float, present: float, missing: float, optional: bool, unused: bool}>>
      *         assembly id → rows, the board itself first (position 0); `boards`: on how many boards it is fitted, `open`: still to fit
      */
-    public static function of(array $assemblies, array $positions, int $pieces, array $present, array $boardOf = []): array
+    public static function of(array $assemblies, array $positions, int $pieces, array $present): array
     {
         $left = $present;
         $out  = [];
@@ -56,7 +54,8 @@ final class Demand
                 $rows[]   = self::row($position['id'], $position['thing'], $position['count'], $unused ? 0.0 : $position['count'] * $pieces, $boards, $optional, $unused, $left);
             }
 
-            array_unshift($rows, self::row(0, $boardOf[$assembly->revision] ?? $assembly->revision, 1.0, (float) $pieces, $most, false, false, $left));
+            // D-1388: the bare board is the revision record — what was bought is a version, and a fact has one place.
+            array_unshift($rows, self::row(0, $assembly->revision, 1.0, (float) $pieces, $most, false, false, $left));
             $out[$assembly->id] = $rows;
         }
 
@@ -162,10 +161,9 @@ final class Demand
      *
      * @param array<int, int> $new position → boards, for every position shown
      * @param list<array{id: int, thing: int, count: float, fitting: string}> $positions of the assembly's revision
-     * @param int|null $board the board record the bare board is stocked as (D-1322); null: the revision itself
      * @return array<int, float> thing → pieces, without zeros
      */
-    public static function consumption(Assembly $assembly, array $new, array $positions, ?int $board = null): array
+    public static function consumption(Assembly $assembly, array $new, array $positions): array
     {
         $out    = [];
         $oldMax = 0;
@@ -182,7 +180,8 @@ final class Demand
             $out[$position['thing']] = ($out[$position['thing']] ?? 0.0) + ($new[$position['id']] - $old) * $position['count'];
         }
 
-        $bare       = $board ?? $assembly->revision;
+        // D-1388: the bare board is booked at the revision record.
+        $bare       = $assembly->revision;
         $out[$bare] = ($out[$bare] ?? 0.0) + ($newMax - $oldMax);
 
         return array_filter($out, static fn (float $n): bool => $n !== 0.0);

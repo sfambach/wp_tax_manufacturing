@@ -45,14 +45,15 @@ final class DemandTest extends TestCase
         self::assertSame([9001 => -6.0, 305 => -2.0], Demand::consumption($assembly, [700 => 0, 701 => 0], self::POSITIONS[305]));
     }
 
-    public function testBareBoardIsTheBoardRecordLikeAnyPart(): void
+    /** D-1388 (replaces the board-record rule of D-1322): the bare board is needed and consumed as the revision record. */
+    public function testBareBoardIsTheRevisionRecord(): void
     {
         $assembly = new Assembly(600, 305, [], []);
-        $demand   = Demand::of([$assembly], self::POSITIONS, 2, [200 => 2.0], [305 => 200]);
+        $demand   = Demand::of([$assembly], self::POSITIONS, 2, [305 => 2.0, 200 => 2.0]);
 
-        self::assertSame(200, $demand[600][0]['thing']);
+        self::assertSame(305, $demand[600][0]['thing']);
         self::assertSame(0.0, $demand[600][0]['missing']);
-        self::assertSame([9001 => 3.0, 9002 => 1.0, 200 => 1.0], Demand::consumption($assembly, [700 => 1, 701 => 1], self::POSITIONS[305], 200));
+        self::assertSame([9001 => 3.0, 9002 => 1.0, 305 => 1.0], Demand::consumption($assembly, [700 => 1, 701 => 1], self::POSITIONS[305]));
     }
 
     public function testBoxIsHandedOutOnce(): void

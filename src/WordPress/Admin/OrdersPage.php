@@ -137,7 +137,7 @@ final class OrdersPage
             return $html . $this->boxList($orders, $boxes) . '</div>';
         }
 
-        [$lists, $labels, $boardOf] = $this->context($shown);
+        [$lists, $labels] = $this->context($shown);
         $reserved         = $this->service->reservedFor(array_map(static fn (BuildOrder $o): int => $o->id, $shown));
         // His word 2026-11-15 «warum braucht er so lange … angelegt»: the boxes' contents in one read, not the ledger per order.
         $present          = $this->service->presentInEach(array_map(static fn (BuildOrder $o): int => (int) $o->box, $shown));
@@ -146,7 +146,7 @@ final class OrdersPage
 
         foreach ($shown as $order) {
             $own   = $this->service->assignedLists($order, $lists, $assigned[$order->id] ?? []);
-            $rows .= $this->row($order, $labels, $own, Demand::of($order->assemblies, $own, $order->count, $this->service->available($order, $reserved[$order->id] ?? [], $present[(int) $order->box] ?? []), $boardOf));
+            $rows .= $this->row($order, $labels, $own, Demand::of($order->assemblies, $own, $order->count, $this->service->available($order, $reserved[$order->id] ?? [], $present[(int) $order->box] ?? [])));
         }
 
         if ($rows === '') {
@@ -186,12 +186,12 @@ final class OrdersPage
         }
 
         $order   = $found[0];
-        [$plain, $labels, $boardOf] = $this->context([$order]);
+        [$plain, $labels] = $this->context([$order]);
         $assigned = $this->service->assignments([$order->id])[$order->id] ?? [];
         $lists    = $this->service->assignedLists($order, $plain, $assigned);
         $unnamed  = array_values(array_diff(array_merge([], ...array_map(static fn (array $rows): array => array_column($rows, 'thing'), array_values($assigned))), array_keys($labels)));
         $labels  += $unnamed === [] ? [] : $this->service->labelsOf($unnamed);
-        $demand  = Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order), $boardOf);
+        $demand  = Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order));
         $missing = Demand::missingRows($demand);
         $name    = self::viewLabels();
         $staging = $this->service->structure()->hasValue('order_staging');
@@ -635,10 +635,10 @@ final class OrdersPage
     }
 
     /**
-     * Parts lists, labels and the board record of each revision for the given orders, read once (CD-7).
+     * Parts lists and labels for the given orders, read once (CD-7).
      *
      * @param list<BuildOrder> $orders
-     * @return array{0: array<int, list<array{id: int, thing: int, count: float, fitting: string, ref: string}>>, 1: array<int, string>, 2: array<int, int>}
+     * @return array{0: array<int, list<array{id: int, thing: int, count: float, fitting: string, ref: string}>>, 1: array<int, string>}
      */
     private function context(array $orders): array
     {
@@ -651,8 +651,7 @@ final class OrdersPage
         }
 
         $lists   = $this->service->partsLists(array_keys($revisions));
-        $boardOf = $this->service->boardsOfRevisions(array_keys($revisions));
-        $things  = array_values($boardOf);
+        $things  = [];
 
         foreach ($lists as $positions) {
             foreach ($positions as $position) {
@@ -662,7 +661,7 @@ final class OrdersPage
 
         $labels = $this->service->labelsOf(array_values(array_filter(array_unique([...array_keys($revisions), ...$things, ...array_map(static fn (BuildOrder $o): int => $o->project, $orders), ...array_filter(array_map(static fn (BuildOrder $o): ?int => $o->box, $orders))]))));
 
-        return [$lists, $labels, $boardOf];
+        return [$lists, $labels];
     }
 
     /**
@@ -807,9 +806,9 @@ final class OrdersPage
     private function reorder(int $order, array &$back): string
     {
         $built            = $this->service->order($order);
-        [$lists, , $boardOf] = $this->context([$built]);
+        [$lists] = $this->context([$built]);
         $lists            = $this->service->assignedLists($built, $lists);
-        $demand           = Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built), $boardOf);
+        $demand           = Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built));
         $things           = array_values(array_unique(array_merge(...array_map(static fn (array $rows): array => array_column($rows, 'thing'), array_values($demand)) ?: [[]])));
         $quantities       = [];
         $back['auftrag']  = $order;
@@ -970,9 +969,9 @@ final class OrdersPage
     private function toBuilding(int $order, string $today, array &$back): string
     {
         $built           = $this->service->order($order);
-        [$lists, , $boardOf] = $this->context([$built]);
+        [$lists] = $this->context([$built]);
         $lists           = $this->service->assignedLists($built, $lists);
-        $missing         = Demand::missingRows(Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built), $boardOf));
+        $missing         = Demand::missingRows(Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built)));
         $back['auftrag'] = $order;
 
         $this->service->setStep($order, 'order_building', $today, $missing, sanitize_text_field(wp_unslash((string) ($_POST['reason'] ?? ''))));

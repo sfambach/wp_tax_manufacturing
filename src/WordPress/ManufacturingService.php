@@ -347,7 +347,7 @@ final class ManufacturingService
         }
 
         $things = array_column($this->assignedLists($built, $this->partsLists([$part->revision]))[$part->revision] ?? [], 'thing', 'id');
-        $things[0] = $this->boardsOfRevisions([$part->revision])[$part->revision] ?? $part->revision;
+        $things[0] = $part->revision;
         $lines  = [];
 
         foreach ($pieces as $position => $n) {
@@ -491,7 +491,7 @@ final class ManufacturingService
         }
 
         $booked  = 'nothing';
-        $use     = Demand::consumption($part, $fitted, $list, $this->boardsOfRevisions([$part->revision])[$part->revision] ?? null);
+        $use     = Demand::consumption($part, $fitted, $list);
 
         if ($use !== [] && has_filter(self::BOOK_FILTER)) {
             if ($built->box === null) {
