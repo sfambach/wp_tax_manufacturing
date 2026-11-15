@@ -200,11 +200,12 @@ final class ManufacturingService
      * What counts as there for an order: its box and what is reserved for it (D-1301 «Gebinde und Reservierung»).
      *
      * @param array<int, float>|null $reserved thing → pieces, from {@see reservedFor()}; null asks for this order alone
+     * @param array<int, float>|null $present thing → pieces in its box, from {@see presentInEach()}; null reads the box
      * @return array<int, float> thing → pieces
      */
-    public function available(BuildOrder $order, ?array $reserved = null): array
+    public function available(BuildOrder $order, ?array $reserved = null, ?array $present = null): array
     {
-        $there = $this->presentIn($order->box);
+        $there = $present ?? $this->presentIn($order->box);
 
         foreach ($reserved ?? ($this->reservedFor([$order->id])[$order->id] ?? []) as $thing => $pieces) {
             $there[$thing] = ($there[$thing] ?? 0.0) + $pieces;
@@ -615,6 +616,45 @@ final class ManufacturingService
         }
 
         return array_map('floatval', (new $stock())->presentIn($box));
+    }
+
+    /**
+     * What lies in each of these boxes, for a list of orders. One ledger and one place tree for all boxes, not one stock read
+     * per order (CD-7): the stock module's own batch where it has one, else its ledger counted once per box.
+     *
+     * @param list<int> $boxes
+     * @return array<int, array<int, float>> box → thing → pieces
+     */
+    public function presentInEach(array $boxes): array
+    {
+        $boxes = array_values(array_unique(array_filter($boxes)));
+        $stock = \TaxmodStock\WordPress\StockService::class;
+
+        if ($boxes === [] || ! class_exists($stock)) {
+            return [];
+        }
+
+        $service = new $stock();
+
+        if (method_exists($service, 'presentInEach')) {
+            return array_map(static fn (array $things): array => array_map('floatval', $things), (array) $service->presentInEach($boxes));
+        }
+
+        $bill = \TaxmodStock\Core\ProjectBill::class;
+
+        if (! method_exists($service, 'ledger') || ! method_exists($service, 'locationTree') || ! class_exists($bill)) {
+            return array_combine($boxes, array_map(fn (int $box): array => $this->presentIn($box), $boxes));
+        }
+
+        $ledger = $service->ledger();
+        $tree   = $service->locationTree();
+        $out    = [];
+
+        foreach ($boxes as $box) {
+            $out[$box] = array_map('floatval', $bill::present($ledger, $tree->withAllBelow($box)));
+        }
+
+        return $out;
     }
 
     /** D-1325: the project boxes with their project and contents, read by the stock module in one go (CD-7). */

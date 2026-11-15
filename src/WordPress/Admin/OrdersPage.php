@@ -139,10 +139,12 @@ final class OrdersPage
 
         [$lists, $labels, $boardOf] = $this->context($shown);
         $reserved         = $this->service->reservedFor(array_map(static fn (BuildOrder $o): int => $o->id, $shown));
+        // His word 2026-11-15 «warum braucht er so lange … angelegt»: the boxes' contents in one read, not the ledger per order.
+        $present          = $this->service->presentInEach(array_map(static fn (BuildOrder $o): int => (int) $o->box, $shown));
         $rows             = '';
 
         foreach ($shown as $order) {
-            $rows .= $this->row($order, $labels, $lists, Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order, $reserved[$order->id] ?? []), $boardOf));
+            $rows .= $this->row($order, $labels, $lists, Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order, $reserved[$order->id] ?? [], $present[(int) $order->box] ?? []), $boardOf));
         }
 
         if ($rows === '') {
