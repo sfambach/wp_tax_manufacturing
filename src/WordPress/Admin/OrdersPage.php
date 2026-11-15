@@ -1081,6 +1081,7 @@ final class OrdersPage
             unset($args['tab']);
         }
 
-        return add_query_arg(array_filter(['page' => 'taxmod-lager-modul', 'module' => self::SLUG] + $args, static fn ($v): bool => $v !== '' && $v !== 0), admin_url('admin.php'));
+        // The arguments win: a view names its own menu point's slug.
+        return add_query_arg(array_filter($args + ['page' => 'taxmod-lager-modul', 'module' => self::SLUG], static fn ($v): bool => $v !== '' && $v !== 0), admin_url('admin.php'));
     }
 }

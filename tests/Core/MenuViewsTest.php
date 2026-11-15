@@ -31,4 +31,20 @@ final class MenuViewsTest extends TestCase
             self::assertContains($view, OrdersPage::TABS);
         }
     }
+
+    public function testEveryArrowLinksToItsMenuPoint(): void
+    {
+        if (! function_exists('add_query_arg')) {
+            eval('function add_query_arg(array $args, string $url): string { return $url . "?" . http_build_query($args); }');
+            eval('function admin_url(string $path): string { return $path; }');
+        }
+
+        $page = new \ReflectionClass(OrdersPage::class);
+        $url  = $page->getMethod('url');
+
+        foreach (OrdersPage::VIEWS as $view => $slug) {
+            parse_str((string) parse_url($url->invoke($page->newInstanceWithoutConstructor(), ['tab' => $view]), PHP_URL_QUERY), $query);
+            self::assertSame($slug, $query['module']);
+        }
+    }
 }
