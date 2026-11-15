@@ -232,7 +232,9 @@ final class OrdersPage
                 esc_html__('Nichts wird gelöscht; «Wieder aufnehmen» holt ihn zurück.', 'taxmod-manufacturing'));
 
         $sections = [];
-        $picks    = $order->isClosed() ? '' : $this->pickList($order, $demand);
+        // His word 2026-11-15: taking parts out belongs to «Bereitstellung», not to «Angelegt» (without that stage in the model it stays at «Angelegt»).
+        $picking  = $order->step === 'order_staging' || ($order->step === 'order_planned' && ! $staging) || $order->step === 'order_building';
+        $picks    = $picking ? $this->pickList($order, $demand) : '';
 
         if ($picks !== '') {
             $sections[] = ['title' => __('Pickliste', 'taxmod-manufacturing'), 'html' => $picks, 'open' => ! $started];
@@ -398,12 +400,13 @@ final class OrdersPage
             . '<h3>' . esc_html(sprintf(__('Pickliste · %s', 'taxmod-manufacturing'), $order->label)) . '</h3>'
             . '<div class="taxmod-mf-noprint">' . ListPage::toolbar([
                 $reorder,
-                $canPick ? '<button type="submit" class="button button-primary" form="taxmod-mf-pick">' . esc_html__('Abgehakte ins Gebinde umbuchen', 'taxmod-manufacturing') . '</button>' : '',
+                $canPick ? '<button type="submit" class="button button-primary" form="taxmod-mf-pick">' . esc_html__('Angehakte Zeilen ins Gebinde umbuchen', 'taxmod-manufacturing') . '</button>' : '',
                 // D-1301: or leave them where they lie, reserved for this order (Handlager).
-                $canPick && $this->service->canReserve() ? '<button type="submit" class="button" form="taxmod-mf-pick" name="mode" value="reserve">' . esc_html__('Abgehakte reservieren', 'taxmod-manufacturing') . '</button>' : '',
+                $canPick && $this->service->canReserve() ? '<button type="submit" class="button" form="taxmod-mf-pick" name="mode" value="reserve">' . esc_html__('Angehakte Zeilen reservieren', 'taxmod-manufacturing') . '</button>' : '',
                 '<button type="button" class="button" onclick="window.print()">' . esc_html__('Drucken', 'taxmod-manufacturing') . '</button>',
             ]) . '</div>'
             . $note
+            . ($canPick ? '<p class="description taxmod-mf-noprint">' . esc_html__('Links anhaken, was du aus dem Lager nimmst; «Nehmen» ist die Menge je Zeile.', 'taxmod-manufacturing') . '</p>' : '')
             . '<form method="post" id="taxmod-mf-pick" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'do' => 'pick', 'order' => (string) $order->id, 'tab' => $this->tab()]) . '</form>'
             . '<table class="widefat striped" style="margin-top:.5em"><thead><tr><th style="width:2em"></th>'
