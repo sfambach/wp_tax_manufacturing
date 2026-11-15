@@ -197,6 +197,53 @@ final class ManufacturingService
     }
 
     /**
+     * D-1387: what is assigned to each position of these orders — the reservations that name a position, one read for all
+     * orders (CD-7).
+     *
+     * @param list<int> $orders
+     * @return array<int, array<int, list<array{thing: int, quantity: float, places: array<int, float>}>>> order → position → reservations
+     */
+    public function assignments(array $orders): array
+    {
+        if ($orders === [] || ! has_filter(self::RESERVATIONS_FILTER)) {
+            return [];
+        }
+
+        $answer = apply_filters(self::RESERVATIONS_FILTER, null, ['subjects' => array_values($orders)]);
+        $out    = [];
+
+        foreach (is_array($answer) ? $answer : [] as $order => $lines) {
+            foreach (is_array($lines) ? $lines : [] as $line) {
+                $position = is_array($line) ? (int) ($line['position'] ?? 0) : 0;
+
+                if ($position > 0 && (int) ($line['thing'] ?? 0) > 0) {
+                    $out[(int) $order][$position][] = [
+                        'thing'    => (int) $line['thing'],
+                        'quantity' => (float) ($line['quantity'] ?? 0),
+                        'places'   => array_map('floatval', is_array($line['places'] ?? null) ? $line['places'] : []),
+                    ];
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The parts lists of an order with what is assigned to its positions (D-1387).
+     *
+     * @param array<int, list<array<string, mixed>>> $lists revision → positions
+     * @param array<int, list<array{thing: int}>>|null $assigned position → reservations, from {@see assignments()}; null reads them
+     * @return array<int, list<array<string, mixed>>>
+     */
+    public function assignedLists(BuildOrder $order, array $lists, ?array $assigned = null): array
+    {
+        $assigned ??= $this->assignments([$order->id])[$order->id] ?? [];
+
+        return Demand::withAssigned($lists, array_map(static fn (array $rows): int => (int) ($rows[0]['thing'] ?? 0), $assigned));
+    }
+
+    /**
      * What counts as there for an order: its box and what is reserved for it (D-1301 «Gebinde und Reservierung»).
      *
      * @param array<int, float>|null $reserved thing → pieces, from {@see reservedFor()}; null asks for this order alone
@@ -226,7 +273,8 @@ final class ManufacturingService
 
         foreach ($lines as $line) {
             if ($line['qty'] > 0.0) {
-                $rows[] = ['thing' => $line['thing'], 'place' => $line['from'], 'quantity' => (string) $line['qty']];
+                // D-1387: a line chosen for a position keeps it, so the position counts with that material.
+                $rows[] = ['thing' => $line['thing'], 'place' => $line['from'], 'quantity' => (string) $line['qty']] + (($line['position'] ?? 0) > 0 ? ['position' => $line['position']] : []);
             }
         }
 
@@ -298,7 +346,7 @@ final class ManufacturingService
             throw ManufacturingError::stockRefused(__('Das Lager bietet das Buchen von Ausschuss noch nicht an.', 'taxmod-manufacturing'));
         }
 
-        $things = array_column($this->partsLists([$part->revision])[$part->revision] ?? [], 'thing', 'id');
+        $things = array_column($this->assignedLists($built, $this->partsLists([$part->revision]))[$part->revision] ?? [], 'thing', 'id');
         $things[0] = $this->boardsOfRevisions([$part->revision])[$part->revision] ?? $part->revision;
         $lines  = [];
 
@@ -424,7 +472,7 @@ final class ManufacturingService
     {
         $built = $this->order($order);
         $part  = $built->assembly($assembly) ?? throw ManufacturingError::assemblyNotOfOrder($assembly, $order);
-        $list  = $this->partsLists([$part->revision])[$part->revision] ?? [];
+        $list  = $this->assignedLists($built, $this->partsLists([$part->revision]))[$part->revision] ?? [];
         $all   = array_column($list, 'id');
         $fitted = Demand::boardsFromPieces($pieces, $list);
         // His word 2026-11-15: any position of the list may be left out, not only an option.

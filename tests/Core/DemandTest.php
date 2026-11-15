@@ -102,4 +102,17 @@ final class DemandTest extends TestCase
         self::assertSame(0, Demand::missingRows([600 => $rows]));
         self::assertSame([9001 => 3.0, 305 => 1.0], Demand::consumption($assembly, [700 => 3], self::POSITIONS[305]));
     }
+
+    /** D-1387: a substitute assigned to position 701 counts for it; the stock of the listed part does not. */
+    public function testAnAssignedSubstituteCountsForItsPosition(): void
+    {
+        $lists    = Demand::withAssigned(self::POSITIONS, [701 => 9555]);
+        $assembly = new Assembly(600, 305, [], []);
+        $rows     = array_column(Demand::of([$assembly], $lists, 2, [9555 => 2.0, 9002 => 5.0])[600], null, 'position');
+
+        self::assertSame(9555, $rows[701]['thing']);
+        self::assertSame(0.0, $rows[701]['missing']);
+        self::assertSame(9001, $rows[700]['thing']);
+        self::assertSame(self::POSITIONS, Demand::withAssigned(self::POSITIONS, []));
+    }
 }

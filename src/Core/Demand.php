@@ -68,6 +68,31 @@ final class Demand
      *
      * @param list<array{position: int, boards: int, unused: bool}> $rows of one assembly
      */
+    /**
+     * D-1387: a position assigned from stock counts with the material assigned to it, a substitute too; the project's parts
+     * list stays as it is (as D-1384).
+     *
+     * @param array<int, list<array<string, mixed>>> $lists revision → positions, from the parts lists
+     * @param array<int, int> $assigned position → material
+     * @return array<int, list<array<string, mixed>>>
+     */
+    public static function withAssigned(array $lists, array $assigned): array
+    {
+        if ($assigned === []) {
+            return $lists;
+        }
+
+        foreach ($lists as $revision => $positions) {
+            foreach ($positions as $i => $position) {
+                if (isset($assigned[$position['id']]) && $assigned[$position['id']] > 0) {
+                    $lists[$revision][$i]['thing'] = $assigned[$position['id']];
+                }
+            }
+        }
+
+        return $lists;
+    }
+
     public static function boardsFitted(array $rows): int
     {
         $counts = array_column(array_filter($rows, static fn (array $row): bool => $row['position'] > 0 && ! $row['unused']), 'boards');

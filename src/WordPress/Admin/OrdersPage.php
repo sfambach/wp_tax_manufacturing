@@ -141,10 +141,12 @@ final class OrdersPage
         $reserved         = $this->service->reservedFor(array_map(static fn (BuildOrder $o): int => $o->id, $shown));
         // His word 2026-11-15 «warum braucht er so lange … angelegt»: the boxes' contents in one read, not the ledger per order.
         $present          = $this->service->presentInEach(array_map(static fn (BuildOrder $o): int => (int) $o->box, $shown));
+        $assigned         = $this->service->assignments(array_map(static fn (BuildOrder $o): int => $o->id, $shown));
         $rows             = '';
 
         foreach ($shown as $order) {
-            $rows .= $this->row($order, $labels, $lists, Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order, $reserved[$order->id] ?? [], $present[(int) $order->box] ?? []), $boardOf));
+            $own   = $this->service->assignedLists($order, $lists, $assigned[$order->id] ?? []);
+            $rows .= $this->row($order, $labels, $own, Demand::of($order->assemblies, $own, $order->count, $this->service->available($order, $reserved[$order->id] ?? [], $present[(int) $order->box] ?? []), $boardOf));
         }
 
         if ($rows === '') {
@@ -184,7 +186,11 @@ final class OrdersPage
         }
 
         $order   = $found[0];
-        [$lists, $labels, $boardOf] = $this->context([$order]);
+        [$plain, $labels, $boardOf] = $this->context([$order]);
+        $assigned = $this->service->assignments([$order->id])[$order->id] ?? [];
+        $lists    = $this->service->assignedLists($order, $plain, $assigned);
+        $unnamed  = array_values(array_diff(array_merge([], ...array_map(static fn (array $rows): array => array_column($rows, 'thing'), array_values($assigned))), array_keys($labels)));
+        $labels  += $unnamed === [] ? [] : $this->service->labelsOf($unnamed);
         $demand  = Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order), $boardOf);
         $missing = Demand::missingRows($demand);
         $name    = self::viewLabels();
@@ -236,7 +242,7 @@ final class OrdersPage
         $sections = [];
         // His word 2026-11-15: taking parts out belongs to «Bereitstellung», not to «Angelegt» (without that stage in the model it stays at «Angelegt»).
         $picking  = $order->step === 'order_staging' || ($order->step === 'order_planned' && ! $staging) || $order->step === 'order_building';
-        $picks    = $picking ? $this->pickList($order, $demand) : '';
+        $picks    = $picking ? $this->assignList($order, $plain, $demand, $assigned, $labels) . $this->pickList($order, $demand) : '';
 
         if ($picks !== '') {
             $sections[] = ['title' => __('Pickliste', 'taxmod-manufacturing'), 'html' => $picks, 'open' => ! $started];
@@ -399,6 +405,119 @@ final class OrdersPage
      *
      * @param array<int, list<array{thing: int, missing: float}>> $demand
      */
+    /**
+     * D-1387: every position still missing something is assigned from stock — the stock module's material search,
+     * prefilled with the position's material, a substitute allowed; the choice becomes a reservation for that position.
+     * What is assigned stands with its place and can be booked into the box with the pick list's own form.
+     *
+     * @param array<int, list<array<string, mixed>>> $plain revision → positions as the parts list has them
+     * @param array<int, list<array{thing: int, missing: float, position: int}>> $demand
+     * @param array<int, list<array{thing: int, quantity: float, places: array<int, float>}>> $assigned position → reservations
+     * @param array<int, string> $labels
+     */
+    private function assignList(BuildOrder $order, array $plain, array $demand, array $assigned, array $labels): string
+    {
+        if ($order->box === null || $order->isClosed() || ! has_filter('taxmod_stock_material_picker') || ! $this->service->canReserve()) {
+            return '';
+        }
+
+        $count = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
+        $refs  = [];
+        $base  = [];
+
+        foreach ($plain as $positions) {
+            foreach ($positions as $position) {
+                $refs[$position['id']] = (string) $position['ref'];
+                $base[$position['id']] = (int) $position['thing'];
+            }
+        }
+
+        $body = '';
+
+        foreach ($demand as $rows) {
+            foreach ($rows as $row) {
+                $position = (int) $row['position'];
+
+                if ($position === 0 || ($row['missing'] <= 0.0 && ! isset($assigned[$position]))) {
+                    continue;
+                }
+
+                $wanted = $base[$position] ?? $row['thing'];
+                $shown  = '';
+
+                foreach ($assigned[$position] ?? [] as $at) {
+                    foreach ($at['places'] ?: [0 => $at['quantity']] as $place => $pieces) {
+                        $key    = $at['thing'] . ':' . $place;
+                        $shown .= '<div>' . ($place > 0 && $place !== $order->box
+                                ? '<input type="checkbox" name="pick[]" value="' . esc_attr($key) . '" form="taxmod-mf-assigned"><input type="hidden" form="taxmod-mf-assigned" name="qty[' . esc_attr($key) . ']" value="' . esc_attr($count(min($pieces, $at['quantity']))) . '"> '
+                                : '')
+                            . esc_html(($labels[$at['thing']] ?? '#' . $at['thing']) . ($at['thing'] !== $wanted ? ' ' . __('(Ersatz)', 'taxmod-manufacturing') : '')
+                                . ' · ' . ($place > 0 ? ($labels[$place] ?? '#' . $place) : '') . ' · ' . $count($at['quantity'])) . '</div>';
+                    }
+                }
+
+                $key    = 'taxmod-mf-assign-' . $order->id . '-' . $position;
+                $picker = (string) apply_filters('taxmod_stock_material_picker', '', [
+                    'key'       => $key,
+                    'name'      => 'assign',
+                    'term'      => $labels[$wanted] ?? '',
+                    'preferred' => [$wanted],
+                    'except'    => (int) $order->box,
+                    'quantity'  => $row['missing'],
+                ]);
+                $dialog = $row['missing'] > 0.0
+                    ? '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+                        . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'position' => (string) $position, 'tab' => $this->tab()])
+                        . ListPage::dialogAction($key . '-dialog', __('Aus Bestand wählen', 'taxmod-manufacturing'), sprintf(__('Aus Bestand wählen · %s', 'taxmod-manufacturing'), $labels[$wanted] ?? '#' . $wanted), $picker, 'do', 'assign', __('Zuweisen', 'taxmod-manufacturing'))
+                        . '</form>'
+                    : '';
+
+                $body .= '<tr><td>' . esc_html($refs[$position] ?? '') . '</td><td>' . esc_html($labels[$wanted] ?? '#' . $wanted) . '</td>'
+                    . '<td style="text-align:right">' . esc_html($count($row['missing'])) . '</td>'
+                    . '<td>' . ($shown !== '' ? $shown : '<strong style="color:#b32d2e">' . esc_html__('nicht zugewiesen', 'taxmod-manufacturing') . '</strong>') . '</td>'
+                    . '<td>' . $dialog . '</td></tr>';
+            }
+        }
+
+        if ($body === '') {
+            return '';
+        }
+
+        $book = str_contains($body, 'form="taxmod-mf-assigned"')
+            ? '<form method="post" id="taxmod-mf-assigned" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+                . $this->hidden(['action' => self::ACTION, 'do' => 'pick', 'order' => (string) $order->id, 'tab' => $this->tab()])
+                . '<button type="submit" class="button button-primary">' . esc_html__('Angehakte Zuweisungen ins Gebinde umbuchen', 'taxmod-manufacturing') . '</button></form>'
+            : '';
+
+        return '<div class="taxmod-mf-noprint">' . $book
+            . '<p class="description">' . esc_html__('Je Position wählen, woher das Teil kommt; auch ein Ersatzmaterial geht. Zugewiesenes ist reserviert, anhaken und umbuchen bringt es ins Gebinde.', 'taxmod-manufacturing') . '</p>'
+            . '<table class="widefat striped"><thead><tr><th>' . esc_html__('Bestückung', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Material', 'taxmod-manufacturing') . '</th>'
+            . '<th style="text-align:right">' . esc_html__('Fehlt', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Zugewiesen', 'taxmod-manufacturing') . '</th><th></th></tr></thead><tbody>' . $body . '</tbody></table></div>';
+    }
+
+    /**
+     * admin-post do=assign (D-1387): the material search's choice for one position becomes a reservation for it.
+     *
+     * @param array<string, string|int> $back
+     */
+    private function assign(int $order, string $today, array &$back): string
+    {
+        $chosen          = (array) ($_POST['assign'] ?? []);
+        $thing           = absint($chosen['thing'] ?? 0);
+        $place           = absint($chosen['place'] ?? 0);
+        $qty             = (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($chosen['quantity'] ?? '0'))));
+        $position        = absint($_POST['position'] ?? 0);
+        $back['auftrag'] = $order;
+
+        if ($thing === 0 || $place === 0 || $qty <= 0.0 || $position === 0) {
+            return 'nothing_picked';
+        }
+
+        $this->service->reserve($order, [['thing' => $thing, 'from' => $place, 'qty' => $qty, 'position' => $position]], $today);
+
+        return 'assigned';
+    }
+
     private function pickList(BuildOrder $order, array $demand): string
     {
         if ($order->box === null || $order->isClosed() || Demand::missingRows($demand) === 0) {
@@ -603,6 +722,7 @@ final class OrdersPage
                     'readd'    => $this->readd($order, $today, $back),
                     'back'     => $this->stepBack($order, $back),
                     'pick'     => $this->pick($order, $today, $back),
+                    'assign'   => $this->assign($order, $today, $back),
                     'reorder'  => $this->reorder($order, $back),
                     'staging'  => $this->step($order, 'order_staging', $today, $back),
                     'clear'    => $this->clear($order, $today, $back),
@@ -688,6 +808,7 @@ final class OrdersPage
     {
         $built            = $this->service->order($order);
         [$lists, , $boardOf] = $this->context([$built]);
+        $lists            = $this->service->assignedLists($built, $lists);
         $demand           = Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built), $boardOf);
         $things           = array_values(array_unique(array_merge(...array_map(static fn (array $rows): array => array_column($rows, 'thing'), array_values($demand)) ?: [[]])));
         $quantities       = [];
@@ -850,6 +971,7 @@ final class OrdersPage
     {
         $built           = $this->service->order($order);
         [$lists, , $boardOf] = $this->context([$built]);
+        $lists           = $this->service->assignedLists($built, $lists);
         $missing         = Demand::missingRows(Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built), $boardOf));
         $back['auftrag'] = $order;
 
@@ -1212,6 +1334,7 @@ final class OrdersPage
             'reopened'  => __('Wieder aufgenommen.', 'taxmod-manufacturing'),
             'staging'   => __('In Bereitstellung.', 'taxmod-manufacturing'),
             'reserved'  => __('Abgehakte Teile für den Auftrag reserviert.', 'taxmod-manufacturing'),
+            'assigned'  => __('Der Position zugewiesen und für den Auftrag reserviert.', 'taxmod-manufacturing'),
             'cleared'   => __('Gebinde leer geräumt, alles zurück an seinen Platz.', 'taxmod-manufacturing'),
             'building'  => __('In Fertigung.', 'taxmod-manufacturing'),
         ][sanitize_key((string) ($_GET['msg'] ?? ''))] ?? '';
