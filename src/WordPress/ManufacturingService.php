@@ -794,6 +794,36 @@ final class ManufacturingService
         return $out;
     }
 
+    /**
+     * D-1373: every revision of the board a revision belongs to, for changing it while the order is «Angelegt».
+     *
+     * @return array<int, string> revision id → label
+     */
+    public function siblingRevisions(int $revision): array
+    {
+        $board = $this->boardsOfRevisions([$revision])[$revision] ?? 0;
+
+        if ($board === 0) {
+            return [];
+        }
+
+        $ids = array_map('intval', $this->table('board')->all($board, $this->structure()->field('board_revisions')));
+
+        return $ids === [] ? [] : $this->labelsOf($ids);
+    }
+
+    /** D-1373: count and revision of an order that is still «Angelegt». */
+    public function setHead(int $order, string $count, ?int $revision): void
+    {
+        $this->model->write((new OrderChanges($this->structure()))->setHead($this->order($order), $count, $revision));
+    }
+
+    /** D-1373: one step back, until the first fitted board. */
+    public function stepBack(int $order): void
+    {
+        $this->model->write((new OrderChanges($this->structure()))->stepBack($this->order($order)));
+    }
+
     /** @return array<int, string> newest revision id => «board · revision», one per board of the project (D-1300) */
     public function boardsOf(int $project): array
     {

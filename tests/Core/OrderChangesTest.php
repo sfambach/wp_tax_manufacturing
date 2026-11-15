@@ -154,4 +154,28 @@ final class OrderChangesTest extends TestCase
         self::assertSame(['22' => '41', '24' => '2026-11-13', '26' => 'Spule kommt Montag'], $values);
         self::assertSame('', $changes->setStep($order, 'order_building', '2026-11-13', 0, 'egal')[0]['values']['26']);
     }
+
+    public function testHeadChangesOnlyWhilePlannedAndSwapsTheOneRevision(): void
+    {
+        $changes = new OrderChanges($this->s());
+        $list    = $changes->setHead($this->order('40', [[[], 0]]), '5', 310);
+
+        self::assertSame(['21' => '5'], $list[0]['values']);
+        self::assertSame(['op' => 'set_values', 'record' => '600', 'values' => ['30' => '310']], $list[1]);
+        self::assertCount(1, $changes->setHead($this->order('40', [[[], 0]]), '5', 305));
+
+        $this->expectException(ManufacturingError::class);
+        $changes->setHead($this->order('44', [[[], 0]]), '5', null);
+    }
+
+    public function testStepBackUntilTheFirstFittedBoard(): void
+    {
+        $changes = new OrderChanges($this->s());
+
+        self::assertSame(['22' => '40'], $changes->stepBack($this->order('44', [[[], 0]]))[0]['values']);
+        self::assertSame(['22' => '44'], $changes->stepBack($this->order('41', [[[], 0]]))[0]['values']);
+
+        $this->expectException(ManufacturingError::class);
+        $changes->stepBack($this->order('41', [[[700 => 1], 0]]));
+    }
 }

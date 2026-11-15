@@ -34,6 +34,18 @@ final class ManufacturingError extends \RuntimeException
         return new self('project_without_boards', (string) $project);
     }
 
+    /** D-1373: head fields (count, revision) change only while the order is «Angelegt». */
+    public static function headFixed(int $order): self
+    {
+        return new self('head_fixed', (string) $order);
+    }
+
+    /** D-1373: a step back only until the first booking; after it, back is «Storno». */
+    public static function noStepBack(int $order): self
+    {
+        return new self('no_step_back', (string) $order);
+    }
+
     public static function countNotPositive(string $given): self
     {
         return new self('count_not_positive', $given);

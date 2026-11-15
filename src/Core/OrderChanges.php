@@ -228,6 +228,52 @@ final class OrderChanges
     }
 
     /**
+     * D-1373: count and the board's revision, while the order is «Angelegt»; one revision per order for now, so a new revision
+     * replaces the one of an order with a single assembly.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function setHead(BuildOrder $order, string $count, ?int $revision): array
+    {
+        if ($order->step !== 'order_planned') {
+            throw ManufacturingError::headFixed($order->id);
+        }
+
+        if (preg_match('/^\d+$/', trim($count)) !== 1 || (int) $count < 1) {
+            throw ManufacturingError::countNotPositive($count);
+        }
+
+        $changes = [['op' => 'set_values', 'record' => (string) $order->id, 'values' => [(string) $this->s->field('order_count') => (string) (int) $count]]];
+
+        if ($revision !== null && count($order->assemblies) === 1 && $order->assemblies[0]->revision !== $revision) {
+            $changes[] = ['op' => 'set_values', 'record' => (string) $order->assemblies[0]->id, 'values' => [(string) $this->s->field('assembly_revision') => (string) $revision]];
+        }
+
+        return $changes;
+    }
+
+    /**
+     * D-1373: one step back — «Bereitstellung» to «Angelegt», «In Fertigung» to the step before while nothing is fitted yet.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function stepBack(BuildOrder $order): array
+    {
+        $fitted = array_filter($order->assemblies, static fn (Assembly $a): bool => array_filter(array_column($a->fitted, 'boards')) !== []) !== [];
+        $to     = match ($order->step) {
+            'order_staging'  => 'order_planned',
+            'order_building' => $fitted ? null : ($this->s->hasValue('order_staging') ? 'order_staging' : 'order_planned'),
+            default          => null,
+        };
+
+        if ($to === null) {
+            throw ManufacturingError::noStepBack($order->id);
+        }
+
+        return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $this->stepValues($to, null, null)]];
+    }
+
+    /**
      * @param string|null $finished '' clears it
      * @return array<string, string>
      */

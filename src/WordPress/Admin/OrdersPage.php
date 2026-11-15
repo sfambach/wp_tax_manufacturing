@@ -1013,6 +1013,8 @@ final class OrdersPage
             'stock_refused'            => sprintf(__('Das Lager hat die Buchung abgelehnt, nichts gespeichert: %s', 'taxmod-manufacturing'), $error->detail),
             'assemblies_not_done'      => __('Erst wenn alle Platinen fertig sind, lässt sich der Auftrag abschließen.', 'taxmod-manufacturing'),
             'position_not_on_revision' => __('Nur optionale Positionen der Stückliste lassen sich weglassen.', 'taxmod-manufacturing'),
+            'head_fixed'               => __('Stückzahl und Revision lassen sich nur ändern, solange der Auftrag «Angelegt» ist.', 'taxmod-manufacturing'),
+            'no_step_back'             => __('Zurück geht nur, solange noch nichts bestückt ist; danach über «Storno».', 'taxmod-manufacturing'),
             'model_refused'            => sprintf(__('Das Modell hat abgelehnt: %s', 'taxmod-manufacturing'), $error->detail),
             default                    => __('Unbekannte Aktion.', 'taxmod-manufacturing'),
         };
