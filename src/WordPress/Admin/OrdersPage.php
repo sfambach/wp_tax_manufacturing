@@ -244,7 +244,13 @@ final class OrdersPage
         $options = $order->step === 'order_planned' ? $this->optionsForm($order, $labels, $demand) : '';
 
         if ($options !== '') {
-            $sections[] = ['title' => __('Aufbau-Optionen', 'taxmod-manufacturing'), 'html' => $options];
+            $sections[] = ['title' => __('Aufbau: welche Positionen gebaut werden', 'taxmod-manufacturing'), 'html' => $options];
+        }
+
+        $leftOut = $order->isClosed() || $order->step === 'order_planned' ? '' : $this->leftOut($order, $labels, $demand);
+
+        if ($leftOut !== '') {
+            $sections[] = ['title' => __('Nicht für den Aufbau ausgewählt', 'taxmod-manufacturing'), 'html' => $leftOut, 'open' => ! $started];
         }
 
         if ($started) {
@@ -263,8 +269,8 @@ final class OrdersPage
     }
 
     /**
-     * The optional positions of each board, ticked = built (his word 2026-11-15: «auswählen, welche wir aufbauen wollen»).
-     * What is not ticked is left out, as «nicht verwenden» at the fitting (D-954).
+     * Every position of each board, ticked = built (his words 2026-11-15: «auswählen, welche wir aufbauen wollen», «den Sockel
+     * weglassen»). What is not ticked is left out, as «nicht verwenden» at the fitting.
      *
      * @param array<int, string> $labels
      * @param array<int, list<array{position: int, thing: int, optional: bool, unused: bool}>> $demand
@@ -274,7 +280,7 @@ final class OrdersPage
         $html = '';
 
         foreach ($order->assemblies as $assembly) {
-            $rows = array_filter($demand[$assembly->id] ?? [], static fn (array $row): bool => $row['optional'] && $row['position'] > 0);
+            $rows = array_filter($demand[$assembly->id] ?? [], static fn (array $row): bool => $row['position'] > 0);
 
             if ($rows === []) {
                 continue;
@@ -290,11 +296,41 @@ final class OrdersPage
 
             $html .= '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
                 . $this->hidden(['action' => self::ACTION, 'do' => 'options', 'order' => (string) $order->id, 'assembly' => (string) $assembly->id, 'tab' => $this->tab()])
-                . ListPage::toolbar([$this->saveButton()])
+                . ListPage::toolbar([$this->saveButton(), [
+                    '<button type="submit" class="button" name="all" value="1">' . esc_html__('Alle auswählen', 'taxmod-manufacturing') . '</button>',
+                    '<button type="submit" class="button" name="all" value="0">' . esc_html__('Alle abwählen', 'taxmod-manufacturing') . '</button>',
+                ]])
                 . '<p><strong>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision) . '</strong></p><ul>' . $list . '</ul></form>';
         }
 
         return $html;
+    }
+
+    /**
+     * The positions left out at «Angelegt», each with «wieder hinzufügen» while nothing of its board is used yet.
+     *
+     * @param array<int, string> $labels
+     * @param array<int, list<array{position: int, thing: int, unused: bool}>> $demand
+     */
+    private function leftOut(BuildOrder $order, array $labels, array $demand): string
+    {
+        $items = '';
+
+        foreach ($order->assemblies as $assembly) {
+            $used = array_filter(array_column($assembly->fitted, 'boards')) !== [];
+
+            foreach ($demand[$assembly->id] ?? [] as $row) {
+                if (! $row['unused'] || $row['position'] <= 0) {
+                    continue;
+                }
+
+                $items .= '<li>' . esc_html($labels[$row['thing']] ?? '#' . $row['thing']) . ($used ? '' : ' '
+                    . '<button type="submit" class="button button-small" form="taxmod-mf-step-' . esc_attr((string) $order->id) . '" name="readd" value="' . esc_attr($assembly->id . ':' . $row['position']) . '">'
+                    . esc_html__('wieder hinzufügen', 'taxmod-manufacturing') . '</button>') . '</li>';
+            }
+        }
+
+        return $items === '' ? '' : '<ul>' . $items . '</ul>';
     }
 
     /**
@@ -553,7 +589,7 @@ final class OrdersPage
 
                 $back['msg'] = $action === self::BULK_CANCEL ? 'cancelled' : 'reopened';
             } else {
-                $do    = sanitize_key((string) ($_POST['do'] ?? ''));
+                $do    = sanitize_key((string) ($_POST['do'] ?? (isset($_POST['readd']) ? 'readd' : '')));
                 $order = absint($_POST['order'] ?? 0);
 
                 $back['msg'] = match ($do) {
@@ -562,6 +598,7 @@ final class OrdersPage
                     'box'      => $this->box($order, $back),
                     'head'     => $this->head($order, $back),
                     'options'  => $this->options($order, $today, $back),
+                    'readd'    => $this->readd($order, $today, $back),
                     'back'     => $this->stepBack($order, $back),
                     'pick'     => $this->pick($order, $today, $back),
                     'reorder'  => $this->reorder($order, $back),
@@ -754,13 +791,34 @@ final class OrdersPage
     /** @param array<string, string|int> $back */
     private function options(int $order, string $today, array &$back): string
     {
-        $built    = array_map('absint', (array) ($_POST['build'] ?? []));
         $optional = array_map('absint', (array) ($_POST['optional'] ?? []));
+        $all      = isset($_POST['all']) ? sanitize_key((string) $_POST['all']) : '';
+        $built    = match ($all) {
+            '1'     => $optional,
+            '0'     => [],
+            default => array_map('absint', (array) ($_POST['build'] ?? [])),
+        };
 
         $this->service->updateAssembly($order, absint($_POST['assembly'] ?? 0), [], array_values(array_diff($optional, $built)), null, null, null, $today);
         $back['auftrag'] = $order;
 
         return 'options';
+    }
+
+    /** @param array<string, string|int> $back */
+    private function readd(int $order, string $today, array &$back): string
+    {
+        [$assembly, $position] = array_map('absint', explode(':', (string) ($_POST['readd'] ?? '')) + [0, 0]);
+        $part            = $this->service->order($order)->assembly($assembly) ?? throw ManufacturingError::assemblyNotOfOrder($assembly, $order);
+        $back['auftrag'] = $order;
+
+        if (array_filter(array_column($part->fitted, 'boards')) !== []) {
+            throw ManufacturingError::readdAfterUse($assembly);
+        }
+
+        $this->service->updateAssembly($order, $assembly, [], array_values(array_diff($part->unused, [$position])), null, null, null, $today);
+
+        return 'readded';
     }
 
     /** @param array<string, string|int> $back */
@@ -901,7 +959,7 @@ final class OrdersPage
                 ? esc_html($count($row['boards'] * $row['count']))
                 : '<input type="number" class="small-text taxmod-mf-fit" name="fitted[' . esc_attr((string) $row['position']) . ']" min="0" max="' . esc_attr($count($row['needed'])) . '" step="' . esc_attr($count($row['count'])) . '" value="' . esc_attr($count($row['boards'] * $row['count'])) . '" data-full="' . esc_attr($count($row['needed'])) . '">'
                     . ' <button type="button" class="button button-small" onclick="var i=this.parentNode.querySelector(\'.taxmod-mf-fit\');i.value=i.dataset.full">' . esc_html__('voll', 'taxmod-manufacturing') . '</button>';
-            $use = $row['optional']
+            $use = $row['optional'] || $row['unused']
                 ? '<label><input type="checkbox" name="unused[]" value="' . esc_attr((string) $row['position']) . '"' . checked($row['unused'], true, false) . '> ' . esc_html__('nicht verwenden', 'taxmod-manufacturing') . '</label>'
                 : '';
             $body .= '<tr' . ($row['unused'] ? ' style="opacity:.55"' : '') . '>'
@@ -1126,6 +1184,7 @@ final class OrdersPage
             'box'       => __('Gebinde gespeichert.', 'taxmod-manufacturing'),
             'head'      => __('Auftrag gespeichert.', 'taxmod-manufacturing'),
             'options'   => __('Aufbau-Optionen gespeichert.', 'taxmod-manufacturing'),
+            'readded'   => __('Position wieder hinzugefügt.', 'taxmod-manufacturing'),
             'stepped_back' => __('Einen Schritt zurück.', 'taxmod-manufacturing'),
             'reordered' => __('Fehlendes als Bedarf im Einkauf angelegt.', 'taxmod-manufacturing'),
             'nothing_missing' => __('Es fehlt nichts, was nirgends am Lager liegt.', 'taxmod-manufacturing'),
@@ -1161,6 +1220,7 @@ final class OrdersPage
             'assemblies_not_done'      => __('Erst wenn alle Platinen fertig sind, lässt sich der Auftrag abschließen.', 'taxmod-manufacturing'),
             'position_not_on_revision' => __('Nur optionale Positionen der Stückliste lassen sich weglassen.', 'taxmod-manufacturing'),
             'head_fixed'               => __('Stückzahl und Revision lassen sich nur ändern, solange der Auftrag «Angelegt» ist.', 'taxmod-manufacturing'),
+            'readd_after_use'          => __('Von dieser Platine ist schon etwas verbraucht; die Position kommt nur noch über eine Nachbuchung dazu.', 'taxmod-manufacturing'),
             'no_step_back'             => __('Zurück geht nur, solange noch nichts bestückt ist; danach über «Storno».', 'taxmod-manufacturing'),
             'model_refused'            => sprintf(__('Das Modell hat abgelehnt: %s', 'taxmod-manufacturing'), $error->detail),
             default                    => __('Unbekannte Aktion.', 'taxmod-manufacturing'),

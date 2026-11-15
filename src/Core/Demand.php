@@ -48,9 +48,9 @@ final class Demand
                     continue;
                 }
 
-                // Only an option can be left out; a mark on any other position (0.0.2 marked «missing» there) is ignored.
+                // His word 2026-11-15: any position can be left out at «Angelegt» (a socket when the IC is soldered directly), not only an option.
                 $optional = $position['fitting'] === 'optional';
-                $unused   = $optional && in_array($position['id'], $assembly->unused, true);
+                $unused   = in_array($position['id'], $assembly->unused, true);
                 $boards   = $unused ? 0 : min($pieces, $assembly->fittedOn($position['id']));
                 $most     = max($most, $boards);
                 $rows[]   = self::row($position['id'], $position['thing'], $position['count'], $unused ? 0.0 : $position['count'] * $pieces, $boards, $optional, $unused, $left);

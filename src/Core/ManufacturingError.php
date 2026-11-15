@@ -46,6 +46,12 @@ final class ManufacturingError extends \RuntimeException
         return new self('no_step_back', (string) $order);
     }
 
+    /** A left-out position comes back only while nothing of the board is used yet (architecture 2026-11-15). */
+    public static function readdAfterUse(int $assembly): self
+    {
+        return new self('readd_after_use', (string) $assembly);
+    }
+
     public static function countNotPositive(string $given): self
     {
         return new self('count_not_positive', $given);

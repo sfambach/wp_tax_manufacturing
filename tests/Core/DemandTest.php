@@ -18,7 +18,7 @@ final class DemandTest extends TestCase
     /** His s7vrm: 10 pieces, 2 built, the coil (701) on none yet; the option 703 left out. */
     public function testFittedBoardsReduceWhatIsStillNeeded(): void
     {
-        $assembly = new Assembly(600, 305, [700 => ['part' => 1, 'boards' => 2]], [703, 700]);
+        $assembly = new Assembly(600, 305, [700 => ['part' => 1, 'boards' => 2]], [703]);
         $rows     = Demand::of([$assembly], self::POSITIONS, 10, [305 => 8.0, 9001 => 20.0, 9002 => 3.0])[600];
 
         self::assertSame([0, 700, 701, 703], array_column($rows, 'position'));
@@ -82,5 +82,24 @@ final class DemandTest extends TestCase
         $result = Demand::withCutLoss($positions, [7 => 1]);
 
         self::assertSame([42.0, 9.0, 3.0], array_column($result, 'count'));
+    }
+
+    /**
+     * His word 2026-11-15 («den Sockel weglassen»): a mandatory position left out at «Angelegt» drops out of demand, pick list
+     * and «missing» like an option; it no longer holds the fitted count down. Before, only an option could be left out (D-954).
+     */
+    public function testALeftOutMandatoryPositionIsNeitherNeededNorMissing(): void
+    {
+        $assembly = new Assembly(600, 305, [700 => ['part' => 1, 'boards' => 2]], [701, 703]);
+        $rows     = Demand::of([$assembly], self::POSITIONS, 10, [305 => 8.0, 9001 => 30.0])[600];
+        $socket   = $rows[2];
+
+        self::assertSame(701, $socket['position']);
+        self::assertTrue($socket['unused']);
+        self::assertSame(0.0, $socket['needed']);
+        self::assertSame(0.0, $socket['missing']);
+        self::assertSame(2, Demand::boardsFitted($rows));
+        self::assertSame(0, Demand::missingRows([600 => $rows]));
+        self::assertSame([9001 => 3.0, 305 => 1.0], Demand::consumption($assembly, [700 => 3], self::POSITIONS[305]));
     }
 }

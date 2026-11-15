@@ -426,9 +426,8 @@ final class ManufacturingService
         $list  = $this->partsLists([$part->revision])[$part->revision] ?? [];
         $all   = array_column($list, 'id');
         $fitted = Demand::boardsFromPieces($pieces, $list);
-        // Only an option may be left out (his word: «bei optionalen … was nicht verwendet wird»).
-        $options = $this->structure()->hasValue('fitting_optional') ? array_column(array_filter($list, static fn (array $p): bool => $p['fitting'] === 'optional'), 'id') : $all;
-        $changes = (new OrderChanges($this->structure()))->updateAssembly($built, $assembly, $fitted, $unused, $all, $options, $tested, $done, $note, $today);
+        // His word 2026-11-15: any position of the list may be left out, not only an option.
+        $changes = (new OrderChanges($this->structure()))->updateAssembly($built, $assembly, $fitted, $unused, $all, $all, $tested, $done, $note, $today);
         $made    = $done === null ? 0 : $done - $part->done;
         $checked = $tested ?? $part->tested;
         $boards  = $this->boardsAfter($part, $fitted, $unused, $list);
