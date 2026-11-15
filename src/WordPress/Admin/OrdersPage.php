@@ -240,6 +240,13 @@ final class OrdersPage
             $sections[] = ['title' => __('Pickliste', 'taxmod-manufacturing'), 'html' => $picks, 'open' => ! $started];
         }
 
+        // His word 2026-11-15: at «Angelegt» only the build options are chosen; everything else happens from «Bereitstellung» on.
+        $options = $order->step === 'order_planned' ? $this->optionsForm($order, $labels, $demand) : '';
+
+        if ($options !== '') {
+            $sections[] = ['title' => __('Aufbau-Optionen', 'taxmod-manufacturing'), 'html' => $options];
+        }
+
         if ($started) {
             $fitting = '';
 
@@ -253,6 +260,41 @@ final class OrdersPage
         return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => 'detail']) . '</form>'
             . ListPage::record($order->label, $steps, $order->step, $back, $forward, $actions, $this->headForm($order, $labels, $missing), $sections);
+    }
+
+    /**
+     * The optional positions of each board, ticked = built (his word 2026-11-15: «auswählen, welche wir aufbauen wollen»).
+     * What is not ticked is left out, as «nicht verwenden» at the fitting (D-954).
+     *
+     * @param array<int, string> $labels
+     * @param array<int, list<array{position: int, thing: int, optional: bool, unused: bool}>> $demand
+     */
+    private function optionsForm(BuildOrder $order, array $labels, array $demand): string
+    {
+        $html = '';
+
+        foreach ($order->assemblies as $assembly) {
+            $rows = array_filter($demand[$assembly->id] ?? [], static fn (array $row): bool => $row['optional'] && $row['position'] > 0);
+
+            if ($rows === []) {
+                continue;
+            }
+
+            $list = '';
+
+            foreach ($rows as $row) {
+                $list .= '<li><label><input type="checkbox" name="build[]" value="' . esc_attr((string) $row['position']) . '"' . checked(! $row['unused'], true, false) . '> '
+                    . esc_html($labels[$row['thing']] ?? '#' . $row['thing']) . '</label>'
+                    . '<input type="hidden" name="optional[]" value="' . esc_attr((string) $row['position']) . '"></li>';
+            }
+
+            $html .= '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+                . $this->hidden(['action' => self::ACTION, 'do' => 'options', 'order' => (string) $order->id, 'assembly' => (string) $assembly->id, 'tab' => $this->tab()])
+                . ListPage::toolbar([$this->saveButton()])
+                . '<p><strong>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision) . '</strong></p><ul>' . $list . '</ul></form>';
+        }
+
+        return $html;
     }
 
     /**
@@ -519,6 +561,7 @@ final class OrdersPage
                     'assembly' => $this->updateAssembly($order, $today, $back),
                     'box'      => $this->box($order, $back),
                     'head'     => $this->head($order, $back),
+                    'options'  => $this->options($order, $today, $back),
                     'back'     => $this->stepBack($order, $back),
                     'pick'     => $this->pick($order, $today, $back),
                     'reorder'  => $this->reorder($order, $back),
@@ -706,6 +749,18 @@ final class OrdersPage
         }
 
         return 'head';
+    }
+
+    /** @param array<string, string|int> $back */
+    private function options(int $order, string $today, array &$back): string
+    {
+        $built    = array_map('absint', (array) ($_POST['build'] ?? []));
+        $optional = array_map('absint', (array) ($_POST['optional'] ?? []));
+
+        $this->service->updateAssembly($order, absint($_POST['assembly'] ?? 0), [], array_values(array_diff($optional, $built)), null, null, null, $today);
+        $back['auftrag'] = $order;
+
+        return 'options';
     }
 
     /** @param array<string, string|int> $back */
@@ -1070,6 +1125,7 @@ final class OrdersPage
             'saved_unbooked' => __('Platine gespeichert. Der Verbrauch ist noch nicht gebucht: das Lager bietet die Buchung noch nicht an.', 'taxmod-manufacturing'),
             'box'       => __('Gebinde gespeichert.', 'taxmod-manufacturing'),
             'head'      => __('Auftrag gespeichert.', 'taxmod-manufacturing'),
+            'options'   => __('Aufbau-Optionen gespeichert.', 'taxmod-manufacturing'),
             'stepped_back' => __('Einen Schritt zurück.', 'taxmod-manufacturing'),
             'reordered' => __('Fehlendes als Bedarf im Einkauf angelegt.', 'taxmod-manufacturing'),
             'nothing_missing' => __('Es fehlt nichts, was nirgends am Lager liegt.', 'taxmod-manufacturing'),
