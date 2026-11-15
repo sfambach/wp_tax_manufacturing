@@ -1085,6 +1085,8 @@ final class OrdersPage
                 'label_field' => $this->service->structure()->field('label'),
                 'unpickable' => array_keys(array_diff_key($this->projects, $this->boards)),
                 'form'       => $formId,
+                // His word 2026-11-15: the chooser inline in the dialog, not a second dialog on top of it (D-1084/D-1090 switch).
+                'inline'     => true,
             ])
             : '';
         $picker = $chooser !== '' ? $chooser : '<select name="project" required>' . $options . '</select>';
