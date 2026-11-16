@@ -15,19 +15,29 @@ final class DemandTest extends TestCase
         ['id' => 703, 'thing' => 9004, 'count' => 1.0, 'fitting' => 'optional'],
     ]];
 
-    /** His s7vrm: 10 pieces, 2 built, the coil (701) on none yet; the option 703 left out. */
-    public function testFittedBoardsReduceWhatIsStillNeeded(): void
+    /**
+     * His s7vrm: 10 pieces, 2 fitted with 700, the coil (701) on none yet; the option 703 left out. D-1302 (replaces the rule
+     * of D-1146 that fitting used parts up): a fitted board still holds its parts in the box, so only finished boards lower
+     * what is still needed.
+     */
+    public function testOnlyFinishedBoardsReduceWhatIsStillNeeded(): void
     {
-        $assembly = new Assembly(600, 305, [700 => ['part' => 1, 'boards' => 2]], [703]);
-        $rows     = Demand::of([$assembly], self::POSITIONS, 10, [305 => 8.0, 9001 => 20.0, 9002 => 3.0])[600];
+        $fitted = new Assembly(600, 305, [700 => ['part' => 1, 'boards' => 2]], [703]);
+        $rows   = Demand::of([$fitted], self::POSITIONS, 10, [305 => 8.0, 9001 => 20.0, 9002 => 3.0])[600];
 
         self::assertSame([0, 700, 701, 703], array_column($rows, 'position'));
         self::assertSame([10.0, 30.0, 10.0, 0.0], array_column($rows, 'needed'));
         self::assertSame([2, 2, 0, 0], array_column($rows, 'boards'));
-        self::assertSame([8.0, 24.0, 10.0, 0.0], array_column($rows, 'open'));
-        self::assertSame([0.0, 4.0, 7.0, 0.0], array_column($rows, 'missing'));
+        self::assertSame([10.0, 30.0, 10.0, 0.0], array_column($rows, 'open'));
+        self::assertSame([2.0, 10.0, 7.0, 0.0], array_column($rows, 'missing'));
         self::assertSame(0, Demand::boardsFitted($rows));
-        self::assertSame(2, Demand::missingRows([600 => $rows]));
+        self::assertSame(3, Demand::missingRows([600 => $rows]));
+
+        $done = new Assembly(600, 305, [700 => ['part' => 1, 'boards' => 2], 701 => ['part' => 2, 'boards' => 2]], [703], 2, 2);
+        $rows = Demand::of([$done], self::POSITIONS, 10, [305 => 8.0, 9001 => 24.0, 9002 => 8.0])[600];
+
+        self::assertSame([8.0, 24.0, 8.0, 0.0], array_column($rows, 'open'));
+        self::assertSame(0, Demand::missingRows([600 => $rows]));
     }
 
     public function testBoardsFittedIsTheSmallestCount(): void
@@ -37,12 +47,14 @@ final class DemandTest extends TestCase
         self::assertSame(2, Demand::boardsFitted(Demand::of([$assembly], self::POSITIONS, 10, [])[600]));
     }
 
-    public function testConsumptionIsTheDifferenceTimesTheCount(): void
+    /** D-1302 «erst bei fertig»: finishing boards uses up each used position × its count and the board; fewer gives back. */
+    public function testFinishingUsesUpThePartsOfTheFinishedBoards(): void
     {
         $assembly = new Assembly(600, 305, [700 => ['part' => 1, 'boards' => 2]], []);
 
-        self::assertSame([9001 => 3.0, 9002 => 2.0, 305 => 1.0], Demand::consumption($assembly, [700 => 3, 701 => 2], self::POSITIONS[305]));
-        self::assertSame([9001 => -6.0, 305 => -2.0], Demand::consumption($assembly, [700 => 0, 701 => 0], self::POSITIONS[305]));
+        self::assertSame([9001 => 6.0, 9002 => 2.0, 9004 => 2.0, 305 => 2.0], Demand::finished($assembly, 2, self::POSITIONS[305], []));
+        self::assertSame([9001 => -3.0, 9002 => -1.0, 305 => -1.0], Demand::finished($assembly, -1, self::POSITIONS[305], [703]));
+        self::assertSame([], Demand::finished($assembly, 0, self::POSITIONS[305], []));
     }
 
     /** D-1388 (replaces the board-record rule of D-1322): the bare board is needed and consumed as the revision record. */
@@ -53,7 +65,7 @@ final class DemandTest extends TestCase
 
         self::assertSame(305, $demand[600][0]['thing']);
         self::assertSame(0.0, $demand[600][0]['missing']);
-        self::assertSame([9001 => 3.0, 9002 => 1.0, 305 => 1.0], Demand::consumption($assembly, [700 => 1, 701 => 1], self::POSITIONS[305]));
+        self::assertSame([9001 => 3.0, 9002 => 1.0, 305 => 1.0], Demand::finished($assembly, 1, self::POSITIONS[305], [703]));
     }
 
     public function testBoxIsHandedOutOnce(): void
@@ -92,7 +104,7 @@ final class DemandTest extends TestCase
     public function testALeftOutMandatoryPositionIsNeitherNeededNorMissing(): void
     {
         $assembly = new Assembly(600, 305, [700 => ['part' => 1, 'boards' => 2]], [701, 703]);
-        $rows     = Demand::of([$assembly], self::POSITIONS, 10, [305 => 8.0, 9001 => 30.0])[600];
+        $rows     = Demand::of([$assembly], self::POSITIONS, 10, [305 => 10.0, 9001 => 30.0])[600];
         $socket   = $rows[2];
 
         self::assertSame(701, $socket['position']);
@@ -101,7 +113,7 @@ final class DemandTest extends TestCase
         self::assertSame(0.0, $socket['missing']);
         self::assertSame(2, Demand::boardsFitted($rows));
         self::assertSame(0, Demand::missingRows([600 => $rows]));
-        self::assertSame([9001 => 3.0, 305 => 1.0], Demand::consumption($assembly, [700 => 3], self::POSITIONS[305]));
+        self::assertSame([9001 => 3.0, 305 => 1.0], Demand::finished($assembly, 1, self::POSITIONS[305], [701, 703]));
     }
 
     /** D-1387: a substitute assigned to position 701 counts for it; the stock of the listed part does not. */

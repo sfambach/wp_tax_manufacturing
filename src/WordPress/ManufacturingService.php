@@ -491,7 +491,8 @@ final class ManufacturingService
         }
 
         $booked  = 'nothing';
-        $use     = Demand::consumption($part, $fitted, $list);
+        // D-1302: parts are used up when a board is finished, not when it is fitted; a half-fitted board keeps its parts in the box.
+        $use     = Demand::finished($part, $made, $list, $unused);
 
         if ($use !== [] && has_filter(self::BOOK_FILTER)) {
             if ($built->box === null) {

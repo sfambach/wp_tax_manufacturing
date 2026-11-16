@@ -40,6 +40,8 @@ final class Demand
         foreach ($assemblies as $assembly) {
             $rows = [];
             $most = 0;
+            // D-1302: only finished boards have used their parts up; a fitted one still holds them in the box.
+            $done = min($pieces, $assembly->done);
 
             foreach ($positions[$assembly->revision] ?? [] as $position) {
                 if ($position['fitting'] === 'no' || $position['thing'] <= 0) {
@@ -51,11 +53,11 @@ final class Demand
                 $unused   = in_array($position['id'], $assembly->unused, true);
                 $boards   = $unused ? 0 : min($pieces, $assembly->fittedOn($position['id']));
                 $most     = max($most, $boards);
-                $rows[]   = self::row($position['id'], $position['thing'], $position['count'], $unused ? 0.0 : $position['count'] * $pieces, $boards, $optional, $unused, $left);
+                $rows[]   = self::row($position['id'], $position['thing'], $position['count'], $unused ? 0.0 : $position['count'] * $pieces, $boards, $unused ? 0 : $done, $optional, $unused, $left);
             }
 
             // D-1388: the bare board is the revision record — what was bought is a version, and a fact has one place.
-            array_unshift($rows, self::row(0, $assembly->revision, 1.0, (float) $pieces, $most, false, false, $left));
+            array_unshift($rows, self::row(0, $assembly->revision, 1.0, (float) $pieces, $most, $done, false, false, $left));
             $out[$assembly->id] = $rows;
         }
 
@@ -156,44 +158,38 @@ final class Demand
     }
 
     /**
-     * What a change of fitted counts takes out of the box (positive) or puts back (negative): the difference × the count of
-     * each position, and for the board itself the difference of its largest count.
+     * D-1302 «erst bei fertig»: what finishing `$made` more boards takes out of the box and the order's reservations — each
+     * used position × its count, and the bare board (the revision record, D-1388); negative gives back. A left-out position
+     * and one not fitted at all («no») take nothing.
      *
-     * @param array<int, int> $new position → boards, for every position shown
      * @param list<array{id: int, thing: int, count: float, fitting: string}> $positions of the assembly's revision
+     * @param list<int> $unused positions left out of this assembly
      * @return array<int, float> thing → pieces, without zeros
      */
-    public static function consumption(Assembly $assembly, array $new, array $positions): array
+    public static function finished(Assembly $assembly, int $made, array $positions, array $unused): array
     {
-        $out    = [];
-        $oldMax = 0;
-        $newMax = 0;
+        if ($made === 0) {
+            return [];
+        }
+
+        $out = [];
 
         foreach ($positions as $position) {
-            if ($position['thing'] <= 0 || ! array_key_exists($position['id'], $new)) {
+            if ($position['thing'] <= 0 || $position['fitting'] === 'no' || in_array($position['id'], $unused, true)) {
                 continue;
             }
 
-            $old    = $assembly->fittedOn($position['id']);
-            $oldMax = max($oldMax, $old);
-            $newMax = max($newMax, $new[$position['id']]);
-            $out[$position['thing']] = ($out[$position['thing']] ?? 0.0) + ($new[$position['id']] - $old) * $position['count'];
+            $out[$position['thing']] = ($out[$position['thing']] ?? 0.0) + $made * $position['count'];
         }
 
-        // D-1388: the bare board is booked at the revision record.
-        $bare       = $assembly->revision;
-        $out[$bare] = ($out[$bare] ?? 0.0) + ($newMax - $oldMax);
+        $out[$assembly->revision] = ($out[$assembly->revision] ?? 0.0) + $made;
 
         return array_filter($out, static fn (float $n): bool => $n !== 0.0);
     }
 
-    /**
-     * @param array<int, float> $left thing → pieces not yet handed out
-     * @return array{position: int, thing: int, count: float, needed: float, boards: int, open: float, present: float, missing: float, optional: bool, unused: bool}
-     */
-    private static function row(int $position, int $thing, float $count, float $needed, int $boards, bool $optional, bool $unused, array &$left): array
+    private static function row(int $position, int $thing, float $count, float $needed, int $boards, int $done, bool $optional, bool $unused, array &$left): array
     {
-        $open         = max(0.0, $needed - $boards * $count);
+        $open         = max(0.0, $needed - $done * $count);
         $there        = min($open, $left[$thing] ?? 0.0);
         $left[$thing] = ($left[$thing] ?? 0.0) - $there;
 
