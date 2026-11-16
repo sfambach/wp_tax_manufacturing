@@ -59,7 +59,12 @@ final class OrdersPage
     public const BULK_REOPEN = 'taxmod_manufacturing_reopen';
 
     /** @var list<string> the admin-post actions this page answers */
-    public const ACTIONS = [self::ACTION, self::BULK_CANCEL, self::BULK_REOPEN];
+    /** D-1403: the pick list's choices of its one bulk selection. */
+    public const BULK_PICK = 'taxmod_manufacturing_pick';
+
+    public const BULK_RESERVE = 'taxmod_manufacturing_reserve';
+
+    public const ACTIONS = [self::ACTION, self::BULK_CANCEL, self::BULK_REOPEN, self::BULK_PICK, self::BULK_RESERVE];
 
     private const NONCE = 'taxmod_manufacturing';
 
@@ -467,7 +472,7 @@ final class OrdersPage
                     foreach ($at['places'] ?: [0 => $at['quantity']] as $place => $pieces) {
                         $key   = $at['thing'] . ':' . $place;
                         $tick  = $place > 0 && $place !== $order->box
-                            ? '<input type="checkbox" name="pick[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick"><input type="hidden" form="taxmod-mf-pick" name="qty[' . esc_attr($key) . ']" value="' . esc_attr($count(min($pieces, $at['quantity']))) . '">'
+                            ? '<input type="checkbox" name="selected[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick"><input type="hidden" form="taxmod-mf-pick" name="qty[' . esc_attr($key) . ']" value="' . esc_attr($count(min($pieces, $at['quantity']))) . '">'
                                 . $this->pieceFields($key, $cut[$position] ?? 0)
                             : '';
                         // His word 16.11. «das zugewiesene material dann in der zeile»: it stands with the line of its material.
@@ -508,7 +513,7 @@ final class OrdersPage
                 foreach ($at['places'] ?: [0 => $at['quantity']] as $place => $pieces) {
                     $key  = $thing . ':' . $place;
                     $tick = $place > 0 && $place !== $order->box
-                        ? '<input type="checkbox" name="pick[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick"><input type="hidden" form="taxmod-mf-pick" name="qty[' . esc_attr($key) . ']" value="' . esc_attr($count(min($pieces, $at['quantity']))) . '">'
+                        ? '<input type="checkbox" name="selected[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick"><input type="hidden" form="taxmod-mf-pick" name="qty[' . esc_attr($key) . ']" value="' . esc_attr($count(min($pieces, $at['quantity']))) . '">'
                             . $this->pieceFields($key, $out['piece'][$thing] ?? 0)
                         : '';
                     $out['rows'][$thing] = ($out['rows'][$thing] ?? '') . '<tr><td>' . $tick . '</td><td>' . $this->part($thing, $labels, $order) . '</td>'
@@ -596,7 +601,7 @@ final class OrdersPage
         foreach ($lines as $i => $line) {
             $key   = $line['thing'] . ':' . (int) $line['place'];
             $tick  = $canPick && $line['place'] !== null
-                ? '<input type="checkbox" name="pick[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick">'
+                ? '<input type="checkbox" name="selected[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick">'
                 : '<span style="display:inline-block;width:1em;height:1em;border:1px solid #8c8f94"></span>';
             $take  = $canPick && $line['place'] !== null
                 ? '<input type="number" class="small-text" form="taxmod-mf-pick" name="qty[' . esc_attr($key) . ']" min="0" max="' . esc_attr($count($line['there'])) . '" step="any" value="' . esc_attr($count($line['take'])) . '">'
@@ -619,7 +624,7 @@ final class OrdersPage
             // D9: a strip found nowhere can be cut from a longer one of the same kind; the stock module books the cut.
             foreach ($line['place'] === null ? ($cuts[$line['thing']] ?? []) : [] as $source) {
                 $key   = $line['thing'] . ':' . $source['lot'];
-                $body .= '<tr><td><input type="checkbox" name="cut[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick"></td>'
+                $body .= '<tr><td><input type="checkbox" name="selected[]" value="' . esc_attr('cut:' . $key) . '" form="taxmod-mf-pick"></td>'
                     . '<td>' . esc_html(sprintf(__('ablängen aus %s', 'taxmod-manufacturing'), $labels[$source['thing']] ?? '#' . $source['thing'])) . '</td>'
                     . '<td>' . esc_html($labels[$source['place']] ?? '#' . $source['place']) . '</td>'
                     . '<td>' . esc_html($count($source['left'])) . '</td><td></td>'
@@ -649,20 +654,21 @@ final class OrdersPage
 
         wp_enqueue_script('taxmod-mf-assign', plugins_url('assets/assign.js', dirname(__DIR__, 3) . '/wp_tax_manufacturing.php'), [], defined('TAXMOD_MANUFACTURING_VERSION') ? (string) TAXMOD_MANUFACTURING_VERSION : null, true);
 
-        return '<style>@media print{body *{visibility:hidden}.taxmod-mf-pick,.taxmod-mf-pick *{visibility:visible}.taxmod-mf-pick{position:absolute;left:0;top:0;width:100%}.taxmod-mf-noprint{display:none}}</style>'
+        return '<style>.taxmod-mf-printonly{display:none}@media print{.taxmod-mf-printonly{display:block}body *{visibility:hidden}.taxmod-mf-pick,.taxmod-mf-pick *{visibility:visible}.taxmod-mf-pick{position:absolute;left:0;top:0;width:100%}.taxmod-mf-noprint{display:none}}</style>'
             . '<div class="taxmod-mf-pick" style="border-top:1px solid #dcdcde;padding:.75em 0">'
-            . '<h3>' . esc_html(sprintf(__('Pickliste · %s', 'taxmod-manufacturing'), $order->label)) . '</h3>'
-            . '<div class="taxmod-mf-noprint">' . ListPage::toolbar([
-                $reorder,
-                $canPick ? '<button type="submit" class="button button-primary" form="taxmod-mf-pick">' . esc_html__('Angehakte Zeilen ins Gebinde umbuchen', 'taxmod-manufacturing') . '</button>' : '',
+            // Printed only: on screen the section already says «Pickliste».
+            . '<h3 class="taxmod-mf-printonly">' . esc_html(sprintf(__('Pickliste · %s', 'taxmod-manufacturing'), $order->label)) . '</h3>'
+            // D-1403: one bar — the acts on ticked rows are the choices of its bulk selection; printing and reordering stand beside.
+            . '<div class="taxmod-mf-noprint">' . ($canPick ? ListPage::bulkBar('taxmod-mf-pick', self::NONCE, array_filter([
+                self::BULK_PICK    => __('Ins Gebinde umbuchen', 'taxmod-manufacturing'),
                 // D-1301: or leave them where they lie, reserved for this order (Handlager).
-                $canPick && $this->service->canReserve() ? '<button type="submit" class="button" form="taxmod-mf-pick" name="mode" value="reserve">' . esc_html__('Angehakte Zeilen reservieren', 'taxmod-manufacturing') . '</button>' : '',
-                '<button type="button" class="button" onclick="window.print()">' . esc_html__('Drucken', 'taxmod-manufacturing') . '</button>',
-            ]) . '</div>'
+                self::BULK_RESERVE => $this->service->canReserve() ? __('Reservieren', 'taxmod-manufacturing') : '',
+            ]), sprintf(_n('%d Zeile', '%d Zeilen', count($lines), 'taxmod-manufacturing'), count($lines)),
+                '<div class="alignleft actions">' . $reorder . ' <button type="button" class="button" onclick="window.print()">' . esc_html__('Drucken', 'taxmod-manufacturing') . '</button></div>', false)
+                . $this->hidden(['order' => (string) $order->id, 'tab' => $this->tab()], 'taxmod-mf-pick')
+                : ListPage::toolbar(['<button type="button" class="button" onclick="window.print()">' . esc_html__('Drucken', 'taxmod-manufacturing') . '</button>'])) . '</div>'
             . $note
-            . ($canPick ? '<p class="description taxmod-mf-noprint">' . esc_html__('Links anhaken, was du aus dem Lager nimmst; «Nehmen» ist die Menge je Zeile. «Aus Bestand wählen» nimmt einen anderen Ort oder ein Ersatzmaterial; Zugewiesenes ist reserviert und steht unten.', 'taxmod-manufacturing') . '</p>' : '')
-            . '<form method="post" id="taxmod-mf-pick" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
-            . $this->hidden(['action' => self::ACTION, 'do' => 'pick', 'order' => (string) $order->id, 'tab' => $this->tab()]) . '</form>'
+            . ($canPick ? '<p class="description taxmod-mf-noprint">' . esc_html__('Zeilen anhaken, Aktion wählen, ausführen. «Nehmen» ist die Menge je Zeile; «Aus Bestand wählen» nimmt einen anderen Ort oder ein Ersatzmaterial.', 'taxmod-manufacturing') . '</p>' : '')
             . '<table class="widefat striped" style="margin-top:.5em"><thead><tr><th style="width:2em"></th>'
             . '<th>' . esc_html__('Teil', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Lagerort', 'taxmod-manufacturing') . '</th>'
             . '<th style="text-align:right">' . esc_html__('Dort', 'taxmod-manufacturing') . '</th><th style="text-align:right">' . esc_html__('Fehlt', 'taxmod-manufacturing') . '</th>'
@@ -790,6 +796,8 @@ final class OrdersPage
                 }
 
                 $back['msg'] = $action === self::BULK_CANCEL ? 'cancelled' : 'reopened';
+            } elseif ($action === self::BULK_PICK || $action === self::BULK_RESERVE) {
+                $back['msg'] = $this->pick(absint($_POST['order'] ?? 0), $today, $back, $action === self::BULK_RESERVE);
             } else {
                 $do    = sanitize_key((string) ($_POST['do'] ?? (isset($_POST['readd']) ? 'readd' : '')));
                 $order = absint($_POST['order'] ?? 0);
@@ -802,7 +810,6 @@ final class OrdersPage
                     'options'  => $this->options($order, $today, $back),
                     'readd'    => $this->readd($order, $today, $back),
                     'back'     => $this->stepBack($order, $back),
-                    'pick'     => $this->pick($order, $today, $back),
                     'assign'   => $this->assign($order, $today, $back),
                     'reorder'  => $this->reorder($order, $back),
                     'staging'  => $this->step($order, 'order_staging', $today, $back),
@@ -921,14 +928,13 @@ final class OrdersPage
     }
 
     /** @param array<string, string|int> $back */
-    private function pick(int $order, string $today, array &$back): string
+    private function pick(int $order, string $today, array &$back, bool $reserve): string
     {
         $quantities = (array) ($_POST['qty'] ?? []);
+        $selected   = array_map(static fn ($key): string => sanitize_text_field(wp_unslash((string) $key)), (array) ($_POST['selected'] ?? []));
         $lines      = [];
 
-        foreach ((array) ($_POST['pick'] ?? []) as $key) {
-            $key = sanitize_text_field(wp_unslash((string) $key));
-
+        foreach ($selected as $key) {
             if (preg_match('/^(\d+):(\d+)$/', $key, $match) !== 1) {
                 continue;
             }
@@ -947,8 +953,8 @@ final class OrdersPage
         $cutQty = (array) ($_POST['cutqty'] ?? []);
         $cuts   = [];
 
-        foreach ((array) ($_POST['cut'] ?? []) as $key) {
-            $key = sanitize_text_field(wp_unslash((string) $key));
+        foreach ($selected as $key) {
+            $key = str_starts_with($key, 'cut:') ? substr($key, 4) : '';
             $qty = (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($cutQty[$key] ?? '0'))));
 
             if (preg_match('/^(\d+):(\d+)$/', $key, $match) === 1 && $qty > 0.0) {
@@ -966,7 +972,7 @@ final class OrdersPage
             $this->service->bookCut($order, $cuts, $today);
         }
 
-        if ($lines !== [] && sanitize_key((string) ($_POST['mode'] ?? '')) === 'reserve') {
+        if ($lines !== [] && $reserve) {
             $this->service->reserve($order, $lines, $today);
 
             return 'reserved';
@@ -1394,12 +1400,12 @@ final class OrdersPage
     }
 
     /** @param array<string, string> $fields */
-    private function hidden(array $fields): string
+    private function hidden(array $fields, string $form = ''): string
     {
         $html = '';
 
         foreach ($fields as $name => $value) {
-            $html .= '<input type="hidden" name="' . esc_attr($name) . '" value="' . esc_attr($value) . '">';
+            $html .= '<input type="hidden"' . ($form === '' ? '' : ' form="' . esc_attr($form) . '"') . ' name="' . esc_attr($name) . '" value="' . esc_attr($value) . '">';
         }
 
         return $html;
