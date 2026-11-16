@@ -45,7 +45,9 @@ final class Structure
         // D-1178: the pins a socket strip loses at each cut, on the material's stock record.
         'lager_thing', 'lager_cut_loss',
         // D-1300: the wished date of an order; D-1304: the test steps at a revision.
-        'order_due', 'revision_checks', 'check_instruction', 'check_firmware'];
+        'order_due', 'revision_checks', 'check_instruction', 'check_firmware',
+        // D-1393/D-1398: the pins of one piece at a BOM line (a unit value) and the amount field of a unit value.
+        'position_poles', 'unit_amount'];
 
     /** D-954: the «Best.» values that matter here — «optional» may be left out, «nein» is never needed. */
     private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no', 'fitting_external', 'order_staging'];

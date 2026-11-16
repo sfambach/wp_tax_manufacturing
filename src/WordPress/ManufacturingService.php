@@ -869,14 +869,18 @@ final class ManufacturingService
             $value !== null && $s->hasValue('fitting_external') && (string) $s->value('fitting_external') === $value  => 'no',
             default                                                                                                     => '',
         };
-        $out = [];
+        $out    = [];
+        $poles  = $this->piecePins(array_merge(...array_map(fn (int $r): array => $this->positionsOf($r), $revisions) ?: [[]]));
 
         foreach ($revisions as $revision) {
             foreach ($this->positionsOf($revision) as $position) {
+                $piece            = $poles[$position] ?? 0;
                 $out[$revision][] = [
                     'id'      => $position,
                     'thing'   => (int) $positions->first($position, $s->field('position_part')),
-                    'count'   => (float) ($positions->first($position, $s->field('position_count')) ?? 1),
+                    // D-1398: a line with «Polzahl» counts pieces of a strip counted in pins; the need is in pins.
+                    'count'   => (float) ($positions->first($position, $s->field('position_count')) ?? 1) * ($piece > 0 ? $piece : 1),
+                    'piece'   => $piece,
                     'fitting' => $s->hasField('position_fitting') ? $fitting($positions->first($position, $s->field('position_fitting'))) : '',
                     'ref'     => $s->hasField('position_ref') ? implode(', ', $positions->all($position, $s->field('position_ref'))) : '',
                 ];
@@ -886,6 +890,49 @@ final class ManufacturingService
         $loss = $this->cutLoss(array_values(array_unique(array_merge(...array_map(static fn (array $l): array => array_column($l, 'thing'), array_values($out)) ?: [[]]))));
 
         return $loss === [] ? $out : array_map(static fn (array $list): array => Demand::withCutLoss($list, $loss), $out);
+    }
+
+    /**
+     * D-1393/D-1398: the pins of one piece at these BOM lines — «Polzahl» is a unit value, read in one go (CD-7).
+     *
+     * @param list<int> $positions
+     * @return array<int, int> position → pins per piece, only where set
+     */
+    private function piecePins(array $positions): array
+    {
+        $s = $this->structure();
+
+        if ($positions === [] || ! $s->hasField('position_poles') || ! $s->hasField('unit_amount')) {
+            return [];
+        }
+
+        $table  = $this->table('bom_position');
+        $values = [];
+
+        foreach ($positions as $position) {
+            $value = (int) $table->first($position, $s->field('position_poles'));
+
+            if ($value > 0) {
+                $values[$position] = $value;
+            }
+        }
+
+        if ($values === []) {
+            return [];
+        }
+
+        $amounts = $this->model->records(array_values(array_unique($values)));
+        $out     = [];
+
+        foreach ($values as $position => $value) {
+            $pins = (int) round((float) str_replace(',', '.', (string) $amounts->first($value, $s->field('unit_amount'))));
+
+            if ($pins > 0) {
+                $out[$position] = $pins;
+            }
+        }
+
+        return $out;
     }
 
     /**

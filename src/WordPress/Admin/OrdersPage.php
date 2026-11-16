@@ -430,11 +430,11 @@ final class OrdersPage
      * @param array<int, list<array{thing: int, missing: float, position: int}>> $demand
      * @param array<int, list<array{thing: int, quantity: float, places: array<int, float>}>> $assigned position → reservations
      * @param array<int, string> $labels
-     * @return array{dialogs: array<int, string>, rows: array<int, string>} thing → its «Aus Bestand wählen», and thing → the rows of what is assigned to it
+     * @return array{dialogs: array<int, string>, rows: array<int, string>, piece: array<int, int>} thing → its «Aus Bestand wählen», thing → the rows of what is assigned to it, thing → pins per piece (D-1398)
      */
     private function assignParts(BuildOrder $order, array $plain, array $demand, array $assigned, array $labels): array
     {
-        $out = ['dialogs' => [], 'rows' => []];
+        $out = ['dialogs' => [], 'rows' => [], 'piece' => []];
 
         if ($order->box === null || $order->isClosed() || ! has_filter('taxmod_stock_material_picker') || ! $this->service->canReserve()) {
             return $out;
@@ -443,11 +443,13 @@ final class OrdersPage
         $count = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
         $refs  = [];
         $base  = [];
+        $cut   = [];
 
         foreach ($plain as $positions) {
             foreach ($positions as $position) {
                 $refs[$position['id']] = (string) $position['ref'];
                 $base[$position['id']] = (int) $position['thing'];
+                $cut[$position['id']]  = (int) ($position['piece'] ?? 0);
             }
         }
 
@@ -463,6 +465,7 @@ final class OrdersPage
                         $key   = $at['thing'] . ':' . $place;
                         $tick  = $place > 0 && $place !== $order->box
                             ? '<input type="checkbox" name="pick[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick"><input type="hidden" form="taxmod-mf-pick" name="qty[' . esc_attr($key) . ']" value="' . esc_attr($count(min($pieces, $at['quantity']))) . '">'
+                                . $this->pieceFields($key, $cut[$position] ?? 0)
                             : '';
                         // His word 16.11. «das zugewiesene material dann in der zeile»: it stands with the line of its material.
                         $out['rows'][$row['thing']] = ($out['rows'][$row['thing']] ?? '') . '<tr><td>' . $tick . '</td><td>' . esc_html($where) . ' ' . $this->part($at['thing'], $labels, $order) . esc_html($at['thing'] !== $wanted ? ' ' . __('(Ersatz)', 'taxmod-manufacturing') : '') . '</td>'
@@ -470,6 +473,10 @@ final class OrdersPage
                             . '<td style="text-align:right">' . esc_html($count($at['quantity'])) . '</td><td></td>'
                             . '<td><strong style="color:#008a20">' . esc_html__('zugewiesen', 'taxmod-manufacturing') . '</strong></td><td></td></tr>';
                     }
+                }
+
+                if (($cut[$position] ?? 0) > 0) {
+                    $out['piece'][$row['thing']] ??= $cut[$position];
                 }
 
                 if ($row['missing'] <= 0.0 || isset($out['dialogs'][$row['thing']])) {
@@ -484,7 +491,7 @@ final class OrdersPage
                     'preferred' => [$wanted],
                     'except'    => (int) $order->box,
                     'quantity'  => $row['missing'],
-                ]);
+                ] + (($cut[$position] ?? 0) > 0 ? ['piece' => $cut[$position], 'pieces' => (int) ceil($row['missing'] / $cut[$position])] : []));
                 $out['dialogs'][$row['thing']] = '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-noprint taxmod-mf-assign">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
                     . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'position' => (string) $position, 'tab' => $this->tab()])
                     . ListPage::dialogAction($key . '-dialog', __('Aus Bestand wählen', 'taxmod-manufacturing'), sprintf(__('Aus Bestand wählen · %s', 'taxmod-manufacturing'), $labels[$wanted] ?? '#' . $wanted), $picker, 'do', 'assign', __('Zuweisen', 'taxmod-manufacturing'))
@@ -493,6 +500,17 @@ final class OrdersPage
         }
 
         return $out;
+    }
+
+    /**
+     * D-1398: a strip counted in pins goes into the box as whole pieces; the stock cuts them by its cut plan. The pieces follow
+     * from the pins taken: the field «Nehmen» stays in pins.
+     */
+    private function pieceFields(string $key, int $piece): string
+    {
+        return $piece > 0
+            ? '<input type="hidden" form="taxmod-mf-pick" name="piece[' . esc_attr($key) . ']" value="' . esc_attr((string) $piece) . '">'
+            : '';
     }
 
     /**
@@ -523,7 +541,7 @@ final class OrdersPage
      * can be assigned from stock, and what is assigned stands below (D-1387).
      *
      * @param array<int, list<array{thing: int, missing: float}>> $demand
-     * @param array{dialogs: array<int, string>, rows: array<int, string>} $parts from {@see assignParts()}
+     * @param array{dialogs: array<int, string>, rows: array<int, string>, piece: array<int, int>} $parts from {@see assignParts()}
      */
     private function pickList(BuildOrder $order, array $demand, array $parts): string
     {
@@ -562,6 +580,7 @@ final class OrdersPage
                 : '<span style="display:inline-block;width:1em;height:1em;border:1px solid #8c8f94"></span>';
             $take  = $canPick && $line['place'] !== null
                 ? '<input type="number" class="small-text" form="taxmod-mf-pick" name="qty[' . esc_attr($key) . ']" min="0" max="' . esc_attr($count($line['there'])) . '" step="any" value="' . esc_attr($count($line['take'])) . '">'
+                    . $this->pieceFields($key, $parts['piece'][$line['thing']] ?? 0)
                 : esc_html($line['place'] === null ? '' : $count($line['take']));
             $body .= '<tr><td>' . $tick . '</td><td>' . $this->part($line['thing'], $labels, $order) . '</td>'
                 . '<td>' . ($line['place'] === null
@@ -886,8 +905,12 @@ final class OrdersPage
 
             $qty = (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($quantities[$key] ?? '0'))));
 
+            $piece = absint(((array) ($_POST['piece'] ?? []))[$key] ?? 0);
+
             if ($qty > 0.0) {
-                $lines[] = ['thing' => (int) $match[1], 'from' => (int) $match[2], 'qty' => $qty];
+                // D-1398: pieces of a strip counted in pins — the stock cuts them whole from its strips at `from`.
+                $lines[] = ['thing' => (int) $match[1], 'from' => (int) $match[2], 'qty' => $qty]
+                    + ($piece > 0 ? ['piece' => $piece, 'pieces' => (int) ceil($qty / $piece)] : []);
             }
         }
 
