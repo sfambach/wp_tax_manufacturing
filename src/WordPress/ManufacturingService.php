@@ -212,6 +212,22 @@ final class ManufacturingService
         return has_filter(self::RESERVE_FILTER) && has_filter(self::RESERVATIONS_FILTER);
     }
 
+    /** @var array<string, mixed> the stock's answer per set of orders, for this request (his report 16.11.: slow lists) */
+    private array $reservationLines = [];
+
+    /**
+     * The stock's open reservation lines of these orders, asked once per request: the list and the order page read them
+     * for what is reserved and for what is assigned, and each ask builds the stock's ledger anew.
+     *
+     * @param list<int> $orders
+     */
+    private function reservationLines(array $orders): mixed // mixed: whatever the stock's filter answers, checked by the callers
+    {
+        $key = implode(',', $orders);
+
+        return $this->reservationLines[$key] ??= apply_filters(self::RESERVATIONS_FILTER, null, ['subjects' => array_values($orders)]);
+    }
+
     /**
      * The open reservations of these orders, per part, asked once for all (CD-7).
      *
@@ -224,7 +240,7 @@ final class ManufacturingService
             return [];
         }
 
-        $answer = apply_filters(self::RESERVATIONS_FILTER, null, ['subjects' => array_values($orders)]);
+        $answer = $this->reservationLines($orders);
         $out    = [];
 
         foreach (is_array($answer) ? $answer : [] as $order => $lines) {
@@ -251,7 +267,7 @@ final class ManufacturingService
             return [];
         }
 
-        $answer = apply_filters(self::RESERVATIONS_FILTER, null, ['subjects' => array_values($orders)]);
+        $answer = $this->reservationLines($orders);
         $out    = [];
 
         foreach (is_array($answer) ? $answer : [] as $order => $lines) {
@@ -329,6 +345,7 @@ final class ManufacturingService
         }
 
         $answer = apply_filters(self::RESERVE_FILTER, null, ['subject' => $order, 'rows' => $rows, 'deadline' => '', 'date' => $today, 'title' => $built->label]);
+        $this->reservationLines = [];
 
         if (is_wp_error($answer)) {
             throw ManufacturingError::stockRefused($answer->get_error_message());
@@ -975,6 +992,7 @@ final class ManufacturingService
         }
 
         $done = apply_filters(self::RELEASE_FILTER, null, ['subject' => $order->id, 'lines' => $release]);
+        $this->reservationLines = [];
 
         if (is_wp_error($done)) {
             throw ManufacturingError::stockRefused($done->get_error_message());
