@@ -64,6 +64,12 @@ final class ManufacturingError extends \RuntimeException
         return new self('deadline_not_whole', $channel . ': ' . $given);
     }
 
+    /** D-1300: the wished date is a day, Y-m-d. */
+    public static function dueNotDate(string $given): self
+    {
+        return new self('due_not_date', $given);
+    }
+
     public static function countNotPositive(string $given): self
     {
         return new self('count_not_positive', $given);

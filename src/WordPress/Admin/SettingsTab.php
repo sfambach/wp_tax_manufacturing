@@ -44,6 +44,28 @@ final class SettingsTab
         return ProductionSettings::fromArray(is_array($stored) ? $stored : []);
     }
 
+    /**
+     * The stock's label templates, «category: name» (D-1397); empty without the stock module.
+     *
+     * @return array<int, string>
+     */
+    private static function labelTemplates(): array
+    {
+        if (! class_exists(\TaxmodStock\WordPress\StockService::class) || ! method_exists(\TaxmodStock\WordPress\StockService::class, 'labelTemplates')) {
+            return [];
+        }
+
+        $out = [];
+
+        foreach ((new \TaxmodStock\WordPress\StockService())->labelTemplates()->all() as $id => $template) {
+            $out[(int) $id] = trim(((string) ($template['category'] ?? '')) . ': ' . ((string) ($template['name'] ?? '#' . $id)), ': ');
+        }
+
+        asort($out, SORT_NATURAL);
+
+        return $out;
+    }
+
     public function render(): string
     {
         $html  = '';
@@ -69,11 +91,26 @@ final class SettingsTab
             ];
         }
 
+        $templates = self::labelTemplates();
+
+        if ($templates !== []) {
+            $current = self::settings()->label;
+            $options = '<option value="0"' . selected($current, 0, false) . '>' . esc_html__('— keins —', 'taxmod-manufacturing') . '</option>';
+
+            foreach ($templates as $template => $name) {
+                $options .= '<option value="' . esc_attr((string) $template) . '"' . selected($current, $template, false) . '>' . esc_html($name) . '</option>';
+            }
+
+            $rows[] = ['label' => __('Standard-Produktionsetikett', 'taxmod-manufacturing'), 'for' => 'taxmod-production-label',
+                'control' => '<select name="taxmod_production_label" id="taxmod-production-label">' . $options . '</select>',
+                'hint' => __('Gilt für fertige Platinen, wenn weder Material noch Sparte ein Etikett nennen.', 'taxmod-manufacturing')];
+        }
+
         $stock = class_exists(\TaxmodStock\WordPress\Admin\SettingsPage::class) && method_exists(\TaxmodStock\WordPress\Admin\SettingsPage::class, 'url')
             ? ' <a href="' . esc_url(\TaxmodStock\WordPress\Admin\SettingsPage::url()) . '">' . esc_html__('Zu den Grundeinstellungen des Lagers', 'taxmod-manufacturing') . '</a>'
             : '';
 
-        return $html . '<h2>' . esc_html__('Frist der Kundenfertigung je Verkaufskanal', 'taxmod-manufacturing') . '</h2>'
+        return $html . '<h2>' . esc_html__('Produktion', 'taxmod-manufacturing') . '</h2>'
             . ListPage::form($rows)
             . '<p>' . esc_html__('Die Plätze «Wareneingang Produktion» und «Test» stellst du im Lager ein.', 'taxmod-manufacturing') . $stock . '</p>';
     }
@@ -89,7 +126,7 @@ final class SettingsTab
         $days     = array_map(static fn ($v): string => sanitize_text_field((string) $v), (array) ($post['taxmod_production_days'] ?? []));
 
         try {
-            update_option(self::OPTION, ProductionSettings::fromRows(array_values($channels), array_values($days))->toArray(), false);
+            update_option(self::OPTION, ProductionSettings::fromRows(array_values($channels), array_values($days), absint($post['taxmod_production_label'] ?? 0))->toArray(), false);
         } catch (ManufacturingError $e) {
             /* translators: %s: the channel and the value given */
             set_transient(self::ERROR . get_current_user_id(), sprintf(__('Die Frist muss eine ganze Zahl von Tagen ab 0 sein (%s).', 'taxmod-manufacturing'), $e->detail), 60);

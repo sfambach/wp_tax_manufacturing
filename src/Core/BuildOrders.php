@@ -81,6 +81,7 @@ final class BuildOrders
             $optional('order_finished'),
             $parts,
             (string) ($optional('order_shortage_reason') ?? ''),
+            ($due = substr((string) ($optional('order_due') ?? ''), 0, 10)) === '' ? null : $due,
         );
     }
 }

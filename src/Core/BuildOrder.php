@@ -18,6 +18,8 @@ final class BuildOrder
         public readonly array $assemblies,
         /** D-1301: why it went into building with parts missing; '' when it did not */
         public readonly string $shortageReason = '',
+        /** D-1300: the wished date, Y-m-d; null when none is set */
+        public readonly ?string $due = null,
     ) {
     }
 

@@ -12,15 +12,21 @@ final class ProductionSettings
     /** His word 2026-11-11: «in der Regel sind das zwei Tage Fertigung für Kunden» — eBay 2 days until he sets otherwise. */
     public const DEFAULT_DEADLINES = ['eBay' => 2];
 
-    /** @param array<string, int> $deadlines channel → days */
-    private function __construct(public readonly array $deadlines)
+    /**
+     * @param array<string, int> $deadlines channel → days
+     * @param int $label D-1397: the label template a produced board is printed on when neither material nor group name one; 0 none
+     */
+    private function __construct(public readonly array $deadlines, public readonly int $label = 0)
     {
     }
 
     /** @param array<mixed> $stored the option as saved; empty gives the defaults */
     public static function fromArray(array $stored): self
     {
-        return new self(isset($stored['deadlines']) && is_array($stored['deadlines']) ? self::clean($stored['deadlines']) : self::DEFAULT_DEADLINES);
+        return new self(
+            isset($stored['deadlines']) && is_array($stored['deadlines']) ? self::clean($stored['deadlines']) : self::DEFAULT_DEADLINES,
+            is_numeric($stored['label'] ?? null) ? max(0, (int) $stored['label']) : 0,
+        );
     }
 
     /**
@@ -29,7 +35,7 @@ final class ProductionSettings
      * @param list<string> $channels
      * @param list<string> $days
      */
-    public static function fromRows(array $channels, array $days): self
+    public static function fromRows(array $channels, array $days, int $label = 0): self
     {
         $out = [];
 
@@ -48,13 +54,13 @@ final class ProductionSettings
             $out[$channel] = (int) $value;
         }
 
-        return new self($out);
+        return new self($out, max(0, $label));
     }
 
-    /** @return array{deadlines: array<string, int>} */
+    /** @return array{deadlines: array<string, int>, label: int} */
     public function toArray(): array
     {
-        return ['deadlines' => $this->deadlines];
+        return ['deadlines' => $this->deadlines, 'label' => $this->label];
     }
 
     /**

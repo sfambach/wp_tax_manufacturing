@@ -896,9 +896,9 @@ final class ManufacturingService
     }
 
     /** D-1300: count in any step before the order is closed, revision while it is «Angelegt» (D-1373). */
-    public function setHead(int $order, string $count, ?int $revision): void
+    public function setHead(int $order, string $count, ?int $revision, ?string $due = null): void
     {
-        $this->model->write((new OrderChanges($this->structure()))->setHead($this->order($order), $count, $revision));
+        $this->model->write((new OrderChanges($this->structure()))->setHead($this->order($order), $count, $revision, $due));
     }
 
     public const RELEASE_FILTER = 'taxmod_stock_release';

@@ -37,13 +37,15 @@ final class Structure
 
     // D-1143: the assembled board as a material of its own, one record per revision.
     // D-1261: the hardware branch, whose groups (Sparten) hold the assembled boards.
-    private const OPTIONAL_NODES = ['location', 'assembled', 'lager', 'hardware'];
+    private const OPTIONAL_NODES = ['location', 'assembled', 'lager', 'hardware', 'check_step'];
 
     private const OPTIONAL_FIELDS = ['order_shortage_reason', 'order_box', 'order_started', 'order_finished', 'order_note', 'assembly_note', 'assembly_tested', 'assembly_done',
         // D-954: the column «Best.» of a parts list and the reference designators; D-1030: the project a box belongs to.
         'position_fitting', 'position_ref', 'location_project', 'assembled_revision',
         // D-1178: the pins a socket strip loses at each cut, on the material's stock record.
-        'lager_thing', 'lager_cut_loss'];
+        'lager_thing', 'lager_cut_loss',
+        // D-1300: the wished date of an order; D-1304: the test steps at a revision.
+        'order_due', 'revision_checks', 'check_instruction', 'check_firmware'];
 
     /** D-954: the «Best.» values that matter here — «optional» may be left out, «nein» is never needed. */
     private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no', 'fitting_external', 'order_staging'];

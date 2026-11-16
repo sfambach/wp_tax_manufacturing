@@ -234,7 +234,7 @@ final class OrderChanges
      *
      * @return list<array<string, mixed>>
      */
-    public function setHead(BuildOrder $order, string $count, ?int $revision): array
+    public function setHead(BuildOrder $order, string $count, ?int $revision, ?string $due = null): array
     {
         if ($order->isClosed()) {
             throw ManufacturingError::headFixed($order->id);
@@ -250,7 +250,18 @@ final class OrderChanges
             throw ManufacturingError::countBelowDone((int) $count, $finished);
         }
 
-        $changes = [['op' => 'set_values', 'record' => (string) $order->id, 'values' => [(string) $this->s->field('order_count') => (string) (int) $count]]];
+        $values = [(string) $this->s->field('order_count') => (string) (int) $count];
+
+        // D-1300: the wished date is optional; '' clears it, null leaves it as it is.
+        if ($due !== null && $this->s->hasField('order_due') && trim($due) !== (string) $order->due) {
+            if (trim($due) !== '' && \DateTimeImmutable::createFromFormat('!Y-m-d', trim($due)) === false) {
+                throw ManufacturingError::dueNotDate($due);
+            }
+
+            $values[(string) $this->s->field('order_due')] = trim($due);
+        }
+
+        $changes = [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $values]];
 
         if ($order->step === 'order_planned' && $revision !== null && count($order->assemblies) === 1 && $order->assemblies[0]->revision !== $revision) {
             $changes[] = ['op' => 'set_values', 'record' => (string) $order->assemblies[0]->id, 'values' => [(string) $this->s->field('assembly_revision') => (string) $revision]];

@@ -165,6 +165,19 @@ final class OrderChangesTest extends TestCase
         self::assertCount(1, $changes->setHead($this->order('40', [[[], 0]]), '5', 305));
     }
 
+    public function testWishedDateIsOptionalAndADay(): void
+    {
+        $s       = Structure::fromArray(['fields' => ['order_due' => 27] + self::S['fields']] + self::S);
+        $changes = new OrderChanges($s);
+
+        self::assertSame(['21' => '3', '27' => '2026-12-01'], $changes->setHead($this->order('41', [[[], 0]]), '3', null, '2026-12-01')[0]['values']);
+        self::assertSame(['21' => '3'], $changes->setHead($this->order('41', [[[], 0]]), '3', null, '')[0]['values']);
+        self::assertSame(['21' => '3'], (new OrderChanges($this->s()))->setHead($this->order('41', [[[], 0]]), '3', null, '2026-12-01')[0]['values']);
+
+        $this->expectException(ManufacturingError::class);
+        $changes->setHead($this->order('41', [[[], 0]]), '3', null, '1.12.2026');
+    }
+
     public function testCountChangesInEveryOpenStepButNeverBelowTheFinishedBoards(): void
     {
         $changes = new OrderChanges($this->s());

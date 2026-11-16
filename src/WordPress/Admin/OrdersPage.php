@@ -388,6 +388,16 @@ final class OrdersPage
                 : '<select name="box" id="' . esc_attr($id) . '-box">' . $boxes . '</select>',
                 'hint' => __('Was im Gebinde und darunter liegt, zählt als vorhanden. Projekt-Gebinde legst du im Lager an.', 'taxmod-manufacturing')],
             ['label' => __('Fehlende Pos.', 'taxmod-manufacturing'), 'control' => $text($order->box === null ? '—' : (string) $missing)],
+        ];
+
+        if ($this->service->structure()->hasField('order_due')) {
+            $rows[] = ['label' => __('Wunschtermin', 'taxmod-manufacturing'), 'for' => $order->isClosed() ? '' : $id . '-due', 'control' => $order->isClosed()
+                ? $text($order->due ?? '—')
+                : '<input type="date" name="due" id="' . esc_attr($id) . '-due" value="' . esc_attr((string) $order->due) . '">',
+                'hint' => __('Optional. Plant nichts, steht nur am Auftrag.', 'taxmod-manufacturing')];
+        }
+
+        $rows = [...$rows,
             ['label' => __('Begonnen', 'taxmod-manufacturing'), 'control' => $text($order->started ?? '—')],
             ['label' => __('Fertig', 'taxmod-manufacturing'), 'control' => $text($order->finished ?? '—')],
         ];
@@ -902,7 +912,8 @@ final class OrdersPage
 
         if (! $built->isClosed() && isset($_POST['count'])) {
             $revision = absint($_POST['revision'] ?? 0);
-            $this->service->setHead($order, sanitize_text_field(wp_unslash((string) $_POST['count'])), $revision > 0 ? $revision : null);
+            $due      = isset($_POST['due']) ? sanitize_text_field(wp_unslash((string) $_POST['due'])) : null;
+            $this->service->setHead($order, sanitize_text_field(wp_unslash((string) $_POST['count'])), $revision > 0 ? $revision : null, $due);
             $after = $this->service->order($order);
 
             // D-1300: a smaller count gives what it no longer needs free; the box keeps what was moved into it.
@@ -1358,6 +1369,7 @@ final class OrdersPage
             'no_board_chosen'          => __('Keine Platine gewählt.', 'taxmod-manufacturing'),
             'project_without_boards'   => __('Das Projekt hat keine Platine mit Revision.', 'taxmod-manufacturing'),
             'count_not_positive'       => __('Die Stückzahl muss eine ganze Zahl ab 1 sein.', 'taxmod-manufacturing'),
+            'due_not_date'             => __('Der Wunschtermin ist kein gültiges Datum.', 'taxmod-manufacturing'),
             'count_below_done'         => __('Die Stückzahl darf nicht unter die fertigen Platinen fallen.', 'taxmod-manufacturing'),
             'unknown_order'            => __('Diesen Auftrag gibt es nicht.', 'taxmod-manufacturing'),
             'assembly_not_of_order'    => __('Diese Platine gehört nicht zum Auftrag.', 'taxmod-manufacturing'),
