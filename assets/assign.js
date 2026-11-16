@@ -9,7 +9,12 @@
             input.value = 'assign';
             form.appendChild(input);
         }
-        form.submit();
+        // D-1408: requestSubmit goes through the modeller's live forms; submit() would reload the whole page.
+        if (form.requestSubmit) {
+            form.requestSubmit();
+        } else {
+            form.submit();
+        }
     }
 
     document.addEventListener('taxmod-stock-material-picked', function (event) {
