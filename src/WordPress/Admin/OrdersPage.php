@@ -199,7 +199,9 @@ final class OrdersPage
         [$plain, $labels] = $this->context([$order]);
         $assigned = $this->service->assignments([$order->id])[$order->id] ?? [];
         $lists    = $this->service->assignedLists($order, $plain, $assigned);
-        $unnamed  = array_values(array_diff(array_merge([], ...array_map(static fn (array $rows): array => array_column($rows, 'thing'), array_values($assigned))), array_keys($labels)));
+        $loose    = $this->service->looseReservations($order->id);
+        $held     = array_merge([], ...array_values($assigned), ...array_values($loose));
+        $unnamed  = array_values(array_diff(array_merge(array_column($held, 'thing'), ...array_map(static fn (array $r): array => array_keys($r['places']), $held ?: [['places' => []]])), array_keys($labels)));
         $labels  += $unnamed === [] ? [] : $this->service->labelsOf($unnamed);
         $demand  = Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order, null, $this->boxShare($orders, $order)));
         $missing = Demand::missingRows($demand);
@@ -252,7 +254,7 @@ final class OrdersPage
         $sections = [];
         // His word 2026-11-15: taking parts out belongs to «Bereitstellung», not to «Angelegt» (without that stage in the model it stays at «Angelegt»).
         $picking  = $order->step === 'order_staging' || ($order->step === 'order_planned' && ! $staging) || $order->step === 'order_building';
-        $picks    = $picking ? $this->pickList($order, $demand, $this->assignParts($order, $plain, $demand, $assigned, $labels)) : '';
+        $picks    = $picking ? $this->pickList($order, $demand, $this->assignParts($order, $plain, $demand, $assigned, $labels, $loose)) : '';
 
         if ($picks !== '') {
             $sections[] = ['title' => __('Pickliste', 'taxmod-manufacturing'), 'html' => $picks, 'open' => ! $started];
@@ -430,9 +432,10 @@ final class OrdersPage
      * @param array<int, list<array{thing: int, missing: float, position: int}>> $demand
      * @param array<int, list<array{thing: int, quantity: float, places: array<int, float>}>> $assigned position → reservations
      * @param array<int, string> $labels
+     * @param array<int, list<array{thing: int, quantity: float, places: array<int, float>}>> $loose thing → reservations without a position
      * @return array{dialogs: array<int, string>, rows: array<int, string>, piece: array<int, int>} thing → its «Aus Bestand wählen», thing → the rows of what is assigned to it, thing → pins per piece (D-1398)
      */
-    private function assignParts(BuildOrder $order, array $plain, array $demand, array $assigned, array $labels): array
+    private function assignParts(BuildOrder $order, array $plain, array $demand, array $assigned, array $labels, array $loose = []): array
     {
         $out = ['dialogs' => [], 'rows' => [], 'piece' => []];
 
@@ -496,6 +499,23 @@ final class OrdersPage
                     . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'position' => (string) $position, 'tab' => $this->tab()])
                     . ListPage::dialogAction($key . '-dialog', __('Aus Bestand wählen', 'taxmod-manufacturing'), sprintf(__('Aus Bestand wählen · %s', 'taxmod-manufacturing'), $labels[$wanted] ?? '#' . $wanted), $picker, 'do', 'assign', __('Zuweisen', 'taxmod-manufacturing'))
                     . '</form>';
+            }
+        }
+
+        // D-1301: what was ticked and reserved where it lies stays in the list as reserved, ready to move into the box.
+        foreach ($loose as $thing => $held) {
+            foreach ($held as $at) {
+                foreach ($at['places'] ?: [0 => $at['quantity']] as $place => $pieces) {
+                    $key  = $thing . ':' . $place;
+                    $tick = $place > 0 && $place !== $order->box
+                        ? '<input type="checkbox" name="pick[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick"><input type="hidden" form="taxmod-mf-pick" name="qty[' . esc_attr($key) . ']" value="' . esc_attr($count(min($pieces, $at['quantity']))) . '">'
+                            . $this->pieceFields($key, $out['piece'][$thing] ?? 0)
+                        : '';
+                    $out['rows'][$thing] = ($out['rows'][$thing] ?? '') . '<tr><td>' . $tick . '</td><td>' . $this->part($thing, $labels, $order) . '</td>'
+                        . '<td>' . esc_html($place > 0 ? ($labels[$place] ?? '#' . $place) : '—') . '</td>'
+                        . '<td style="text-align:right">' . esc_html($count($at['quantity'])) . '</td><td></td>'
+                        . '<td><strong style="color:#008a20">' . esc_html__('reserviert', 'taxmod-manufacturing') . '</strong></td><td></td></tr>';
+                }
             }
         }
 
@@ -797,6 +817,16 @@ final class OrdersPage
         } catch (ManufacturingError $error) {
             $back['err'] = rawurlencode($this->message($error));
             unset($back['msg']);
+        }
+
+        // An order's page marks the menu point of its step, not of the list it was opened from (his report 16.11.).
+        if (isset($back['auftrag'])) {
+            try {
+                $step         = $this->service->order((int) $back['auftrag'])->step;
+                $back['tab']  = $step === 'order_cancelled' ? 'cancelled' : $step;
+            } catch (ManufacturingError) {
+                // The order is gone; the list it came from stays.
+            }
         }
 
         wp_safe_redirect($this->url($back));

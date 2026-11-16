@@ -288,6 +288,34 @@ final class ManufacturingService
     }
 
     /**
+     * The reservations of an order that name no position — those ticked in the pick list and reserved where they lie (D-1301).
+     * They count as there, so the pick list shows them as reserved rows (his report 16.11.: after «reservieren» the list was gone).
+     *
+     * @return array<int, list<array{thing: int, quantity: float, places: array<int, float>}>> thing → reservations
+     */
+    public function looseReservations(int $order): array
+    {
+        if (! has_filter(self::RESERVATIONS_FILTER)) {
+            return [];
+        }
+
+        $answer = $this->reservationLines([$order]);
+        $out    = [];
+
+        foreach (is_array($answer[$order] ?? null) ? $answer[$order] : [] as $line) {
+            if (is_array($line) && (int) ($line['position'] ?? 0) === 0 && (int) ($line['thing'] ?? 0) > 0) {
+                $out[(int) $line['thing']][] = [
+                    'thing'    => (int) $line['thing'],
+                    'quantity' => (float) ($line['quantity'] ?? 0),
+                    'places'   => array_map('floatval', is_array($line['places'] ?? null) ? $line['places'] : []),
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * The parts lists of an order with what is assigned to its positions (D-1387).
      *
      * @param array<int, list<array<string, mixed>>> $lists revision → positions
