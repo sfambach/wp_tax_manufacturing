@@ -7,9 +7,10 @@
 .taxmod-mf-assembly { border-top: 1px solid #dcdcde; padding: .75em 0; }
 .taxmod-mf-counts { display: flex; align-items: center; gap: 1em; flex-wrap: wrap; }
 .taxmod-mf-pick { padding: .25em 0 .75em; }
-.taxmod-mf-staging { margin-top: .5em; }
+.taxmod-mf-staging { margin-top: .5em; width: 100%; }
+.taxmod-mf-staging td:nth-child(2) { min-width: 16em; }
 .taxmod-mf-staging td:first-child { width: 2em; }
-.taxmod-mf-source { padding-left: 1.5em; }
+.taxmod-mf-source { display: inline-block; padding-left: 1.5em; white-space: nowrap; }
 .taxmod-mf-source::before { content: "↳ "; color: #646970; }
 .taxmod-mf-status { font-weight: 600; }
 .taxmod-mf-status-ok { color: #008a20; }
