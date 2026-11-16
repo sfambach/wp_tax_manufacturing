@@ -231,10 +231,13 @@ final class ManufacturingService
     /**
      * The open reservations of these orders, per part, asked once for all (CD-7).
      *
+     * A reservation whose lot already lies in the order's box is left out: the box counts it (his report 16.11.).
+     *
      * @param list<int> $orders
-     * @return array<int, array<int, float>> order → thing → pieces reserved
+     * @param array<int, int|null> $boxes order → its box
+     * @return array<int, array<int, float>> order → thing → pieces reserved outside the box
      */
-    public function reservedFor(array $orders): array
+    public function reservedFor(array $orders, array $boxes = []): array
     {
         if ($orders === [] || ! has_filter(self::RESERVATIONS_FILTER)) {
             return [];
@@ -246,7 +249,10 @@ final class ManufacturingService
         foreach (is_array($answer) ? $answer : [] as $order => $lines) {
             foreach (is_array($lines) ? $lines : [] as $line) {
                 if (is_array($line) && (int) ($line['thing'] ?? 0) > 0) {
-                    $out[(int) $order][(int) $line['thing']] = ($out[(int) $order][(int) $line['thing']] ?? 0.0) + (float) ($line['quantity'] ?? 0);
+                    $box    = $boxes[(int) $order] ?? null;
+                    $inBox  = $box !== null && is_array($line['places'] ?? null) ? (float) ($line['places'][$box] ?? 0.0) : 0.0;
+                    $pieces = max(0.0, (float) ($line['quantity'] ?? 0) - $inBox);
+                    $out[(int) $order][(int) $line['thing']] = ($out[(int) $order][(int) $line['thing']] ?? 0.0) + $pieces;
                 }
             }
         }
@@ -316,6 +322,65 @@ final class ManufacturingService
     }
 
     /**
+     * Every open reservation line of an order with its stock line id, for the staging table (spec. §3) and for changing or
+     * releasing a reservation (his word 16.11. «reservierung ändern sollte auch möglich sein»).
+     *
+     * @return list<array{line: int, thing: int, quantity: float, places: array<int, float>, position: int}>
+     */
+    public function reservationRows(int $order): array
+    {
+        if (! has_filter(self::RESERVATIONS_FILTER)) {
+            return [];
+        }
+
+        $answer = $this->reservationLines([$order]);
+        $out    = [];
+
+        foreach (is_array($answer[$order] ?? null) ? $answer[$order] : [] as $line) {
+            if (is_array($line) && (int) ($line['line'] ?? 0) > 0 && (int) ($line['thing'] ?? 0) > 0 && (float) ($line['quantity'] ?? 0) > 0.0) {
+                $out[] = [
+                    'line'     => (int) $line['line'],
+                    'thing'    => (int) $line['thing'],
+                    'quantity' => (float) $line['quantity'],
+                    'places'   => array_map('floatval', is_array($line['places'] ?? null) ? $line['places'] : []),
+                    'position' => (int) ($line['position'] ?? 0),
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /** Whether reservations can be given free (D-1301). */
+    public function canRelease(): bool
+    {
+        return $this->canReserve() && has_filter(self::RELEASE_FILTER);
+    }
+
+    /**
+     * Gives reservation lines of an order free in one Storno at the stock module; null gives all of them.
+     *
+     * @param list<int>|null $lines
+     */
+    public function release(int $order, ?array $lines): void
+    {
+        if (! $this->canRelease()) {
+            throw ManufacturingError::stockRefused(__('Das Lager bietet das Freigeben von Reservierungen noch nicht an.', 'taxmod-manufacturing'));
+        }
+
+        if ($lines === [] || ($lines === null && $this->reservationRows($order) === [])) {
+            return;
+        }
+
+        $done = apply_filters(self::RELEASE_FILTER, null, ['subject' => $order, 'lines' => $lines]);
+        $this->reservationLines = [];
+
+        if (is_wp_error($done)) {
+            throw ManufacturingError::stockRefused($done->get_error_message());
+        }
+    }
+
+    /**
      * The parts lists of an order with what is assigned to its positions (D-1387).
      *
      * @param array<int, list<array<string, mixed>>> $lists revision → positions
@@ -340,7 +405,7 @@ final class ManufacturingService
     {
         $there = $present ?? $this->presentIn($order->box);
 
-        foreach ($reserved ?? ($this->reservedFor([$order->id])[$order->id] ?? []) as $thing => $pieces) {
+        foreach ($reserved ?? ($this->reservedFor([$order->id], [$order->id => $order->box])[$order->id] ?? []) as $thing => $pieces) {
             $there[$thing] = ($there[$thing] ?? 0.0) + $pieces;
         }
 

@@ -8,7 +8,7 @@ use Taxmod\WordPress\Admin\ListPage;
 use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\Demand;
-use TaxmodManufacturing\Core\PickList;
+use TaxmodManufacturing\Core\Staging;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\WordPress\ManufacturingService;
 
@@ -60,11 +60,11 @@ final class OrdersPage
 
     /** @var list<string> the admin-post actions this page answers */
     /** D-1403: the pick list's choices of its one bulk selection. */
-    public const BULK_PICK = 'taxmod_manufacturing_pick';
+    public const BULK_PICK = StagingSection::PICK;
 
-    public const BULK_RESERVE = 'taxmod_manufacturing_reserve';
+    public const BULK_RESERVE = StagingSection::RESERVE;
 
-    public const ACTIONS = [self::ACTION, self::BULK_CANCEL, self::BULK_REOPEN, self::BULK_PICK, self::BULK_RESERVE];
+    public const ACTIONS = [self::ACTION, self::BULK_CANCEL, self::BULK_REOPEN, StagingSection::PICK, StagingSection::RESERVE, StagingSection::CHANGE, StagingSection::RELEASE];
 
     private const NONCE = 'taxmod_manufacturing';
 
@@ -85,6 +85,11 @@ final class OrdersPage
         if (! class_exists(ListPage::class)) {
             return '<div class="notice notice-error"><p>' . esc_html__('Der Taxonomy Modeller ist zu alt: die gemeinsame Listenansicht fehlt.', 'taxmod-manufacturing') . '</p></div>';
         }
+
+        $base    = dirname(__DIR__, 3) . '/wp_tax_manufacturing.php';
+        $version = (string) TAXMOD_MANUFACTURING_VERSION;
+        wp_enqueue_style('taxmod-mf-page', plugins_url('assets/manufacturing.css', $base), [], $version);
+        wp_enqueue_script('taxmod-mf-page', plugins_url('assets/manufacturing.js', $base), [], $version, true);
 
         // D-1373, D-1186: the page stands in the modeller's template, not in a frame of its own.
         return ListPage::page(__('Aufträge', 'taxmod-manufacturing'), [], [['html' => $this->content()]], (string) TAXMOD_MANUFACTURING_VERSION, __('Fertigung', 'taxmod-manufacturing'));
@@ -153,7 +158,7 @@ final class OrdersPage
         $related          = array_values(array_filter($orders, static fn (BuildOrder $o): bool => in_array($o, $shown, true) || (! $o->isClosed() && isset($boxes[(int) $o->box]))));
         [$lists, $labels] = $this->context($related);
         $ids              = array_map(static fn (BuildOrder $o): int => $o->id, $related);
-        $reserved         = $this->service->reservedFor($ids);
+        $reserved         = $this->service->reservedFor($ids, array_combine($ids, array_map(static fn (BuildOrder $o): ?int => $o->box, $related)));
         // His word 2026-11-15 «warum braucht er so lange … angelegt»: the boxes' contents in one read, not the ledger per order.
         $present          = $this->service->presentInEach(array_values(array_keys($boxes)));
         $assigned         = $this->service->assignments($ids);
@@ -210,11 +215,10 @@ final class OrdersPage
         [$plain, $labels] = $this->context([$order]);
         $assigned = $this->service->assignments([$order->id])[$order->id] ?? [];
         $lists    = $this->service->assignedLists($order, $plain, $assigned);
-        $loose    = $this->service->looseReservations($order->id);
-        $held     = array_merge([], ...array_values($assigned), ...array_values($loose));
-        $unnamed  = array_values(array_diff(array_merge(array_column($held, 'thing'), ...array_map(static fn (array $r): array => array_keys($r['places']), $held ?: [['places' => []]])), array_keys($labels)));
-        $labels  += $unnamed === [] ? [] : $this->service->labelsOf($unnamed);
-        $demand  = Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order, null, $this->boxShare($orders, $order)));
+        $share   = $this->boxShare($orders, $order) ?? $this->service->presentIn($order->box);
+        $held    = $this->service->reservationRows($order->id);
+        // Spec. §3: what counts as there is the box and what is reserved outside it; a reserved lot in the box counts once.
+        $demand  = Demand::of($order->assemblies, $lists, $order->count, Staging::available($share, $held, $order->box));
         $missing = Demand::missingRows($demand);
         $name    = self::viewLabels();
         $staging = $this->service->structure()->hasValue('order_staging');
@@ -234,9 +238,14 @@ final class OrdersPage
             $order->step === 'order_building' && ! $fitted => $staging ? 'order_staging' : 'order_planned',
             default                                         => '',
         };
-        $back = $previous === ''
-            ? ListPage::stepButton(__('Liste', 'taxmod-manufacturing'), false, $list)
-            : ListPage::stepButton($name[$previous], false, '', 'do', 'back', $form);
+        // His word 16.11. «wenn was reserviert ist kann ich das nicht mehr ändern, selbst wenn ich es zurück in angelegt schiebe»:
+        // back to «Angelegt» gives the order's reservations free (D-1384: picking belongs to «Bereitstellung»); the box keeps its parts.
+        $back = match (true) {
+            $previous === ''                                       => ListPage::stepButton(__('Liste', 'taxmod-manufacturing'), false, $list),
+            $previous === 'order_planned' && $held !== []          => $this->dialogForm('back', $order, '← ' . $name[$previous], sprintf(__('Zurück nach «%s»?', 'taxmod-manufacturing'), $name[$previous]),
+                esc_html(sprintf(_n('%d Reservierung dieses Auftrags wird freigegeben (Storno im Lager). Was schon im Gebinde liegt, bleibt dort.', '%d Reservierungen dieses Auftrags werden freigegeben (Storno im Lager). Was schon im Gebinde liegt, bleibt dort.', count($held), 'taxmod-manufacturing'), count($held)))),
+            default                                                => ListPage::stepButton($name[$previous], false, '', 'do', 'back', $form),
+        };
 
         $forward = match (true) {
             $order->step === 'order_planned' && $staging => ListPage::stepButton($name['order_staging'], true, '', 'do', 'staging', $form),
@@ -265,10 +274,10 @@ final class OrdersPage
         $sections = [];
         // His word 2026-11-15: taking parts out belongs to «Bereitstellung», not to «Angelegt» (without that stage in the model it stays at «Angelegt»).
         $picking  = $order->step === 'order_staging' || ($order->step === 'order_planned' && ! $staging) || $order->step === 'order_building';
-        $picks    = $picking ? $this->pickList($order, $demand, $this->assignParts($order, $plain, $demand, $assigned, $labels, $loose)) : '';
+        $picks    = $picking ? (new StagingSection($this->service, self::NONCE, self::ACTION, $this->tab()))->render($order, $demand, $plain, $share, $held, $labels) : '';
 
         if ($picks !== '') {
-            $sections[] = ['title' => __('Pickliste', 'taxmod-manufacturing'), 'html' => $picks, 'open' => ! $started];
+            $sections[] = ['title' => __('Material bereitstellen', 'taxmod-manufacturing'), 'html' => $picks, 'open' => ! $started];
         }
 
         // His word 2026-11-15: at «Angelegt» only the build options are chosen; everything else happens from «Bereitstellung» on.
@@ -315,23 +324,23 @@ final class OrdersPage
             $rows = array_filter($all, static fn (array $row): bool => $row['position'] > 0);
             $miss = static fn (array $row): string => $row['missing'] > 0.0 ? ' · ' . sprintf(__('fehlt %s', 'taxmod-manufacturing'), rtrim(rtrim(number_format($row['missing'], 2, ',', ''), '0'), ',')) : '';
             // His word 2026-11-15 «die platine wird auch nicht aufgelistet»: the bare board heads the list; it is always built.
-            $list = isset($all[0]) && $all[0]['position'] === 0
-                ? '<li><label><input type="checkbox" checked disabled> ' . esc_html(sprintf(__('Platine: %s', 'taxmod-manufacturing'), $labels[$all[0]['thing']] ?? '#' . $all[0]['thing']) . $miss($all[0])) . '</label></li>'
+            $formId = 'taxmod-mf-options-' . $assembly->id;
+            // Architecture 16.11.: «Alle auswählen / abwählen» is the tick in the table head, not two buttons.
+            $list   = isset($all[0]) && $all[0]['position'] === 0
+                ? '<tr><th scope="row" class="check-column"><input type="checkbox" checked disabled></th><td>' . esc_html(sprintf(__('Platine: %s', 'taxmod-manufacturing'), $labels[$all[0]['thing']] ?? '#' . $all[0]['thing'])) . '</td><td>' . esc_html(ltrim($miss($all[0]), ' ·')) . '</td><td></td></tr>'
                 : '';
 
             foreach ($rows as $row) {
-                $list .= '<li><label><input type="checkbox" name="build[]" value="' . esc_attr((string) $row['position']) . '"' . checked(! $row['unused'], true, false) . '> '
-                    . esc_html(($labels[$row['thing']] ?? '#' . $row['thing']) . ($row['unused'] ? '' : $miss($row))) . '</label>'
-                    . '<input type="hidden" name="optional[]" value="' . esc_attr((string) $row['position']) . '"></li>';
+                $list .= '<tr><th scope="row" class="check-column"><input type="checkbox" name="build[]" form="' . esc_attr($formId) . '" value="' . esc_attr((string) $row['position']) . '"' . checked(! $row['unused'], true, false) . '>'
+                    . '<input type="hidden" name="optional[]" form="' . esc_attr($formId) . '" value="' . esc_attr((string) $row['position']) . '"></th>'
+                    . '<td>' . esc_html($labels[$row['thing']] ?? '#' . $row['thing']) . '</td><td>' . esc_html($row['unused'] ? '' : ltrim($miss($row), ' ·')) . '</td><td></td></tr>';
             }
 
-            $html .= '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+            $html .= '<form method="post" id="' . esc_attr($formId) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
                 . $this->hidden(['action' => self::ACTION, 'do' => 'options', 'order' => (string) $order->id, 'assembly' => (string) $assembly->id, 'tab' => $this->tab()])
-                . ListPage::toolbar([$this->saveButton(), [
-                    '<button type="submit" class="button" name="all" value="1">' . esc_html__('Alle auswählen', 'taxmod-manufacturing') . '</button>',
-                    '<button type="submit" class="button" name="all" value="0">' . esc_html__('Alle abwählen', 'taxmod-manufacturing') . '</button>',
-                ]])
-                . '<p><strong>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision) . '</strong></p><ul>' . $list . '</ul></form>';
+                . ListPage::toolbar([$this->saveButton()]) . '</form>'
+                . '<p><strong>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision) . '</strong></p>'
+                . ListPage::table([[__('Position', 'taxmod-manufacturing')], [__('Fehlt', 'taxmod-manufacturing')]], $list);
         }
 
         return $html;
@@ -435,116 +444,6 @@ final class OrdersPage
     }
 
     /**
-     * D-1387: what each pick-list line needs to be assigned from stock — the stock module's material search, prefilled with
-     * the position's material, a substitute allowed; the choice becomes a reservation for that position. His word 16.11.
-     * «warum braucht es da zwei listen»: the button and what is assigned stand in the pick list itself.
-     *
-     * @param array<int, list<array<string, mixed>>> $plain revision → positions as the parts list has them
-     * @param array<int, list<array{thing: int, missing: float, position: int}>> $demand
-     * @param array<int, list<array{thing: int, quantity: float, places: array<int, float>}>> $assigned position → reservations
-     * @param array<int, string> $labels
-     * @param array<int, list<array{thing: int, quantity: float, places: array<int, float>}>> $loose thing → reservations without a position
-     * @return array{dialogs: array<int, string>, rows: array<int, string>, piece: array<int, int>} thing → its «Aus Bestand wählen», thing → the rows of what is assigned to it, thing → pins per piece (D-1398)
-     */
-    private function assignParts(BuildOrder $order, array $plain, array $demand, array $assigned, array $labels, array $loose = []): array
-    {
-        $out = ['dialogs' => [], 'rows' => [], 'piece' => []];
-
-        if ($order->box === null || $order->isClosed() || ! has_filter('taxmod_stock_material_picker') || ! $this->service->canReserve()) {
-            return $out;
-        }
-
-        $count = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
-        $refs  = [];
-        $base  = [];
-        $cut   = [];
-
-        foreach ($plain as $positions) {
-            foreach ($positions as $position) {
-                $refs[$position['id']] = (string) $position['ref'];
-                $base[$position['id']] = (int) $position['thing'];
-                $cut[$position['id']]  = (int) ($position['piece'] ?? 0);
-            }
-        }
-
-        foreach ($demand as $rows) {
-            foreach ($rows as $row) {
-                $position = (int) $row['position'];
-                // The bare board (position 0) is chosen from stock too, only without a position to keep (D-1388).
-                $wanted   = $position === 0 ? $row['thing'] : ($base[$position] ?? $row['thing']);
-                $where    = $position === 0 ? __('Platine', 'taxmod-manufacturing') : ($refs[$position] ?? '');
-
-                foreach ($assigned[$position] ?? [] as $at) {
-                    foreach ($at['places'] ?: [0 => $at['quantity']] as $place => $pieces) {
-                        $key   = $at['thing'] . ':' . $place;
-                        $tick  = $place > 0 && $place !== $order->box
-                            ? '<input type="checkbox" name="selected[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick"><input type="hidden" form="taxmod-mf-pick" name="qty[' . esc_attr($key) . ']" value="' . esc_attr($count(min($pieces, $at['quantity']))) . '">'
-                                . $this->pieceFields($key, $cut[$position] ?? 0)
-                            : '';
-                        // His word 16.11. «das zugewiesene material dann in der zeile»: it stands with the line of its material.
-                        $out['rows'][$row['thing']] = ($out['rows'][$row['thing']] ?? '') . '<tr><td>' . $tick . '</td><td>' . esc_html($where) . ' ' . $this->part($at['thing'], $labels, $order) . esc_html($at['thing'] !== $wanted ? ' ' . __('(Ersatz)', 'taxmod-manufacturing') : '') . '</td>'
-                            . '<td>' . esc_html($place > 0 ? ($labels[$place] ?? '#' . $place) : '—') . '</td>'
-                            . '<td style="text-align:right">' . esc_html($count($at['quantity'])) . '</td><td></td>'
-                            . '<td><strong style="color:#008a20">' . esc_html__('zugewiesen', 'taxmod-manufacturing') . '</strong></td><td></td></tr>';
-                    }
-                }
-
-                if (($cut[$position] ?? 0) > 0) {
-                    $out['piece'][$row['thing']] ??= $cut[$position];
-                }
-
-                if ($row['missing'] <= 0.0 || isset($out['dialogs'][$row['thing']])) {
-                    continue;
-                }
-
-                $key    = 'taxmod-mf-assign-' . $order->id . '-' . $position;
-                $picker = (string) apply_filters('taxmod_stock_material_picker', '', [
-                    'key'       => $key,
-                    'name'      => 'assign',
-                    'term'      => $labels[$wanted] ?? '',
-                    'preferred' => [$wanted],
-                    'except'    => (int) $order->box,
-                    'quantity'  => $row['missing'],
-                ] + (($cut[$position] ?? 0) > 0 ? ['piece' => $cut[$position], 'pieces' => (int) ceil($row['missing'] / $cut[$position])] : []));
-                $out['dialogs'][$row['thing']] = '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-noprint taxmod-mf-assign">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
-                    . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'position' => (string) $position, 'tab' => $this->tab()])
-                    . ListPage::dialogAction($key . '-dialog', __('Aus Bestand wählen', 'taxmod-manufacturing'), sprintf(__('Aus Bestand wählen · %s', 'taxmod-manufacturing'), $labels[$wanted] ?? '#' . $wanted), $picker, 'do', 'assign', __('Zuweisen', 'taxmod-manufacturing'))
-                    . '</form>';
-            }
-        }
-
-        // D-1301: what was ticked and reserved where it lies stays in the list as reserved, ready to move into the box.
-        foreach ($loose as $thing => $held) {
-            foreach ($held as $at) {
-                foreach ($at['places'] ?: [0 => $at['quantity']] as $place => $pieces) {
-                    $key  = $thing . ':' . $place;
-                    $tick = $place > 0 && $place !== $order->box
-                        ? '<input type="checkbox" name="selected[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick"><input type="hidden" form="taxmod-mf-pick" name="qty[' . esc_attr($key) . ']" value="' . esc_attr($count(min($pieces, $at['quantity']))) . '">'
-                            . $this->pieceFields($key, $out['piece'][$thing] ?? 0)
-                        : '';
-                    $out['rows'][$thing] = ($out['rows'][$thing] ?? '') . '<tr><td>' . $tick . '</td><td>' . $this->part($thing, $labels, $order) . '</td>'
-                        . '<td>' . esc_html($place > 0 ? ($labels[$place] ?? '#' . $place) : '—') . '</td>'
-                        . '<td style="text-align:right">' . esc_html($count($at['quantity'])) . '</td><td></td>'
-                        . '<td><strong style="color:#008a20">' . esc_html__('reserviert', 'taxmod-manufacturing') . '</strong></td><td></td></tr>';
-                }
-            }
-        }
-
-        return $out;
-    }
-
-    /**
-     * D-1398: a strip counted in pins goes into the box as whole pieces; the stock cuts them by its cut plan. The pieces follow
-     * from the pins taken: the field «Nehmen» stays in pins.
-     */
-    private function pieceFields(string $key, int $piece): string
-    {
-        return $piece > 0
-            ? '<input type="hidden" form="taxmod-mf-pick" name="piece[' . esc_attr($key) . ']" value="' . esc_attr((string) $piece) . '">'
-            : '';
-    }
-
-    /**
      * admin-post do=assign (D-1387): the material search's choice for one position becomes a reservation for it.
      *
      * @param array<string, string|int> $back
@@ -565,120 +464,6 @@ final class OrdersPage
         $this->service->reserve($order, [['thing' => $thing, 'from' => $place, 'qty' => $qty] + ($position > 0 ? ['position' => $position] : [])], $today);
 
         return 'assigned';
-    }
-
-    /**
-     * What the box still lacks and where it lies: tick what you put in, book it in one step, or print it (D-1155); each line
-     * can be assigned from stock, and what is assigned stands below (D-1387).
-     *
-     * @param array<int, list<array{thing: int, missing: float}>> $demand
-     * @param array{dialogs: array<int, string>, rows: array<int, string>, piece: array<int, int>} $parts from {@see assignParts()}
-     */
-    private function pickList(BuildOrder $order, array $demand, array $parts): string
-    {
-        if ($order->box === null || $order->isClosed() || (Demand::missingRows($demand) === 0 && $parts['rows'] === [])) {
-            return '';
-        }
-
-        $count  = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
-        $things = [];
-
-        foreach ($demand as $rows) {
-            foreach ($rows as $row) {
-                $things[] = $row['thing'];
-            }
-        }
-
-        $canPick = $this->service->canPick();
-        $lines   = PickList::of($demand, $this->service->placesOf(array_values(array_unique($things)), $order->box));
-        $needs   = [];
-
-        foreach ($lines as $line) {
-            if ($line['place'] === null) {
-                $needs[$line['thing']] = $line['missing'];
-            }
-        }
-
-        $cuts    = $canPick ? $this->service->cutSources($needs, $order->box) : [];
-        $sources = array_merge([], ...array_values($cuts));
-        $labels  = $this->service->labelsOf(array_values(array_unique(array_filter([...array_column($lines, 'thing'), ...array_column($lines, 'place'), ...array_column($sources, 'thing'), ...array_column($sources, 'place')]))));
-        $body    = '';
-
-        foreach ($lines as $i => $line) {
-            $key   = $line['thing'] . ':' . (int) $line['place'];
-            $tick  = $canPick && $line['place'] !== null
-                ? '<input type="checkbox" name="selected[]" value="' . esc_attr($key) . '" form="taxmod-mf-pick">'
-                : '<span style="display:inline-block;width:1em;height:1em;border:1px solid #8c8f94"></span>';
-            $take  = $canPick && $line['place'] !== null
-                ? '<input type="number" class="small-text" form="taxmod-mf-pick" name="qty[' . esc_attr($key) . ']" min="0" max="' . esc_attr($count($line['there'])) . '" step="any" value="' . esc_attr($count($line['take'])) . '">'
-                    . $this->pieceFields($key, $parts['piece'][$line['thing']] ?? 0)
-                : esc_html($line['place'] === null ? '' : $count($line['take']));
-            $body .= '<tr><td>' . $tick . '</td><td>' . $this->part($line['thing'], $labels, $order) . '</td>'
-                . '<td>' . ($line['place'] === null
-                    ? '<strong style="color:#b32d2e">' . esc_html($canPick ? __('nicht zugewiesen', 'taxmod-manufacturing') : __('Lagerort unbekannt', 'taxmod-manufacturing')) . '</strong>'
-                    : esc_html($labels[$line['place']] ?? '#' . $line['place'])) . '</td>'
-                . '<td style="text-align:right">' . esc_html($line['place'] === null ? '' : $count($line['there'])) . '</td>'
-                . '<td style="text-align:right">' . esc_html($count($line['missing'])) . '</td><td>' . $take . '</td>'
-                . '<td>' . ($parts['dialogs'][$line['thing']] ?? '') . '</td></tr>';
-            unset($parts['dialogs'][$line['thing']]);
-
-            if (($lines[$i + 1]['thing'] ?? 0) !== $line['thing']) {
-                $body .= $parts['rows'][$line['thing']] ?? '';
-                unset($parts['rows'][$line['thing']]);
-            }
-
-            // D9: a strip found nowhere can be cut from a longer one of the same kind; the stock module books the cut.
-            foreach ($line['place'] === null ? ($cuts[$line['thing']] ?? []) : [] as $source) {
-                $key   = $line['thing'] . ':' . $source['lot'];
-                $body .= '<tr><td><input type="checkbox" name="selected[]" value="' . esc_attr('cut:' . $key) . '" form="taxmod-mf-pick"></td>'
-                    . '<td>' . esc_html(sprintf(__('ablängen aus %s', 'taxmod-manufacturing'), $labels[$source['thing']] ?? '#' . $source['thing'])) . '</td>'
-                    . '<td>' . esc_html($labels[$source['place']] ?? '#' . $source['place']) . '</td>'
-                    . '<td>' . esc_html($count($source['left'])) . '</td><td></td>'
-                    . '<td><input type="number" class="small-text" form="taxmod-mf-pick" name="cutqty[' . esc_attr($key) . ']" min="0" step="1" value="' . esc_attr($count($line['missing'])) . '"></td><td></td></tr>';
-            }
-        }
-
-        $nowhere = array_filter($lines, static fn (array $line): bool => $line['place'] === null);
-        $reorder = '';
-
-        if ($canPick && $nowhere !== [] && $this->service->canReorder()) {
-            $list = '';
-
-            foreach ($nowhere as $line) {
-                $list .= '<li>' . esc_html($count($line['missing']) . ' × ' . ($labels[$line['thing']] ?? '#' . $line['thing'])) . '</li>';
-            }
-
-            $reorder = '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
-                . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab()])
-                . ListPage::dialogAction('taxmod-mf-reorder-' . $order->id, __('Fehlendes nachbestellen', 'taxmod-manufacturing'), __('Fehlendes nachbestellen?', 'taxmod-manufacturing'),
-                    '<p>' . esc_html__('Was an keinem Lagerort liegt, kommt als neuer Bedarf in den Einkauf. Packungsgröße und Händler wählst du dort.', 'taxmod-manufacturing') . '</p><ul>' . $list . '</ul>',
-                    'do', 'reorder', __('Bedarf anlegen', 'taxmod-manufacturing'))
-                . '</form>';
-        }
-
-        $note = $canPick ? '' : '<p class="description">' . esc_html__('Das Lager liefert die Lagerorte und das Umbuchen noch nicht; die Liste zeigt nur, was fehlt.', 'taxmod-manufacturing') . '</p>';
-
-        wp_enqueue_script('taxmod-mf-assign', plugins_url('assets/assign.js', dirname(__DIR__, 3) . '/wp_tax_manufacturing.php'), [], defined('TAXMOD_MANUFACTURING_VERSION') ? (string) TAXMOD_MANUFACTURING_VERSION : null, true);
-
-        return '<style>.taxmod-mf-printonly{display:none}@media print{.taxmod-mf-printonly{display:block}body *{visibility:hidden}.taxmod-mf-pick,.taxmod-mf-pick *{visibility:visible}.taxmod-mf-pick{position:absolute;left:0;top:0;width:100%}.taxmod-mf-noprint{display:none}}</style>'
-            . '<div class="taxmod-mf-pick" style="border-top:1px solid #dcdcde;padding:.75em 0">'
-            // Printed only: on screen the section already says «Pickliste».
-            . '<h3 class="taxmod-mf-printonly">' . esc_html(sprintf(__('Pickliste · %s', 'taxmod-manufacturing'), $order->label)) . '</h3>'
-            // D-1403: one bar — the acts on ticked rows are the choices of its bulk selection; printing and reordering stand beside.
-            . '<div class="taxmod-mf-noprint">' . ($canPick ? ListPage::bulkBar('taxmod-mf-pick', self::NONCE, array_filter([
-                self::BULK_PICK    => __('Ins Gebinde umbuchen', 'taxmod-manufacturing'),
-                // D-1301: or leave them where they lie, reserved for this order (Handlager).
-                self::BULK_RESERVE => $this->service->canReserve() ? __('Reservieren', 'taxmod-manufacturing') : '',
-            ]), sprintf(_n('%d Zeile', '%d Zeilen', count($lines), 'taxmod-manufacturing'), count($lines)),
-                '<div class="alignleft actions">' . $reorder . ' <button type="button" class="button" onclick="window.print()">' . esc_html__('Drucken', 'taxmod-manufacturing') . '</button></div>', false)
-                . $this->hidden(['order' => (string) $order->id, 'tab' => $this->tab()], 'taxmod-mf-pick')
-                : ListPage::toolbar(['<button type="button" class="button" onclick="window.print()">' . esc_html__('Drucken', 'taxmod-manufacturing') . '</button>'])) . '</div>'
-            . $note
-            . ($canPick ? '<p class="description taxmod-mf-noprint">' . esc_html__('Zeilen anhaken, Aktion wählen, ausführen. «Nehmen» ist die Menge je Zeile; «Aus Bestand wählen» nimmt einen anderen Ort oder ein Ersatzmaterial.', 'taxmod-manufacturing') . '</p>' : '')
-            . '<table class="widefat striped" style="margin-top:.5em"><thead><tr><th style="width:2em"></th>'
-            . '<th>' . esc_html__('Teil', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Lagerort', 'taxmod-manufacturing') . '</th>'
-            . '<th style="text-align:right">' . esc_html__('Dort', 'taxmod-manufacturing') . '</th><th style="text-align:right">' . esc_html__('Fehlt', 'taxmod-manufacturing') . '</th>'
-            . '<th>' . esc_html__('Nehmen', 'taxmod-manufacturing') . '</th><th class="taxmod-mf-noprint"></th></tr></thead><tbody>' . $body . implode('', $parts['rows']) . '</tbody></table></div>';
     }
 
     /**
@@ -725,7 +510,7 @@ final class OrdersPage
             $own[$o->id] = $this->service->assignedLists($o, $lists, $assigned[$o->id] ?? []);
         }
 
-        return Demand::boxShares($sharing, $own, $this->service->reservedFor($ids), [(int) $order->box => $this->service->presentIn($order->box)])[$order->id] ?? [];
+        return Demand::boxShares($sharing, $own, $this->service->reservedFor($ids, array_combine($ids, array_map(static fn (BuildOrder $o): ?int => $o->box, $sharing))), [(int) $order->box => $this->service->presentIn($order->box)])[$order->id] ?? [];
     }
 
     /**
@@ -804,6 +589,8 @@ final class OrdersPage
                 $back['msg'] = $action === self::BULK_CANCEL ? 'cancelled' : 'reopened';
             } elseif ($action === self::BULK_PICK || $action === self::BULK_RESERVE) {
                 $back['msg'] = $this->pick(absint($_POST['order'] ?? 0), $today, $back, $action === self::BULK_RESERVE);
+            } elseif ($action === StagingSection::CHANGE || $action === StagingSection::RELEASE) {
+                $back['msg'] = $this->changeReservations(absint($_POST['order'] ?? 0), $today, $back, $action === StagingSection::RELEASE);
             } else {
                 $do    = sanitize_key((string) ($_POST['do'] ?? (isset($_POST['readd']) ? 'readd' : '')));
                 $order = absint($_POST['order'] ?? 0);
@@ -913,14 +700,18 @@ final class OrdersPage
         $built            = $this->service->order($order);
         [$lists] = $this->context([$built]);
         $lists            = $this->service->assignedLists($built, $lists);
-        $demand           = Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built, null, $this->boxShare($this->service->orders(), $built)));
+        $share            = $this->boxShare($this->service->orders(), $built) ?? $this->service->presentIn($built->box);
+        $held             = $this->service->reservationRows($order);
+        $demand           = Demand::of($built->assemblies, $lists, $built->count, Staging::available($share, $held, $built->box));
         $things           = array_values(array_unique(array_merge(...array_map(static fn (array $rows): array => array_column($rows, 'thing'), array_values($demand)) ?: [[]])));
         $quantities       = [];
         $back['auftrag']  = $order;
 
-        foreach (PickList::of($demand, $this->service->placesOf($things, (int) $built->box)) as $line) {
-            if ($line['place'] === null) {
-                $quantities[$line['thing']] = $line['missing'];
+        foreach (Staging::lines($demand, $share, $held, $this->service->placesOf($things, (int) $built->box), $built->box) as $line) {
+            foreach ($line['sources'] as $source) {
+                if ($source['kind'] === 'none') {
+                    $quantities[$line['thing']] = $source['quantity'];
+                }
             }
         }
 
@@ -941,7 +732,8 @@ final class OrdersPage
         $lines      = [];
 
         foreach ($selected as $key) {
-            if (preg_match('/^(\d+):(\d+)$/', $key, $match) !== 1) {
+            // A reserved row («res:line:thing:place») is moved like a free one; reserving it again would hold it twice.
+            if (preg_match('/^(?:res:\d+:)?(\d+):(\d+)$/', $key, $match) !== 1 || ($reserve && str_starts_with($key, 'res:'))) {
                 continue;
             }
 
@@ -989,6 +781,66 @@ final class OrdersPage
         }
 
         return 'picked';
+    }
+
+    /**
+     * «Reservierung ändern» / «aufheben» (his words 16.11.): the ticked reserved rows are given free in one Storno; on a
+     * change each is reserved anew with its new quantity at the same place, keeping its position (D-1387). 0 gives it free.
+     *
+     * @param array<string, string|int> $back
+     */
+    private function changeReservations(int $order, string $today, array &$back, bool $release): string
+    {
+        $quantities      = (array) ($_POST['qty'] ?? []);
+        $positions       = (array) ($_POST['position'] ?? []);
+        $back['auftrag'] = $order;
+        $lines           = [];
+        $again           = [];
+
+        foreach ((array) ($_POST['selected'] ?? []) as $key) {
+            $key = sanitize_text_field(wp_unslash((string) $key));
+
+            if (preg_match('/^res:(\d+):(\d+):(\d+)$/', $key, $match) !== 1) {
+                continue;
+            }
+
+            $line = (int) $match[1];
+            $qty  = max(0.0, (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($quantities[$key] ?? '0')))));
+            $old  = $this->reservedQuantity($order, $line);
+
+            if (! $release && abs($qty - $old) < 1e-9) {
+                continue;
+            }
+
+            $lines[$line] = $line;
+
+            if (! $release && $qty > 0.0 && (int) $match[3] > 0) {
+                $again[] = ['thing' => (int) $match[2], 'from' => (int) $match[3], 'qty' => $qty, 'position' => absint($positions[$key] ?? 0)];
+            }
+        }
+
+        if ($lines === []) {
+            return 'nothing_picked';
+        }
+
+        $this->service->release($order, array_values($lines));
+
+        if ($again !== []) {
+            $this->service->reserve($order, $again, $today);
+        }
+
+        return $release ? 'released' : 'changed';
+    }
+
+    private function reservedQuantity(int $order, int $line): float
+    {
+        foreach ($this->service->reservationRows($order) as $row) {
+            if ($row['line'] === $line) {
+                return $row['quantity'];
+            }
+        }
+
+        return 0.0;
     }
 
     /** @param array<string, string|int> $back */
@@ -1062,7 +914,13 @@ final class OrdersPage
     /** @param array<string, string|int> $back */
     private function stepBack(int $order, array &$back): string
     {
+        $built = $this->service->order($order);
         $this->service->stepBack($order);
+
+        // His report 16.11.: back at «Angelegt» nothing stays reserved for the order; the box keeps what was moved (D-1384).
+        if ($built->step === 'order_staging' && $this->service->canRelease()) {
+            $this->service->release($order, null);
+        }
         $back['auftrag'] = $order;
 
         return 'stepped_back';
@@ -1087,7 +945,8 @@ final class OrdersPage
         $built           = $this->service->order($order);
         [$lists] = $this->context([$built]);
         $lists           = $this->service->assignedLists($built, $lists);
-        $missing         = Demand::missingRows(Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built, null, $this->boxShare($this->service->orders(), $built))));
+        $share           = $this->boxShare($this->service->orders(), $built) ?? $this->service->presentIn($built->box);
+        $missing         = Demand::missingRows(Demand::of($built->assemblies, $lists, $built->count, Staging::available($share, $this->service->reservationRows($order), $built->box)));
         $back['auftrag'] = $order;
 
         $this->service->setStep($order, 'order_building', $today, $missing, sanitize_text_field(wp_unslash((string) ($_POST['reason'] ?? ''))));
@@ -1133,10 +992,10 @@ final class OrdersPage
             $rows     = $demand[$assembly->id] ?? [];
             $details .= '<li>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision) . ': '
                 . esc_html(sprintf(__('%1$d von %2$d bestückt, %3$d fertig', 'taxmod-manufacturing'), Demand::boardsFitted($rows), $order->count, $assembly->done))
-                . ($order->box !== null && Demand::missingRows([$rows]) > 0 ? ' · <strong style="color:#b32d2e">' . esc_html(sprintf(__('%d Positionen fehlen', 'taxmod-manufacturing'), Demand::missingRows([$rows]))) . '</strong>' : '') . '</li>';
+                . ($order->box !== null && Demand::missingRows([$rows]) > 0 ? ' · <strong class="taxmod-mf-status taxmod-mf-status-warn">' . esc_html(sprintf(__('%d Positionen fehlen', 'taxmod-manufacturing'), Demand::missingRows([$rows]))) . '</strong>' : '') . '</li>';
         }
 
-        $details = '<ul style="margin:.5em 0">' . $details . '</ul><p><a class="button" href="' . esc_url($this->url(['auftrag' => $order->id, 'tab' => $this->tab()])) . '">' . esc_html__('Öffnen', 'taxmod-manufacturing') . '</a></p>';
+        $details = '<ul class="taxmod-mf-details">' . $details . '</ul><p><a class="button" href="' . esc_url($this->url(['auftrag' => $order->id, 'tab' => $this->tab()])) . '">' . esc_html__('Öffnen', 'taxmod-manufacturing') . '</a></p>';
 
         return ListPage::row(self::FORM, (string) $order->id, $cells, $this->rowButtons($order, $order->box === null ? 0 : Demand::missingRows($demand)), $details);
     }
@@ -1189,7 +1048,7 @@ final class OrdersPage
         $count  = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
         $boxed  = $order->box !== null;
         $pieces = $order->count;
-        $body   = '';
+        $body   = [];
         $form   = 'taxmod-mf-a' . $assembly->id;
         $scrap  = $boxed && ! $order->isClosed() && $this->service->canScrap();
 
@@ -1197,45 +1056,44 @@ final class OrdersPage
             $fit = $row['position'] === 0 || $row['unused']
                 ? esc_html($count($row['boards'] * $row['count']))
                 : '<input type="number" class="small-text taxmod-mf-fit" name="fitted[' . esc_attr((string) $row['position']) . ']" min="0" max="' . esc_attr($count($row['needed'])) . '" step="' . esc_attr($count($row['count'])) . '" value="' . esc_attr($count($row['boards'] * $row['count'])) . '" data-full="' . esc_attr($count($row['needed'])) . '">'
-                    . ' <button type="button" class="button button-small" onclick="var i=this.parentNode.querySelector(\'.taxmod-mf-fit\');i.value=i.dataset.full">' . esc_html__('voll', 'taxmod-manufacturing') . '</button>';
+                    . ' <button type="button" class="button button-small" data-taxmod-mf-full>' . esc_html__('voll', 'taxmod-manufacturing') . '</button>';
             $use = $row['optional'] || $row['unused']
                 ? '<label><input type="checkbox" name="unused[]" value="' . esc_attr((string) $row['position']) . '"' . checked($row['unused'], true, false) . '> ' . esc_html__('nicht verwenden', 'taxmod-manufacturing') . '</label>'
                 : '';
-            $body .= '<tr' . ($row['unused'] ? ' style="opacity:.55"' : '') . '>'
-                . '<td>' . esc_html($row['position'] === 0 ? __('Platine', 'taxmod-manufacturing') : (string) ($refs[$row['position']] ?? '')) . '</td>'
-                . '<td>' . $this->part($row['thing'], $labels, $order) . '</td>'
-                . '<td style="text-align:right">' . esc_html($count($row['needed'])) . '</td>'
-                . '<td style="white-space:nowrap">' . $fit . '</td>'
-                . '<td style="text-align:right">' . esc_html($boxed ? $count($row['present']) : '—') . '</td>'
-                . '<td style="text-align:right">' . ($boxed && $row['missing'] > 0.0 ? '<strong style="color:#b32d2e">' . esc_html($count($row['missing'])) . '</strong>' : '') . '</td>'
-                . '<td>' . $use . '</td>'
-                . ($scrap ? '<td><input type="number" class="small-text" name="scrap[' . esc_attr((string) $row['position']) . ']" min="0" step="1" value="" aria-label="' . esc_attr__('Ausschuss', 'taxmod-manufacturing') . '"></td>' : '')
-                . '</tr>';
+            $dim    = static fn (string $html): string => $row['unused'] ? '<span class="taxmod-mf-unused">' . $html . '</span>' : $html;
+            $body[] = array_merge([
+                $dim(esc_html($row['position'] === 0 ? __('Platine', 'taxmod-manufacturing') : (string) ($refs[$row['position']] ?? ''))),
+                $dim($this->part($row['thing'], $labels, $order)),
+                esc_html($count($row['needed'])),
+                '<span class="taxmod-mf-nowrap">' . $fit . '</span>',
+                esc_html($boxed ? $count($row['present']) : '—'),
+                $boxed && $row['missing'] > 0.0 ? '<span class="taxmod-mf-status taxmod-mf-status-warn">' . esc_html($count($row['missing'])) . '</span>' : '',
+                $use,
+            ], $scrap ? ['<input type="number" class="small-text" name="scrap[' . esc_attr((string) $row['position']) . ']" min="0" step="1" value="" aria-label="' . esc_attr__('Ausschuss', 'taxmod-manufacturing') . '">'] : []);
         }
 
-        $table = '<table class="widefat striped" style="margin-top:.5em"><thead><tr>'
-            . '<th>' . esc_html__('Referenz', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Teil', 'taxmod-manufacturing') . '</th>'
-            . '<th style="text-align:right">' . esc_html__('Bedarf', 'taxmod-manufacturing') . '</th><th>' . esc_html__('Bestückt (Teile)', 'taxmod-manufacturing') . '</th>'
-            . '<th style="text-align:right">' . esc_html__('Im Gebinde', 'taxmod-manufacturing') . '</th><th style="text-align:right">' . esc_html__('Fehlt', 'taxmod-manufacturing') . '</th>'
-            . '<th>' . esc_html__('Option', 'taxmod-manufacturing') . '</th>'
-            . ($scrap ? '<th title="' . esc_attr__('Heruntergefallen, defekt oder falsch bestückt: wird als Ausschuss aus dem Gebinde gebucht.', 'taxmod-manufacturing') . '">' . esc_html__('Ausschuss', 'taxmod-manufacturing') . '</th>' : '')
-            . '</tr></thead><tbody>' . $body . '</tbody></table>';
+        $num   = \Taxmod\Core\Renderer\GridMarkup::NUMBER;
+        $table = ListPage::grid(array_merge([
+            [__('Referenz', 'taxmod-manufacturing')], [__('Teil', 'taxmod-manufacturing')], [__('Bedarf', 'taxmod-manufacturing'), $num],
+            [__('Bestückt (Teile)', 'taxmod-manufacturing')], [__('Im Gebinde', 'taxmod-manufacturing'), $num], [__('Fehlt', 'taxmod-manufacturing'), $num],
+            [__('Option', 'taxmod-manufacturing')],
+        ], $scrap ? [[__('Ausschuss', 'taxmod-manufacturing')]] : []), $body);
 
         $fittedBoards = Demand::boardsFitted($rows);
         // «alle auf n Platinen»: n × the parts per board in every field of this form.
         $fill = '<input type="number" class="small-text" min="0" max="' . esc_attr((string) $pieces) . '" value="' . esc_attr((string) $pieces) . '" aria-label="' . esc_attr__('Anzahl Platinen', 'taxmod-manufacturing') . '"> '
-            . '<button type="button" class="button" onclick="var n=this.previousElementSibling.value;this.closest(\'form\').querySelectorAll(\'.taxmod-mf-fit\').forEach(function(i){i.value=n*parseFloat(i.step)})">' . esc_html__('Alle auf n Platinen', 'taxmod-manufacturing') . '</button>';
+            . '<button type="button" class="button" data-taxmod-mf-fill>' . esc_html__('Alle auf n Platinen', 'taxmod-manufacturing') . '</button>';
         // D-1304, D-1342: the test is a report at the finished board's lot on the place «Test», no longer a count here; «Fertig» means built.
         $counts = $this->service->structure()->hasField('assembly_done')
             ? '<label title="' . esc_attr__('Fertig sind voll bestückte Platinen. Erst jetzt werden ihre Teile verbraucht; die Platine kommt ungeprüft auf den Platz «Test».', 'taxmod-manufacturing') . '">' . esc_html__('Fertig', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="done" min="0" max="' . esc_attr((string) $pieces) . '" value="' . esc_attr((string) $assembly->done) . '"></label>'
             : '';
 
-        return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '" style="border-top:1px solid #dcdcde;padding:.75em 0">'
+        return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-assembly">'
             . wp_nonce_field(self::NONCE, '_wpnonce', true, false) . $this->hidden(['action' => self::ACTION, 'do' => 'assembly', 'order' => (string) $order->id, 'assembly' => (string) $assembly->id, 'tab' => $this->tab()])
             . '<h3>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision)
             . ' · ' . esc_html(sprintf(__('%1$d von %2$d bestückt', 'taxmod-manufacturing'), $fittedBoards, $pieces)) . '</h3>'
             . ListPage::toolbar([$this->saveButton(), $fill])
-            . '<div style="display:flex;align-items:center;gap:1em;flex-wrap:wrap">'
+            . '<div class="taxmod-mf-counts">'
             . $counts . $this->sparteChooser($assembly, $form)
             . ($scrap ? '<label>' . esc_html__('Grund Ausschuss (optional)', 'taxmod-manufacturing') . ' <input type="text" name="scrap_reason" list="taxmod-mf-scrap-reasons"></label><datalist id="taxmod-mf-scrap-reasons"><option value="' . esc_attr__('heruntergefallen', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('defekt', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('falsch bestückt', 'taxmod-manufacturing') . '"></datalist>' : '')
             . ($this->service->structure()->hasField('assembly_note') ? '<label>' . esc_html__('Hinweis', 'taxmod-manufacturing') . ' <input type="text" class="regular-text" name="note" value="' . esc_attr($assembly->note) . '"></label>' : '')
@@ -1329,8 +1187,8 @@ final class OrdersPage
             ])
             : '';
         $picker = $chooser !== '' ? $chooser : '<select name="project" required>' . $options . '</select>';
-        $body   = '<div class="taxmod-dialog-field" style="margin-bottom:.5em">' . esc_html__('Projekt', 'taxmod-manufacturing') . '<br>' . $picker . '</div>'
-            . '<label class="taxmod-dialog-field" style="display:block">' . esc_html__('Stückzahl', 'taxmod-manufacturing') . '<br><input type="number" name="count" min="1" step="1" value="1" required></label>';
+        $body   = '<div class="taxmod-dialog-field taxmod-mf-field">' . esc_html__('Projekt', 'taxmod-manufacturing') . '<br>' . $picker . '</div>'
+            . '<label class="taxmod-dialog-field taxmod-mf-field">' . esc_html__('Stückzahl', 'taxmod-manufacturing') . '<br><input type="number" name="count" min="1" step="1" value="1" required></label>';
 
         if (method_exists(ListPage::class, 'shownBy')) {
             // D-1311: the boards of the chosen project show in the dialog itself; the server still takes only that project's.
@@ -1399,7 +1257,7 @@ final class OrdersPage
 
     private function dialogForm(string $do, BuildOrder $order, string $opener, string $title, string $body): string
     {
-        return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+        return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => absint($_GET['auftrag'] ?? 0) === $order->id ? 'detail' : ''])
             . ListPage::dialogAction('taxmod-mf-' . $do . '-' . $order->id, $opener, $title, '<p>' . $body . '</p>', 'do', $do, $opener)
             . '</form>';
@@ -1444,6 +1302,8 @@ final class OrdersPage
             'reopened'  => __('Wieder aufgenommen.', 'taxmod-manufacturing'),
             'staging'   => __('In Bereitstellung.', 'taxmod-manufacturing'),
             'reserved'  => __('Abgehakte Teile für den Auftrag reserviert.', 'taxmod-manufacturing'),
+            'changed'   => __('Reservierung geändert.', 'taxmod-manufacturing'),
+            'released'  => __('Reservierung aufgehoben (Storno im Lager).', 'taxmod-manufacturing'),
             'assigned'  => __('Der Position zugewiesen und für den Auftrag reserviert.', 'taxmod-manufacturing'),
             'cleared'   => __('Gebinde leer geräumt, alles zurück an seinen Platz.', 'taxmod-manufacturing'),
             'building'  => __('In Fertigung.', 'taxmod-manufacturing'),
