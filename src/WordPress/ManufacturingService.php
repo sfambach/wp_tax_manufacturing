@@ -478,16 +478,11 @@ final class ManufacturingService
         // His word 2026-11-15: any position of the list may be left out, not only an option.
         $changes = (new OrderChanges($this->structure()))->updateAssembly($built, $assembly, $fitted, $unused, $all, $all, $tested, $done, $note, $today);
         $made    = $done === null ? 0 : $done - $part->done;
-        $checked = $tested ?? $part->tested;
         $boards  = $this->boardsAfter($part, $fitted, $unused, $list);
 
-        // D-1177 «prüfung ist pflicht»: finished ≤ tested ≤ fully fitted — checked before anything is booked.
-        if ($checked > $boards) {
-            throw ManufacturingError::testedBeyondFitted($checked, $boards);
-        }
-
-        if (($done ?? $part->done) > $checked) {
-            throw ManufacturingError::doneBeyondTested($done ?? $part->done, $checked);
+        // D-1304/D-1342 replace D-1177: the test is a report at the board's lot on «Test», so «Fertig» only needs the board fully fitted.
+        if (($done ?? $part->done) > $boards) {
+            throw ManufacturingError::doneBeyondFitted($done ?? $part->done, $boards);
         }
 
         $booked  = 'nothing';
