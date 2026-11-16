@@ -2,6 +2,7 @@
 
 namespace TaxmodManufacturing\WordPress;
 
+use TaxmodManufacturing\Core\ProductionSettings;
 use TaxmodManufacturing\Core\Structure;
 use TaxmodManufacturing\WordPress\Admin\OrdersPage;
 use TaxmodManufacturing\WordPress\Admin\SettingsTab;
@@ -85,6 +86,17 @@ final class Plugin
             'default'           => [],
             'sanitize_callback' => static fn ($value): array => Structure::fromArray(is_array($value) ? $value : [])->toArray(),
             'show_in_rest'      => ['schema' => ['type' => 'object', 'properties' => ['nodes' => $group(), 'fields' => $group(), 'values' => $group()]]],
+        ]);
+
+        // D-1305/D-1397: the tab «Produktion», settable over REST like the structure, so the upload can set it.
+        register_setting('taxmod_manufacturing', SettingsTab::OPTION, [
+            'type'              => 'object',
+            'default'           => [],
+            'sanitize_callback' => static fn ($value): array => ProductionSettings::fromArray(is_array($value) ? $value : [])->toArray(),
+            'show_in_rest'      => ['schema' => ['type' => 'object', 'properties' => [
+                'deadlines' => ['type' => 'object', 'additionalProperties' => ['type' => 'integer']],
+                'label'     => ['type' => 'integer'],
+            ]]],
         ]);
     }
 }
