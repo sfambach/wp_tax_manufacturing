@@ -4,6 +4,7 @@ namespace TaxmodManufacturing\WordPress;
 
 use TaxmodManufacturing\Core\Structure;
 use TaxmodManufacturing\WordPress\Admin\OrdersPage;
+use TaxmodManufacturing\WordPress\Admin\SettingsTab;
 
 /**
  * Wires the module into WordPress: its page inside the logistics navigation (area «Fertigung», D-1142), the form handlers,
@@ -35,6 +36,8 @@ final class Plugin
         // On admin_init and rest_api_init, where settings are saved, not on every page view (D-1187).
         add_action('admin_init', [$this, 'registerSettings']);
         add_action('rest_api_init', [$this, 'registerSettings']);
+        // D-1305: the tab «Produktion» on Taxonomy Modeller › Configuration.
+        add_filter('taxmod_config_tabs', [SettingsTab::class, 'register']);
         // D-1085: a module's page opens inside the logistics frame; the stock module draws the navigation.
         add_filter('taxmod_logistics_pages', static function (mixed $pages): array {
             $pages  = is_array($pages) ? $pages : [];

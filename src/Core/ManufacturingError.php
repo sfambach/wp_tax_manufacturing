@@ -58,6 +58,12 @@ final class ManufacturingError extends \RuntimeException
         return new self('count_below_done', $count . ' < ' . $done);
     }
 
+    /** D-1305: a deadline is a whole number of days. */
+    public static function deadlineNotWhole(string $channel, string $given): self
+    {
+        return new self('deadline_not_whole', $channel . ': ' . $given);
+    }
+
     public static function countNotPositive(string $given): self
     {
         return new self('count_not_positive', $given);
