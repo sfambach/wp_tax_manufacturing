@@ -82,35 +82,41 @@ final class OrdersPage
 
     public function render(): string
     {
-        $html = '<div class="wrap">' . $this->heading() . $this->notice();
-
         if (! class_exists(ListPage::class)) {
-            return $html . '<div class="notice notice-error"><p>' . esc_html__('Der Taxonomy Modeller ist zu alt: die gemeinsame Listenansicht fehlt.', 'taxmod-manufacturing') . '</p></div></div>';
+            return '<div class="notice notice-error"><p>' . esc_html__('Der Taxonomy Modeller ist zu alt: die gemeinsame Listenansicht fehlt.', 'taxmod-manufacturing') . '</p></div>';
         }
+
+        // D-1373, D-1186: the page stands in the modeller's template, not in a frame of its own.
+        return ListPage::page(__('Aufträge', 'taxmod-manufacturing'), [], [['html' => $this->content()]], (string) TAXMOD_MANUFACTURING_VERSION, __('Fertigung', 'taxmod-manufacturing'));
+    }
+
+    private function content(): string
+    {
+        $html = $this->notice();
 
         $missing = $this->service->structure()->missing();
 
         if ($missing !== []) {
-            return $html . '<div class="notice notice-warning"><p>' . esc_html__('Das Modell der Fertigung ist noch nicht eingespielt. Es fehlen:', 'taxmod-manufacturing') . ' <code>' . esc_html(implode(', ', $missing)) . '</code></p></div></div>';
+            return $html . '<div class="notice notice-warning"><p>' . esc_html__('Das Modell der Fertigung ist noch nicht eingespielt. Es fehlen:', 'taxmod-manufacturing') . ' <code>' . esc_html(implode(', ', $missing)) . '</code></p></div>';
         }
 
         $asked = sanitize_key((string) ($_GET['tab'] ?? ''));
 
         if ($asked !== '' && ! in_array($asked, self::TABS, true)) {
             return $html . '<div class="notice notice-error"><p>' . esc_html__('Diese Ansicht gibt es nicht.', 'taxmod-manufacturing')
-                . ' <a href="' . esc_url($this->url(['tab' => 'boxes'])) . '">' . esc_html__('Zu den Projektgebinden', 'taxmod-manufacturing') . '</a></p></div></div>';
+                . ' <a href="' . esc_url($this->url(['tab' => 'boxes'])) . '">' . esc_html__('Zu den Projektgebinden', 'taxmod-manufacturing') . '</a></p></div>';
         }
 
         try {
             $orders = $this->service->orders();
         } catch (ManufacturingError $error) {
-            return $html . '<div class="notice notice-error"><p>' . esc_html($this->message($error)) . '</p></div></div>';
+            return $html . '<div class="notice notice-error"><p>' . esc_html($this->message($error)) . '</p></div>';
         }
 
         $detail = absint($_GET['auftrag'] ?? 0);
 
         if ($detail !== 0) {
-            return $html . $this->detail($orders, $detail) . '</div>';
+            return $html . $this->detail($orders, $detail);
         }
 
         $tab   = $this->tab();
@@ -139,7 +145,7 @@ final class OrdersPage
                 sprintf(_n('%d Auftrag', '%d Aufträge', count($shown), 'taxmod-manufacturing'), count($shown)));
 
         if ($tab === 'boxes') {
-            return $html . $this->boxList($orders, $boxes) . '</div>';
+            return $html . $this->boxList($orders, $boxes);
         }
 
         // The orders sharing a box with a shown one count too: the box serves them in turn (his word 16.11., Atari).
@@ -177,7 +183,7 @@ final class OrdersPage
             [__('Gebinde', 'taxmod-manufacturing')],
             [__('Fehlende Pos.', 'taxmod-manufacturing'), '8em'],
             [__('Begonnen', 'taxmod-manufacturing'), '8em'],
-        ], $rows) . '</div>';
+        ], $rows);
     }
 
     /**
@@ -1409,11 +1415,6 @@ final class OrdersPage
         }
 
         return $html;
-    }
-
-    private function heading(): string
-    {
-        return ListPage::heading(__('Aufträge', 'taxmod-manufacturing'), (string) TAXMOD_MANUFACTURING_VERSION, __('Fertigung', 'taxmod-manufacturing'));
     }
 
     private function notice(): string
