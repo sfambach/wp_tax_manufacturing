@@ -228,14 +228,15 @@ final class OrderChanges
     }
 
     /**
-     * D-1373: count and the board's revision, while the order is «Angelegt»; one revision per order for now, so a new revision
-     * replaces the one of an order with a single assembly.
+     * D-1300: the count may rise and fall in any step before the order is closed, never below the finished boards; the board's
+     * revision (D-1373) only while it is «Angelegt» — one revision per order for now, so a new one replaces that of an order
+     * with a single assembly.
      *
      * @return list<array<string, mixed>>
      */
     public function setHead(BuildOrder $order, string $count, ?int $revision): array
     {
-        if ($order->step !== 'order_planned') {
+        if ($order->isClosed()) {
             throw ManufacturingError::headFixed($order->id);
         }
 
@@ -243,9 +244,15 @@ final class OrderChanges
             throw ManufacturingError::countNotPositive($count);
         }
 
+        $finished = max([0, ...array_map(static fn (Assembly $a): int => $a->done, $order->assemblies)]);
+
+        if ((int) $count < $finished) {
+            throw ManufacturingError::countBelowDone((int) $count, $finished);
+        }
+
         $changes = [['op' => 'set_values', 'record' => (string) $order->id, 'values' => [(string) $this->s->field('order_count') => (string) (int) $count]]];
 
-        if ($revision !== null && count($order->assemblies) === 1 && $order->assemblies[0]->revision !== $revision) {
+        if ($order->step === 'order_planned' && $revision !== null && count($order->assemblies) === 1 && $order->assemblies[0]->revision !== $revision) {
             $changes[] = ['op' => 'set_values', 'record' => (string) $order->assemblies[0]->id, 'values' => [(string) $this->s->field('assembly_revision') => (string) $revision]];
         }
 

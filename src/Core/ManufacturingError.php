@@ -34,7 +34,7 @@ final class ManufacturingError extends \RuntimeException
         return new self('project_without_boards', (string) $project);
     }
 
-    /** D-1373: head fields (count, revision) change only while the order is «Angelegt». */
+    /** D-1300: a closed order keeps its count. */
     public static function headFixed(int $order): self
     {
         return new self('head_fixed', (string) $order);
@@ -50,6 +50,12 @@ final class ManufacturingError extends \RuntimeException
     public static function readdAfterUse(int $assembly): self
     {
         return new self('readd_after_use', (string) $assembly);
+    }
+
+    /** D-1300: the count never falls below the finished boards. */
+    public static function countBelowDone(int $count, int $done): self
+    {
+        return new self('count_below_done', $count . ' < ' . $done);
     }
 
     public static function countNotPositive(string $given): self

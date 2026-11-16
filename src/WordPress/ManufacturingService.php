@@ -895,10 +895,50 @@ final class ManufacturingService
         return $ids === [] ? [] : $this->labelsOf($ids);
     }
 
-    /** D-1373: count and revision of an order that is still «Angelegt». */
+    /** D-1300: count in any step before the order is closed, revision while it is «Angelegt» (D-1373). */
     public function setHead(int $order, string $count, ?int $revision): void
     {
         $this->model->write((new OrderChanges($this->structure()))->setHead($this->order($order), $count, $revision));
+    }
+
+    public const RELEASE_FILTER = 'taxmod_stock_release';
+
+    /**
+     * D-1300: after the count fell, the reservations beyond what is left to fit are given free in one Storno; what was moved
+     * into the box stays until «Box leer räumen».
+     *
+     * @param array<int, list<array<string, mixed>>> $lists revision → positions, with what is assigned to them
+     * @return int how many reservation lines were released
+     */
+    public function releaseSurplus(BuildOrder $order, array $lists): int
+    {
+        if (! has_filter(self::RESERVATIONS_FILTER) || ! has_filter(self::RELEASE_FILTER)) {
+            return 0;
+        }
+
+        $answer = apply_filters(self::RESERVATIONS_FILTER, null, ['subjects' => [$order->id]]);
+        $lines  = [];
+
+        foreach (is_array($answer[$order->id] ?? null) ? $answer[$order->id] : [] as $line) {
+            if (is_array($line) && (int) ($line['line'] ?? 0) > 0 && (int) ($line['thing'] ?? 0) > 0) {
+                $lines[] = ['line' => (int) $line['line'], 'thing' => (int) $line['thing'], 'quantity' => (float) ($line['quantity'] ?? 0)];
+            }
+        }
+
+        $box     = $this->presentIn($order->box);
+        $release = Demand::surplusReservations(Demand::of($order->assemblies, $lists, $order->count, $box), $box, $lines);
+
+        if ($release === []) {
+            return 0;
+        }
+
+        $done = apply_filters(self::RELEASE_FILTER, null, ['subject' => $order->id, 'lines' => $release]);
+
+        if (is_wp_error($done)) {
+            throw ManufacturingError::stockRefused($done->get_error_message());
+        }
+
+        return count($release);
     }
 
     /** D-1373: one step back, until the first fitted board. */

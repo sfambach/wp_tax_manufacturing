@@ -65,11 +65,6 @@ final class Demand
     }
 
     /**
-     * Boards with every used position fitted: the smallest count over them (D-1146).
-     *
-     * @param list<array{position: int, boards: int, unused: bool}> $rows of one assembly
-     */
-    /**
      * D-1387: a position assigned from stock counts with the material assigned to it, a substitute too; the project's parts
      * list stays as it is (as D-1384).
      *
@@ -94,11 +89,56 @@ final class Demand
         return $lists;
     }
 
+    /**
+     * Boards with every used position fitted: the smallest count over them (D-1146).
+     *
+     * @param list<array{position: int, boards: int, unused: bool}> $rows of one assembly
+     */
     public static function boardsFitted(array $rows): int
     {
         $counts = array_column(array_filter($rows, static fn (array $row): bool => $row['position'] > 0 && ! $row['unused']), 'boards');
 
         return $counts === [] ? 0 : min($counts);
+    }
+
+    /**
+     * D-1300: after the count falls, the reservations the order no longer needs — whole lines, largest first, as long as what
+     * stays reserved plus what lies in the box still covers what is left to fit. A line that is only partly surplus stays.
+     *
+     * @param array<int, list<array{thing: int, open: float}>> $demand from {@see of()} for the new count
+     * @param array<int, float> $box thing → pieces in the box, without the reservations
+     * @param list<array{line: int, thing: int, quantity: float}> $lines the order's reservations
+     * @return list<int> the lines to release
+     */
+    public static function surplusReservations(array $demand, array $box, array $lines): array
+    {
+        $needed = [];
+
+        foreach ($demand as $rows) {
+            foreach ($rows as $row) {
+                $needed[$row['thing']] = ($needed[$row['thing']] ?? 0.0) + $row['open'];
+            }
+        }
+
+        $reserved = [];
+
+        foreach ($lines as $line) {
+            $reserved[$line['thing']] = ($reserved[$line['thing']] ?? 0.0) + $line['quantity'];
+        }
+
+        usort($lines, static fn (array $a, array $b): int => $b['quantity'] <=> $a['quantity']);
+        $release = [];
+
+        foreach ($lines as $line) {
+            $spare = ($box[$line['thing']] ?? 0.0) + $reserved[$line['thing']] - ($needed[$line['thing']] ?? 0.0);
+
+            if ($line['quantity'] <= $spare + 1e-9) {
+                $reserved[$line['thing']] -= $line['quantity'];
+                $release[]                 = $line['line'];
+            }
+        }
+
+        return $release;
     }
 
     /** @param array<int, list<array{missing: float}>> $rows from {@see of()} */

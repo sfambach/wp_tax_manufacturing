@@ -379,9 +379,10 @@ final class OrdersPage
         $rows = [
             ['label' => __('Projekt', 'taxmod-manufacturing'), 'control' => $text($labels[$order->project] ?? '#' . $order->project)],
             ['label' => _n('Platine', 'Platinen', count($order->assemblies), 'taxmod-manufacturing'), 'control' => $boardControl, 'for' => $planned && $revision > 0 ? $id . '-revision' : ''],
-            ['label' => __('Stück', 'taxmod-manufacturing'), 'for' => $planned ? $id . '-count' : '', 'control' => $planned
-                ? '<input type="number" class="small-text" min="1" step="1" name="count" id="' . esc_attr($id) . '-count" value="' . esc_attr((string) $order->count) . '">'
-                : $text((string) $order->count)],
+            ['label' => __('Stück', 'taxmod-manufacturing'), 'for' => $order->isClosed() ? '' : $id . '-count', 'control' => $order->isClosed()
+                ? $text((string) $order->count)
+                : '<input type="number" class="small-text" min="' . esc_attr((string) max([1, ...array_map(static fn ($a): int => $a->done, $order->assemblies)])) . '" step="1" name="count" id="' . esc_attr($id) . '-count" value="' . esc_attr((string) $order->count) . '">',
+                'hint' => $order->step === 'order_planned' ? '' : __('Weniger Stück geben überzählige Reservierungen frei; was schon im Gebinde liegt, bleibt dort bis «Box leer räumen».', 'taxmod-manufacturing')],
             ['label' => __('Gebinde', 'taxmod-manufacturing'), 'for' => $order->isClosed() ? '' : $id . '-box', 'control' => $order->isClosed()
                 ? $text($order->box === null ? '—' : ($this->service->labelsOf([$order->box])[$order->box] ?? '#' . $order->box))
                 : '<select name="box" id="' . esc_attr($id) . '-box">' . $boxes . '</select>',
@@ -899,9 +900,16 @@ final class OrdersPage
         $built           = $this->service->order($order);
         $back['auftrag'] = $order;
 
-        if ($built->step === 'order_planned') {
+        if (! $built->isClosed() && isset($_POST['count'])) {
             $revision = absint($_POST['revision'] ?? 0);
-            $this->service->setHead($order, sanitize_text_field(wp_unslash((string) ($_POST['count'] ?? ''))), $revision > 0 ? $revision : null);
+            $this->service->setHead($order, sanitize_text_field(wp_unslash((string) $_POST['count'])), $revision > 0 ? $revision : null);
+            $after = $this->service->order($order);
+
+            // D-1300: a smaller count gives what it no longer needs free; the box keeps what was moved into it.
+            if ($after->count < $built->count && $this->service->canReserve()) {
+                [$lists] = $this->context([$after]);
+                $this->service->releaseSurplus($after, $this->service->assignedLists($after, $lists));
+            }
         }
 
         if (isset($_POST['box']) && absint($_POST['box']) !== (int) $built->box) {
@@ -1350,6 +1358,7 @@ final class OrdersPage
             'no_board_chosen'          => __('Keine Platine gewählt.', 'taxmod-manufacturing'),
             'project_without_boards'   => __('Das Projekt hat keine Platine mit Revision.', 'taxmod-manufacturing'),
             'count_not_positive'       => __('Die Stückzahl muss eine ganze Zahl ab 1 sein.', 'taxmod-manufacturing'),
+            'count_below_done'         => __('Die Stückzahl darf nicht unter die fertigen Platinen fallen.', 'taxmod-manufacturing'),
             'unknown_order'            => __('Diesen Auftrag gibt es nicht.', 'taxmod-manufacturing'),
             'assembly_not_of_order'    => __('Diese Platine gehört nicht zum Auftrag.', 'taxmod-manufacturing'),
             'boards_out_of_range'      => __('Eine Platinenzahl liegt außerhalb von 0 bis zur Stückzahl.', 'taxmod-manufacturing'),
@@ -1358,7 +1367,7 @@ final class OrdersPage
             'stock_refused'            => sprintf(__('Das Lager hat die Buchung abgelehnt, nichts gespeichert: %s', 'taxmod-manufacturing'), $error->detail),
             'assemblies_not_done'      => __('Erst wenn alle Platinen fertig sind, lässt sich der Auftrag abschließen.', 'taxmod-manufacturing'),
             'position_not_on_revision' => __('Nur optionale Positionen der Stückliste lassen sich weglassen.', 'taxmod-manufacturing'),
-            'head_fixed'               => __('Stückzahl und Revision lassen sich nur ändern, solange der Auftrag «Angelegt» ist.', 'taxmod-manufacturing'),
+            'head_fixed'               => __('Ein abgeschlossener Auftrag behält seine Stückzahl.', 'taxmod-manufacturing'),
             'readd_after_use'          => __('Von dieser Platine ist schon etwas verbraucht; die Position kommt nur noch über eine Nachbuchung dazu.', 'taxmod-manufacturing'),
             'no_step_back'             => __('Zurück geht nur, solange noch nichts bestückt ist; danach über «Storno».', 'taxmod-manufacturing'),
             'model_refused'            => sprintf(__('Das Modell hat abgelehnt: %s', 'taxmod-manufacturing'), $error->detail),

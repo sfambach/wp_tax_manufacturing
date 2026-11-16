@@ -163,9 +163,24 @@ final class OrderChangesTest extends TestCase
         self::assertSame(['21' => '5'], $list[0]['values']);
         self::assertSame(['op' => 'set_values', 'record' => '600', 'values' => ['30' => '310']], $list[1]);
         self::assertCount(1, $changes->setHead($this->order('40', [[[], 0]]), '5', 305));
+    }
+
+    public function testCountChangesInEveryOpenStepButNeverBelowTheFinishedBoards(): void
+    {
+        $changes = new OrderChanges($this->s());
+
+        // D-1300: «In Fertigung» changes the count, never the revision.
+        self::assertSame([['op' => 'set_values', 'record' => '500', 'values' => ['21' => '2']]], $changes->setHead($this->order('41', [[[], 2]]), '2', 310));
+
+        try {
+            $changes->setHead($this->order('41', [[[], 2]]), '1', null);
+            self::fail('below the finished boards');
+        } catch (ManufacturingError $e) {
+            self::assertSame('count_below_done', $e->reason);
+        }
 
         $this->expectException(ManufacturingError::class);
-        $changes->setHead($this->order('44', [[[], 0]]), '5', null);
+        $changes->setHead($this->order('42', [[[], 0]]), '5', null);
     }
 
     public function testStepBackUntilTheFirstFittedBoard(): void

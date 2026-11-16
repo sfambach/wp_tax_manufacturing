@@ -128,4 +128,20 @@ final class DemandTest extends TestCase
         self::assertSame(9001, $rows[700]['thing']);
         self::assertSame(self::POSITIONS, Demand::withAssigned(self::POSITIONS, []));
     }
+
+    public function testAFallingCountReleasesWholeSurplusReservationsLargestFirst(): void
+    {
+        // Need 6 of 305 and 2 of 306; the box holds 1 of 305.
+        $demand = [1 => [['thing' => 305, 'open' => 6.0], ['thing' => 306, 'open' => 2.0]]];
+        $lines  = [
+            ['line' => 1, 'thing' => 305, 'quantity' => 4.0],
+            ['line' => 2, 'thing' => 305, 'quantity' => 5.0],
+            ['line' => 3, 'thing' => 305, 'quantity' => 1.0],
+            ['line' => 4, 'thing' => 306, 'quantity' => 2.0],
+            ['line' => 5, 'thing' => 307, 'quantity' => 3.0],
+        ];
+
+        // 305: 1 + 10 − 6 = 5 spare → line 2 (5) goes, then nothing more fits; 306 has no spare; 307 is not needed at all.
+        self::assertSame([2, 5], Demand::surplusReservations($demand, [305 => 1.0], $lines));
+    }
 }
