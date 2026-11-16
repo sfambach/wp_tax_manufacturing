@@ -553,6 +553,16 @@ final class ManufacturingService
                 throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
             }
 
+            // His word 16.11.: the box serves several orders; when the parts are gone, say which, before anything is booked.
+            $short = Demand::shortfall($use, $this->presentIn($built->box));
+
+            if ($short !== []) {
+                $names = $this->labelsOf(array_keys($short));
+                $count = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
+
+                throw ManufacturingError::shortAtFinish(implode(', ', array_map(static fn (int $thing, float $n): string => $count($n) . ' × ' . ($names[$thing] ?? '#' . $thing), array_keys($short), $short)));
+            }
+
             $answer = apply_filters(self::BOOK_FILTER, null, ['reference' => $order, 'place' => $built->box, 'lines' => $use, 'title' => $built->label, 'date' => $today]);
 
             if (is_wp_error($answer)) {

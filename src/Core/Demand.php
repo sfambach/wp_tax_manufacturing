@@ -141,6 +141,86 @@ final class Demand
         return $release;
     }
 
+    /**
+     * His word 16.11. «für Atari haben wir mehrere Aufträge … für welchen sind dann die Teile reserviert in der Kiste»: a
+     * project box serves its open orders one after another, the oldest first (D-1301 «Gebinde und Reservierung», D-1030).
+     * Each order gets what the orders before it leave; its own reservations are used before the box.
+     *
+     * @param list<BuildOrder> $orders
+     * @param array<int, array<int, list<array{id: int, thing: int, count: float, fitting: string}>>> $lists order → revision → positions
+     * @param array<int, array<int, float>> $reserved order → thing → pieces reserved for it
+     * @param array<int, array<int, float>> $present box → thing → pieces in it
+     * @return array<int, array<int, float>> order → thing → pieces of its box left for it
+     */
+    public static function boxShares(array $orders, array $lists, array $reserved, array $present): array
+    {
+        usort($orders, static fn (BuildOrder $a, BuildOrder $b): int => $a->id <=> $b->id);
+        $left = $present;
+        $out  = [];
+
+        foreach ($orders as $order) {
+            if ($order->box === null) {
+                $out[$order->id] = [];
+                continue;
+            }
+
+            $box             = $left[$order->box] ?? [];
+            $own             = $reserved[$order->id] ?? [];
+            $out[$order->id] = $box;
+
+            if ($order->isClosed()) {
+                continue;
+            }
+
+            $there = $box;
+
+            foreach ($own as $thing => $pieces) {
+                $there[$thing] = ($there[$thing] ?? 0.0) + $pieces;
+            }
+
+            $used = [];
+
+            foreach (self::of($order->assemblies, $lists[$order->id] ?? [], $order->count, $there) as $rows) {
+                foreach ($rows as $row) {
+                    $used[$row['thing']] = ($used[$row['thing']] ?? 0.0) + $row['present'];
+                }
+            }
+
+            foreach ($used as $thing => $pieces) {
+                $fromBox = max(0.0, $pieces - ($own[$thing] ?? 0.0));
+
+                if ($fromBox > 0.0) {
+                    $left[$order->box][$thing] = max(0.0, ($box[$thing] ?? 0.0) - $fromBox);
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * What a finish would use up that its box does not hold: thing → pieces short (his word 16.11. «wenn halt nichts mehr da
+     * ist»). The parts of a finished board are fitted, so they must lie in the box.
+     *
+     * @param array<int, float> $use thing → pieces, from {@see finished()}
+     * @param array<int, float> $box thing → pieces in the box
+     * @return array<int, float>
+     */
+    public static function shortfall(array $use, array $box): array
+    {
+        $short = [];
+
+        foreach ($use as $thing => $pieces) {
+            $lack = $pieces - ($box[$thing] ?? 0.0);
+
+            if ($lack > 1e-9) {
+                $short[$thing] = $lack;
+            }
+        }
+
+        return $short;
+    }
+
     /** @param array<int, list<array{missing: float}>> $rows from {@see of()} */
     public static function missingRows(array $rows): int
     {

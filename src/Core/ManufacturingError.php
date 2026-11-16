@@ -70,6 +70,12 @@ final class ManufacturingError extends \RuntimeException
         return new self('due_not_date', $given);
     }
 
+    /** A finish would use up parts its box does not hold; the detail names them. */
+    public static function shortAtFinish(string $parts): self
+    {
+        return new self('short_at_finish', $parts);
+    }
+
     public static function countNotPositive(string $given): self
     {
         return new self('count_not_positive', $given);

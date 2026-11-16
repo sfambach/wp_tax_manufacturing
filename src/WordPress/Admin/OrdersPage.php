@@ -137,16 +137,26 @@ final class OrdersPage
             return $html . $this->boxList($orders, $boxes) . '</div>';
         }
 
-        [$lists, $labels] = $this->context($shown);
-        $reserved         = $this->service->reservedFor(array_map(static fn (BuildOrder $o): int => $o->id, $shown));
+        // The orders sharing a box with a shown one count too: the box serves them in turn (his word 16.11., Atari).
+        $boxes            = array_flip(array_filter(array_map(static fn (BuildOrder $o): int => (int) $o->box, $shown)));
+        $related          = array_values(array_filter($orders, static fn (BuildOrder $o): bool => in_array($o, $shown, true) || (! $o->isClosed() && isset($boxes[(int) $o->box]))));
+        [$lists, $labels] = $this->context($related);
+        $ids              = array_map(static fn (BuildOrder $o): int => $o->id, $related);
+        $reserved         = $this->service->reservedFor($ids);
         // His word 2026-11-15 «warum braucht er so lange … angelegt»: the boxes' contents in one read, not the ledger per order.
-        $present          = $this->service->presentInEach(array_map(static fn (BuildOrder $o): int => (int) $o->box, $shown));
-        $assigned         = $this->service->assignments(array_map(static fn (BuildOrder $o): int => $o->id, $shown));
-        $rows             = '';
+        $present          = $this->service->presentInEach(array_values(array_keys($boxes)));
+        $assigned         = $this->service->assignments($ids);
+        $own              = [];
+
+        foreach ($related as $order) {
+            $own[$order->id] = $this->service->assignedLists($order, $lists, $assigned[$order->id] ?? []);
+        }
+
+        $shares = Demand::boxShares($related, $own, $reserved, $present);
+        $rows   = '';
 
         foreach ($shown as $order) {
-            $own   = $this->service->assignedLists($order, $lists, $assigned[$order->id] ?? []);
-            $rows .= $this->row($order, $labels, $own, Demand::of($order->assemblies, $own, $order->count, $this->service->available($order, $reserved[$order->id] ?? [], $present[(int) $order->box] ?? [])));
+            $rows .= $this->row($order, $labels, $own[$order->id], Demand::of($order->assemblies, $own[$order->id], $order->count, $this->service->available($order, $reserved[$order->id] ?? [], $shares[$order->id] ?? [])));
         }
 
         if ($rows === '') {
@@ -191,7 +201,7 @@ final class OrdersPage
         $lists    = $this->service->assignedLists($order, $plain, $assigned);
         $unnamed  = array_values(array_diff(array_merge([], ...array_map(static fn (array $rows): array => array_column($rows, 'thing'), array_values($assigned))), array_keys($labels)));
         $labels  += $unnamed === [] ? [] : $this->service->labelsOf($unnamed);
-        $demand  = Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order));
+        $demand  = Demand::of($order->assemblies, $lists, $order->count, $this->service->available($order, null, $this->boxShare($orders, $order)));
         $missing = Demand::missingRows($demand);
         $name    = self::viewLabels();
         $staging = $this->service->structure()->hasValue('order_staging');
@@ -633,6 +643,33 @@ final class OrdersPage
     }
 
     /**
+     * What of its box is left for this order once the older open orders sharing the box took theirs (his word 16.11., Atari).
+     *
+     * @param list<BuildOrder> $orders
+     * @return array<int, float>|null thing → pieces; null when no other open order shares the box
+     */
+    private function boxShare(array $orders, BuildOrder $order): ?array
+    {
+        $sharing = array_values(array_filter($orders, static fn (BuildOrder $o): bool => $order->box !== null && $o->box === $order->box && ! $o->isClosed() && $o->id < $order->id));
+
+        if ($sharing === []) {
+            return null;
+        }
+
+        $sharing[]  = $order;
+        [$lists]    = $this->context($sharing);
+        $ids        = array_map(static fn (BuildOrder $o): int => $o->id, $sharing);
+        $assigned   = $this->service->assignments($ids);
+        $own        = [];
+
+        foreach ($sharing as $o) {
+            $own[$o->id] = $this->service->assignedLists($o, $lists, $assigned[$o->id] ?? []);
+        }
+
+        return Demand::boxShares($sharing, $own, $this->service->reservedFor($ids), [(int) $order->box => $this->service->presentIn($order->box)])[$order->id] ?? [];
+    }
+
+    /**
      * Parts lists and labels for the given orders, read once (CD-7).
      *
      * @param list<BuildOrder> $orders
@@ -806,7 +843,7 @@ final class OrdersPage
         $built            = $this->service->order($order);
         [$lists] = $this->context([$built]);
         $lists            = $this->service->assignedLists($built, $lists);
-        $demand           = Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built));
+        $demand           = Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built, null, $this->boxShare($this->service->orders(), $built)));
         $things           = array_values(array_unique(array_merge(...array_map(static fn (array $rows): array => array_column($rows, 'thing'), array_values($demand)) ?: [[]])));
         $quantities       = [];
         $back['auftrag']  = $order;
@@ -977,7 +1014,7 @@ final class OrdersPage
         $built           = $this->service->order($order);
         [$lists] = $this->context([$built]);
         $lists           = $this->service->assignedLists($built, $lists);
-        $missing         = Demand::missingRows(Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built)));
+        $missing         = Demand::missingRows(Demand::of($built->assemblies, $lists, $built->count, $this->service->available($built, null, $this->boxShare($this->service->orders(), $built))));
         $back['auftrag'] = $order;
 
         $this->service->setStep($order, 'order_building', $today, $missing, sanitize_text_field(wp_unslash((string) ($_POST['reason'] ?? ''))));
@@ -1355,6 +1392,8 @@ final class OrdersPage
             'no_board_chosen'          => __('Keine Platine gewählt.', 'taxmod-manufacturing'),
             'project_without_boards'   => __('Das Projekt hat keine Platine mit Revision.', 'taxmod-manufacturing'),
             'count_not_positive'       => __('Die Stückzahl muss eine ganze Zahl ab 1 sein.', 'taxmod-manufacturing'),
+            /* translators: %s: the parts the box lacks, «2 × name, …» */
+            'short_at_finish'          => sprintf(__('Im Gebinde fehlt für «Fertig»: %s. Erst umbuchen oder «Aus Bestand wählen», dann fertig melden.', 'taxmod-manufacturing'), $error->detail),
             'due_not_date'             => __('Der Wunschtermin ist kein gültiges Datum.', 'taxmod-manufacturing'),
             'count_below_done'         => __('Die Stückzahl darf nicht unter die fertigen Platinen fallen.', 'taxmod-manufacturing'),
             'unknown_order'            => __('Diesen Auftrag gibt es nicht.', 'taxmod-manufacturing'),

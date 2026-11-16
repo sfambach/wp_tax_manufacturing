@@ -4,6 +4,7 @@ namespace TaxmodManufacturing\Tests\Core;
 
 use PHPUnit\Framework\TestCase;
 use TaxmodManufacturing\Core\Assembly;
+use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\Demand;
 
 final class DemandTest extends TestCase
@@ -143,5 +144,23 @@ final class DemandTest extends TestCase
 
         // 305: 1 + 10 − 6 = 5 spare → line 2 (5) goes, then nothing more fits; 306 has no spare; 307 is not needed at all.
         self::assertSame([2, 5], Demand::surplusReservations($demand, [305 => 1.0], $lines));
+    }
+
+    public function testABoxServesItsOrdersOldestFirstAndOwnReservationsBeforeTheBox(): void
+    {
+        $older = new BuildOrder(10, 'A', 1, 2, 'order_staging', 70, null, null, [new Assembly(100, 300, [], [], 0, 0)]);
+        $newer = new BuildOrder(11, 'B', 1, 2, 'order_staging', 70, null, null, [new Assembly(101, 300, [], [], 0, 0)]);
+        $list  = [300 => [['id' => 1, 'thing' => 305, 'count' => 3.0, 'fitting' => '']]];
+        // 10 of 305 and 1 board in the box; the older order needs 6 and 2 boards, 1 of the 305 reserved for it elsewhere.
+        $shares = Demand::boxShares([$newer, $older], [10 => $list, 11 => $list], [10 => [305 => 1.0]], [70 => [305 => 10.0, 300 => 1.0]]);
+
+        self::assertSame([305 => 10.0, 300 => 1.0], $shares[10]);
+        self::assertSame([305 => 5.0, 300 => 0.0], $shares[11]);
+    }
+
+    public function testShortfallNamesWhatTheBoxLacksForAFinish(): void
+    {
+        self::assertSame([305 => 2.0], Demand::shortfall([305 => 6.0, 300 => 1.0], [305 => 4.0, 300 => 1.0]));
+        self::assertSame([], Demand::shortfall([305 => 4.0], [305 => 4.0]));
     }
 }
