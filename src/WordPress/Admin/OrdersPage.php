@@ -696,10 +696,10 @@ final class OrdersPage
 
         // The lines of a form, not a list: no filter, grouping or actions column (his report 17.11.).
         $table = ListPage::grid(array_merge([
-            [''], [__('Referenz', 'taxmod-manufacturing')], [__('Teil', 'taxmod-manufacturing')], [__('Bedarf (Teile)', 'taxmod-manufacturing'), GridMarkup::NUMBER],
+            [__('Alle wählen', 'taxmod-manufacturing')], [__('Referenz', 'taxmod-manufacturing')], [__('Teil', 'taxmod-manufacturing')], [__('Bedarf (Teile)', 'taxmod-manufacturing'), GridMarkup::NUMBER],
             [__('Bestückt (Teile)', 'taxmod-manufacturing')], [__('Im Gebinde', 'taxmod-manufacturing'), GridMarkup::NUMBER], [__('Fehlt', 'taxmod-manufacturing'), GridMarkup::NUMBER],
             [__('Option', 'taxmod-manufacturing')],
-        ], $scrap ? [[__('Ausschuss', 'taxmod-manufacturing')]] : []), $grid);
+        ], $scrap ? [[__('Ausschuss', 'taxmod-manufacturing')]] : []), $grid, '', $closed ? '' : 'taxmod-mf-ticks');
 
         // D-1403: the choices on ticked rows; the save is the master data's one 💾.
         $bar = $closed ? '' : ListPage::bulkBar($bulk, self::NONCE, [

@@ -81,9 +81,9 @@ final class TestSection
 
         // The lines of a form, not a list: no filter, grouping or actions column (his report 17.11. «button chaos»).
         return $bar . ListPage::grid([
-            [''], [__('Posten', 'taxmod-manufacturing')], [__('Platine', 'taxmod-manufacturing')], [__('Lagerort', 'taxmod-manufacturing')],
+            [__('Alle wählen', 'taxmod-manufacturing')], [__('Posten', 'taxmod-manufacturing')], [__('Platine', 'taxmod-manufacturing')], [__('Lagerort', 'taxmod-manufacturing')],
             [__('Zustand', 'taxmod-manufacturing')], [__('Getestet am', 'taxmod-manufacturing')], [__('Befund', 'taxmod-manufacturing')],
-        ], $grid);
+        ], $grid, '', 'taxmod-mf-ticks');
     }
 
     private function state(string $state): string
