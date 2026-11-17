@@ -111,6 +111,28 @@ final class ManufacturingError extends \RuntimeException
         return new self('done_beyond_fitted', $done . '>' . $fitted);
     }
 
+    /** D-1419: «Fertigung abschließen» for more boards than are fully fitted and not yet completed. */
+    public static function notReadyToFinish(int $asked, int $ready): self
+    {
+        return new self('not_ready_to_finish', $asked . '>' . $ready);
+    }
+
+    /** D-1419: the bookings of a completion must be one act; without the modeller's bracket nothing is booked. */
+    public static function noActBracket(): self
+    {
+        return new self('no_act_bracket', '');
+    }
+
+    public static function testsOpen(int $order): self
+    {
+        return new self('tests_open', (string) $order);
+    }
+
+    public static function nothingSelected(): self
+    {
+        return new self('nothing_selected', '');
+    }
+
     public static function sparteNeeded(int $revision): self
     {
         return new self('sparte_needed', (string) $revision);

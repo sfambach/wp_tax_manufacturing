@@ -173,7 +173,7 @@ final class OrderChanges
      * Closing, cancelling or taking up again. «fertig» needs every assembly done; taking up goes back to «in Bau», or to
      * «geplant» while no assembly has left «offen».
      *
-     * @param 'order_staging'|'order_building'|'order_done'|'order_cancelled'|'reopen' $to
+     * @param 'order_staging'|'order_building'|'order_test'|'order_done'|'order_cancelled'|'reopen' $to
      * @param string $reason D-1301: why it goes into building although parts are missing; only the reason is kept, what is missing stays derived
      * @return list<array<string, mixed>>
      */
@@ -204,6 +204,19 @@ final class OrderChanges
             }
 
             return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $values]];
+        }
+
+        // D-1419: «Test» once every board of the order is completed; from there, or without that step, «Fertiggestellt».
+        if ($to === 'order_test') {
+            if ($order->step !== 'order_building' || ! $this->s->hasValue('order_test')) {
+                throw ManufacturingError::unknownStatus($to);
+            }
+
+            if (! $order->isFinished()) {
+                throw ManufacturingError::assembliesNotDone($order->id);
+            }
+
+            return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $this->stepValues('order_test', null, null)]];
         }
 
         if ($to === 'order_done') {

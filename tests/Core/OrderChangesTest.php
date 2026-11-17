@@ -20,7 +20,7 @@ final class OrderChangesTest extends TestCase
             'assembly_fitted' => 34, 'fitting_position' => 35, 'fitting_boards' => 36, 'assembly_tested' => 37, 'assembly_done' => 38,
         ],
         'values' => [
-            'order_planned' => 40, 'order_staging' => 44, 'order_building' => 41, 'order_done' => 42, 'order_cancelled' => 43,
+            'order_planned' => 40, 'order_staging' => 44, 'order_building' => 41, 'order_done' => 42, 'order_cancelled' => 43, 'order_test' => 45,
             'build_open' => 50, 'build_parts' => 51, 'build_assembled' => 52, 'build_tested' => 53, 'build_done' => 54,
         ],
     ];
@@ -104,6 +104,36 @@ final class OrderChangesTest extends TestCase
 
         $this->expectException(ManufacturingError::class);
         $changes->setStep($this->order('41', [[[700 => 3], 2]]), 'order_done', '2026-11-04');
+    }
+
+    /** D-1419: «Test» once all boards are completed; a partial completion stays «In Fertigung». */
+    public function testTestStepOnlyWhenEveryBoardIsCompleted(): void
+    {
+        $changes = new OrderChanges($this->s());
+        self::assertSame(['22' => '45'], $changes->setStep($this->order('41', [[[700 => 3], 3]]), 'order_test', '2026-11-17')[0]['values']);
+        self::assertSame('order_test', $this->order('45', [[[700 => 3], 3]])->step);
+
+        try {
+            $changes->setStep($this->order('41', [[[700 => 3], 1]]), 'order_test', '2026-11-17');
+            self::fail('a partial completion must not go to «Test»');
+        } catch (ManufacturingError $e) {
+            self::assertSame('assemblies_not_done', $e->reason);
+        }
+
+        $this->expectException(ManufacturingError::class);
+        $changes->setStep($this->order('42', [[[700 => 3], 3]]), 'order_test', '2026-11-17');
+    }
+
+    /** D-1419: «Fertiggestellt» from «Test» only when every board passed or is scrapped. */
+    public function testTestsSettleWhenEveryBoardPassedOrIsScrapped(): void
+    {
+        $order = $this->order('45', [[[700 => 3], 3]]);
+
+        self::assertTrue($order->testsSettled(['passed', 'scrapped', 'passed']));
+        self::assertFalse($order->testsSettled(['passed', 'failed', 'passed']));
+        self::assertFalse($order->testsSettled(['passed', 'untested']));
+        self::assertFalse($order->testsSettled([]));
+        self::assertFalse($this->order('41', [[[700 => 3], 2]])->testsSettled(['passed', 'passed']));
     }
 
     public function testReopenGoesBackToBuildingAndClearsTheEnd(): void

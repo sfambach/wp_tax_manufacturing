@@ -46,6 +46,16 @@ final class BuildOrder
         return array_sum(array_map(static fn (Assembly $a): int => $a->done, $this->assemblies));
     }
 
+    /**
+     * D-1419: every board is completed and each of them has passed its test or is scrapped — «Fertiggestellt» may follow.
+     *
+     * @param list<string> $states the state of each completed board as the stock names it: untested|passed|failed|scrapped
+     */
+    public function testsSettled(array $states): bool
+    {
+        return $this->isFinished() && $states !== [] && array_diff($states, ['passed', 'scrapped']) === [];
+    }
+
     public function isClosed(): bool
     {
         return in_array($this->step, ['order_done', 'order_cancelled'], true);

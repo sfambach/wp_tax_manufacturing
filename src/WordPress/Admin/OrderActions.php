@@ -92,6 +92,8 @@ final class OrderActions
                 $back['msg'] = $this->pick(absint($_POST['order'] ?? 0), $today, $back, $action === OrdersPage::BULK_RESERVE);
             } elseif (in_array($action, OrdersPage::FITTING, true)) {
                 $back['msg'] = $this->fitBulk(absint($_POST['order'] ?? 0), $action, $today, $back);
+            } elseif (in_array($action, TestSection::ACTIONS, true)) {
+                $back['msg'] = $this->test(absint($_POST['order'] ?? 0), $action, $today, $back);
             } elseif ($action === StagingSection::CHANGE || $action === StagingSection::RELEASE) {
                 $back['msg'] = $this->changeReservations(absint($_POST['order'] ?? 0), $today, $back, $action === StagingSection::RELEASE);
             } else {
@@ -111,6 +113,7 @@ final class OrderActions
                     'staging'  => $this->step($order, 'order_staging', $today, $back),
                     'clear'    => $this->clear($order, $today, $back),
                     'building' => $this->toBuilding($order, $today, $back),
+                    'finish'   => $this->finish($order, $today, $back),
                     'done'     => $this->step($order, 'order_done', $today, $back),
                     'cancel'   => $this->step($order, 'order_cancelled', $today, $back),
                     'reopen'   => $this->step($order, 'reopen', $today, $back),
@@ -192,22 +195,54 @@ final class OrderActions
         // After the counts, which check themselves before booking anything: scrap is its own booking (D-1302).
         $this->service->bookScrap($order, $assembly, $scrap, sanitize_text_field(wp_unslash((string) ($_POST['scrap_reason'] ?? ''))), $today);
 
-        $done = $number('done');
-        $part = $this->service->order($order)->assembly($assembly);
+        // D-1419: «Fertig» is no input any more; boards are completed through «Fertigung abschließen».
+        return 'saved';
+    }
 
-        if ($done === null || $part === null || $done === $part->done) {
-            return 'saved';
+    /**
+     * D-1419: the ticked boards of the test list — passed, failed with a note, or scrapped with a reason; each one act at the stock.
+     *
+     * @param array<string, string|int> $back
+     */
+    private function test(int $order, string $action, string $today, array &$back): string
+    {
+        $back['auftrag'] = $order;
+        $lots            = array_values(array_filter(array_map('absint', (array) ($_POST['lots'] ?? []))));
+
+        if ($action === TestSection::SCRAP) {
+            $this->service->scrapBoards($order, $lots, sanitize_text_field(wp_unslash((string) ($_POST['reason'] ?? ''))), $today);
+
+            return 'scrapped';
         }
 
-        try {
-            $booked = $this->service->updateAssembly($order, $assembly, [], $part->unused, null, $done, null, $today, absint($_POST['sparte'] ?? 0) ?: null);
-        } catch (ManufacturingError $error) {
-            $back['err'] = rawurlencode(sprintf(__('Bestückung gespeichert, «Fertig» nicht: %s', 'taxmod-manufacturing'), $this->page->message($error)));
+        $passed      = $action === TestSection::PASSED;
+        $back['act'] = $this->service->recordTest($order, $lots, $passed ? 'passed' : 'failed', $passed ? '' : sanitize_text_field(wp_unslash((string) ($_POST['note'] ?? ''))), $today);
 
-            return '';
+        return $passed ? 'test_passed' : 'test_failed';
+    }
+
+    /**
+     * D-1419 «Fertigung abschließen»: n boards completed in one act — consumption, the boards onto «Test», «x von N
+     * abgeschlossen»; all N take the order to «Test».
+     *
+     * @param array<string, string|int> $back
+     */
+    private function finish(int $order, string $today, array &$back): string
+    {
+        $back['auftrag'] = $order;
+        $categories      = [];
+
+        foreach ((array) ($_POST['category'] ?? []) as $assembly => $category) {
+            $categories[absint($assembly)] = absint($category);
         }
 
-        return ['booked' => 'saved_booked', 'unbooked' => 'saved_unbooked'][$booked] ?? 'saved';
+        $done = $this->service->finishBuild($order, absint($_POST['boards'] ?? 0), $today, $categories);
+
+        if ($done['act'] !== null) {
+            $back['act'] = $done['act'];
+        }
+
+        return $done['step'] === 'order_test' ? 'finished' : 'finished_part';
     }
 
     /**

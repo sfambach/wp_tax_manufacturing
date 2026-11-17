@@ -687,6 +687,165 @@ final class ManufacturingService
         return $booked;
     }
 
+    /**
+     * Boards of each assembly that are fully fitted and not yet completed — what «Fertigung abschließen» may take (D-1419).
+     *
+     * @return array<int, int> assembly → boards
+     */
+    public function readyToFinish(BuildOrder $order): array
+    {
+        $lists = $this->assignedLists($order, $this->partsLists(array_map(static fn (Assembly $a): int => $a->revision, $order->assemblies)));
+        $out   = [];
+
+        foreach ($order->assemblies as $part) {
+            $ready          = min($this->boardsAfter($part, [], $part->unused, $lists[$part->revision] ?? []), $order->count) - $part->done;
+            $out[$part->id] = max(0, $ready);
+        }
+
+        return $out;
+    }
+
+    /**
+     * D-1419 «Fertigung abschließen»: n more boards of every assembly are completed — their parts used up (D-1302), the boards
+     * untested onto «Test» (D-1303), the count «x von N abgeschlossen» raised; once all N are, the order goes to «Test». A
+     * partial completion keeps the order, its box and its reservations for the rest (his word 17.11. 16:53). All of it is one
+     * act, so one undo takes it back (D-1410).
+     *
+     * @param array<int, int> $categories assembly → Material-Kategorie, for a revision whose board material does not exist yet
+     * @return array{act: ?int, step: string}
+     */
+    public function finishBuild(int $order, int $boards, string $today, array $categories): array
+    {
+        if (! method_exists(\Taxmod\WordPress\ModelDoor::class, 'inAct')) {
+            throw ManufacturingError::noActBracket();
+        }
+
+        $built = $this->order($order);
+
+        if ($built->step !== 'order_building') {
+            throw ManufacturingError::unknownStatus('finish');
+        }
+
+        $ready = $this->readyToFinish($built);
+
+        if ($boards < 1 || $boards > min($ready ?: [0])) {
+            throw ManufacturingError::notReadyToFinish($boards, min($ready ?: [0]));
+        }
+
+        $answer = \Taxmod\WordPress\ModelDoor::inAct(function () use ($built, $boards, $today, $categories): string {
+            foreach ($built->assemblies as $part) {
+                $this->updateAssembly($built->id, $part->id, [], $part->unused, null, $part->done + $boards, null, $today, ($categories[$part->id] ?? 0) ?: null);
+            }
+
+            $after = $this->order($built->id);
+
+            if ($after->isFinished() && $this->structure()->hasValue('order_test')) {
+                $this->model->write((new OrderChanges($this->structure()))->setStep($after, 'order_test', $today));
+
+                return 'order_test';
+            }
+
+            return $after->step;
+        });
+
+        return ['act' => $answer['act'], 'step' => $answer['result']];
+    }
+
+    /** D-1419, D-1420: the stock's filters of the step «Test» — read the order's boards, record a result, scrap whole lots. */
+    public const TEST_LOTS_FILTER   = 'taxmod_stock_test_lots';
+    public const TEST_RESULT_FILTER = 'taxmod_stock_test_result';
+    public const SCRAP_LOTS_FILTER  = 'taxmod_stock_scrap_lots';
+
+    public function canTest(): bool
+    {
+        return has_filter(self::TEST_LOTS_FILTER) && has_filter(self::TEST_RESULT_FILTER) && has_filter(self::SCRAP_LOTS_FILTER);
+    }
+
+    /**
+     * The completed boards of an order as the stock holds them (D-1419): the lots booked in with the order as Bezug.
+     *
+     * @return array<int, array{thing: int, place: int, quantity: float, state: string, tested_on: string, note: string}> lot → its state
+     */
+    public function testLots(int $order): array
+    {
+        if (! has_filter(self::TEST_LOTS_FILTER)) {
+            return [];
+        }
+
+        $answer = apply_filters(self::TEST_LOTS_FILTER, null, ['reference' => $order]);
+
+        if (is_wp_error($answer)) {
+            throw ManufacturingError::stockRefused($answer->get_error_message());
+        }
+
+        $out = [];
+
+        foreach (is_array($answer) ? $answer : [] as $lot => $row) {
+            $row = is_array($row) ? $row : [];
+            $out[(int) $lot] = [
+                'thing'     => (int) ($row['thing'] ?? 0),
+                'place'     => (int) ($row['place'] ?? 0),
+                'quantity'  => (float) ($row['quantity'] ?? 0),
+                'state'     => (string) ($row['state'] ?? 'untested'),
+                'tested_on' => (string) ($row['tested_on'] ?? ''),
+                'note'      => (string) ($row['note'] ?? ''),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * D-1419 «Test bestanden» / «Test nicht bestanden …» on the ticked boards; the stock writes the test report, one act.
+     *
+     * @param list<int> $lots
+     * @param 'passed'|'failed' $result
+     */
+    public function recordTest(int $order, array $lots, string $result, string $note, string $today): int
+    {
+        $answer = apply_filters(self::TEST_RESULT_FILTER, null, ['lots' => $this->ownLots($order, $lots), 'result' => $result, 'note' => $note, 'date' => $today]);
+
+        if (is_wp_error($answer) || ! is_int($answer)) {
+            throw ManufacturingError::stockRefused(is_wp_error($answer) ? $answer->get_error_message() : __('Das Lager hat nicht geantwortet.', 'taxmod-manufacturing'));
+        }
+
+        return $answer;
+    }
+
+    /**
+     * D-1419 «Verschrotten …»: the ticked boards leave whole as «Defekt/Ausschuss» with the order as Bezug (D-1420).
+     *
+     * @param list<int> $lots
+     */
+    public function scrapBoards(int $order, array $lots, string $reason, string $today): int
+    {
+        $built  = $this->order($order);
+        $answer = apply_filters(self::SCRAP_LOTS_FILTER, null, ['lots' => $this->ownLots($order, $lots), 'reference' => $order, 'reason' => $reason, 'title' => $built->label, 'date' => $today]);
+
+        if (is_wp_error($answer) || ! is_int($answer)) {
+            throw ManufacturingError::stockRefused(is_wp_error($answer) ? $answer->get_error_message() : __('Das Lager hat nicht geantwortet.', 'taxmod-manufacturing'));
+        }
+
+        return $answer;
+    }
+
+    /**
+     * Only boards of this order are acted on, whatever the form sent.
+     *
+     * @param list<int> $lots
+     * @return list<int>
+     */
+    private function ownLots(int $order, array $lots): array
+    {
+        $own = array_values(array_intersect(array_map('intval', $lots), array_keys($this->testLots($order))));
+
+        if ($own === []) {
+            throw ManufacturingError::nothingSelected();
+        }
+
+        return $own;
+    }
+
     /** Whether finished boards go into stock (D-1143): the model knows the material node and the stock module books it. */
     public function canReceive(): bool
     {
@@ -935,7 +1094,14 @@ final class ManufacturingService
     /** @param 'order_staging'|'order_building'|'order_done'|'order_cancelled'|'reopen' $to */
     public function setStep(int $order, string $to, string $today, int $missing = 0, string $reason = ''): void
     {
-        $this->model->write((new OrderChanges($this->structure()))->setStep($this->order($order), $to, $today, $missing, $reason));
+        $built = $this->order($order);
+
+        // D-1419: out of «Test» only once every completed board has passed or is scrapped.
+        if ($to === 'order_done' && $built->step === 'order_test' && ! $built->testsSettled(array_column($this->testLots($order), 'state'))) {
+            throw ManufacturingError::testsOpen($order);
+        }
+
+        $this->model->write((new OrderChanges($this->structure()))->setStep($built, $to, $today, $missing, $reason));
     }
 
     /** @return list<int> the positions of a revision's parts list, in their order */

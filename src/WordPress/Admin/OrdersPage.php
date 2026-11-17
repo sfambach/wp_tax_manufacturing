@@ -32,6 +32,7 @@ final class OrdersPage
         'order_planned'  => self::SLUG . '-angelegt',
         'order_staging'  => self::SLUG . '-bereitstellung',
         'order_building' => self::SLUG . '-in-fertigung',
+        'order_test'     => self::SLUG . '-test',
         'order_done'     => self::SLUG . '-fertiggestellt',
         'cancelled'      => self::SLUG . '-abgebrochen',
     ];
@@ -44,13 +45,14 @@ final class OrdersPage
             'order_planned'  => __('Angelegt', 'taxmod-manufacturing'),
             'order_staging'  => __('Bereitstellung', 'taxmod-manufacturing'),
             'order_building' => __('In Fertigung', 'taxmod-manufacturing'),
+            'order_test'     => __('Test', 'taxmod-manufacturing'),
             'order_done'     => __('Fertiggestellt', 'taxmod-manufacturing'),
             'cancelled'      => __('Abgebrochen', 'taxmod-manufacturing'),
         ];
     }
 
     /** Every view the list knows; «open», «done» and «all» stay for old links. */
-    public const TABS = ['boxes', 'open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_done'];
+    public const TABS = ['boxes', 'open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_test', 'order_done'];
 
     public const ACTION = 'taxmod_manufacturing';
 
@@ -75,7 +77,7 @@ final class OrdersPage
 
     public const FITTING = [self::BULK_FIT_FULL, self::BULK_FIT_NONE, self::BULK_UNUSE, self::BULK_USE];
 
-    public const ACTIONS = [self::ACTION, self::BULK_CANCEL, self::BULK_REOPEN, StagingSection::PICK, StagingSection::RESERVE, StagingSection::CHANGE, StagingSection::RELEASE, ...self::FITTING];
+    public const ACTIONS = [self::ACTION, self::BULK_CANCEL, self::BULK_REOPEN, StagingSection::PICK, StagingSection::RESERVE, StagingSection::CHANGE, StagingSection::RELEASE, ...self::FITTING, ...TestSection::ACTIONS];
 
     public const NONCE = 'taxmod_manufacturing';
 
@@ -146,6 +148,7 @@ final class OrdersPage
             ['order_planned', $name['order_planned'], $in('order_planned')],
             $this->service->structure()->hasValue('order_staging') ? ['order_staging', $name['order_staging'], $in('order_staging')] : null,
             ['order_building', $name['order_building'], $in('order_building')],
+            $this->service->structure()->hasValue('order_test') ? ['order_test', $name['order_test'], $in('order_test')] : null,
         ]));
         $ends   = [['order_done', $name['order_done'], $in('order_done')], ['cancelled', $name['cancelled'], $in('order_cancelled')]];
         // D-1346: the two ends side by side came with the modeller 0.2.86; before it «Abgebrochen» stands beside as a tab.
@@ -234,12 +237,13 @@ final class OrdersPage
         $name    = self::viewLabels();
         $staging = $this->service->structure()->hasValue('order_staging');
         $fitted  = array_filter($order->assemblies, static fn (Assembly $a): bool => array_filter(array_column($a->fitted, 'boards')) !== []) !== [];
-        $started = in_array($order->step, ['order_building', 'order_done'], true) || ($order->step === 'order_cancelled' && $order->started !== null);
+        $started = in_array($order->step, ['order_building', 'order_test', 'order_done'], true) || ($order->step === 'order_cancelled' && $order->started !== null);
         $form    = 'taxmod-mf-step-' . $order->id;
         $steps   = array_values(array_filter([
             ['order_planned', $name['order_planned']],
             $staging ? ['order_staging', $name['order_staging']] : null,
             ['order_building', $name['order_building']],
+            $this->service->structure()->hasValue('order_test') ? ['order_test', $name['order_test']] : null,
             [['order_done', $name['order_done']], ['order_cancelled', $name['cancelled']]],
         ]));
 
@@ -265,7 +269,12 @@ final class OrdersPage
                     esc_html(sprintf(_n('Es fehlt noch %d Position. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', 'Es fehlen noch %d Positionen. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', $missing, 'taxmod-manufacturing'), $missing))
                     . '</p><p><label>' . esc_html__('Grund', 'taxmod-manufacturing') . '<br><input type="text" class="regular-text" name="reason" required></label>')
                 : ListPage::stepButton($name['order_building'], true, '', 'do', 'building', $form),
-            $order->step === 'order_building' && $order->isFinished() => ListPage::stepButton($name['order_done'], true, '', 'do', 'done', $form),
+            // D-1419: «Fertigung abschließen» for the fully fitted boards; once all are completed the order is in «Test».
+            $order->step === 'order_building' && ! $order->isFinished() && $this->service->structure()->hasField('assembly_done') => $this->finishDialog($order, $labels),
+            $order->step === 'order_building' && $order->isFinished() && ! $this->service->structure()->hasValue('order_test') => ListPage::stepButton($name['order_done'], true, '', 'do', 'done', $form),
+            $order->step === 'order_test' => $this->testsSettled($order)
+                ? ListPage::stepButton($name['order_done'], true, '', 'do', 'done', $form)
+                : '<span class="description">' . esc_html__('«Fertiggestellt», wenn jede Platine bestanden hat oder verschrottet ist.', 'taxmod-manufacturing') . '</span>',
             default => '',
         };
 
@@ -311,7 +320,12 @@ final class OrdersPage
                 $fitting .= $this->assemblyForm($order, $assembly, $labels, $lists[$assembly->revision] ?? [], $demand[$assembly->id] ?? []);
             }
 
-            $sections[] = ['title' => __('Bestückung', 'taxmod-manufacturing'), 'html' => $fitting];
+            $sections[] = ['title' => __('Bestückung', 'taxmod-manufacturing'), 'html' => $fitting, 'open' => $order->step === 'order_building'];
+        }
+
+        // D-1419: the completed boards are tested from the first partial completion on, not only in «Test».
+        if (in_array($order->step, ['order_building', 'order_test', 'order_done'], true) && array_filter(array_map(static fn (Assembly $a): int => $a->done, $order->assemblies)) !== []) {
+            $sections[] = ['title' => __('Test', 'taxmod-manufacturing'), 'html' => (new TestSection($this->service, self::NONCE, $this->tab()))->render($order, $labels), 'open' => $order->step === 'order_test'];
         }
 
         return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
@@ -664,9 +678,9 @@ final class OrdersPage
             self::BULK_USE      => __('Wieder verwenden', 'taxmod-manufacturing'),
         ], sprintf(_n('%d Position', '%d Positionen', count($rows), 'taxmod-manufacturing'), count($rows)), '<div class="alignleft actions">' . $this->saveButton($form) . '</div>', false)
             . $this->hidden(['order' => (string) $order->id, 'assembly' => (string) $assembly->id, 'tab' => $this->tab()], $bulk);
-        // D-1304, D-1342: the test is a report at the finished board's lot on the place «Test», no longer a count here; «Fertig» means built.
+        // D-1419: «Fertig» is shown, not entered — the fully fitted boards, and how many of them are completed already.
         $counts = $this->service->structure()->hasField('assembly_done')
-            ? '<label title="' . esc_attr__('Fertig sind voll bestückte Platinen. Erst jetzt werden ihre Teile verbraucht; die Platine kommt ungeprüft auf den Platz «Test».', 'taxmod-manufacturing') . '">' . esc_html__('Fertig', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="done" form="' . esc_attr($form) . '" min="0" max="' . esc_attr((string) $pieces) . '" value="' . esc_attr((string) $assembly->done) . '"></label>'
+            ? '<span class="taxmod-mf-count">' . esc_html(sprintf(__('Fertig (voll bestückt): %1$d · abgeschlossen: %2$d von %3$d', 'taxmod-manufacturing'), $fittedBoards, $assembly->done, $pieces)) . '</span>'
             : '';
 
         return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-assembly">'
@@ -674,9 +688,9 @@ final class OrdersPage
             . '<h3>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision)
             . ' · ' . esc_html(sprintf(__('%1$d von %2$d bestückt', 'taxmod-manufacturing'), $fittedBoards, $pieces)) . '</h3>'
             . '</form>' . $bar
-            . '<p class="description">' . esc_html__('So geht es: «Bestückt» je Position eintragen (oder Zeilen anhaken → «Voll bestückt»), dann «Fertig» auf die Zahl fertiger Platinen setzen und 💾 speichern. Fertig geht nur bis zur Zahl voll bestückter Platinen; beim ersten Fertig braucht es die Hardware-Sparte.', 'taxmod-manufacturing') . '</p>'
+            . '<p class="description">' . esc_html__('So geht es: «Bestückt» je Position eintragen (oder Zeilen anhaken → «Voll bestückt») und 💾 speichern. Voll bestückte Platinen schließt oben «Fertigung abschließen» ab: Verbrauch buchen, Platinen auf «Test».', 'taxmod-manufacturing') . '</p>'
             . '<div class="taxmod-mf-counts">'
-            . $counts . $this->sparteChooser($assembly, $form)
+            . $counts
             . ($scrap ? '<label>' . esc_html__('Grund Ausschuss (optional)', 'taxmod-manufacturing') . ' <input type="text" name="scrap_reason" form="' . esc_attr($form) . '" list="taxmod-mf-scrap-reasons"></label><datalist id="taxmod-mf-scrap-reasons"><option value="' . esc_attr__('heruntergefallen', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('defekt', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('falsch bestückt', 'taxmod-manufacturing') . '"></datalist>' : '')
             . ($this->service->structure()->hasField('assembly_note') ? '<label>' . esc_html__('Hinweis', 'taxmod-manufacturing') . ' <input type="text" class="regular-text" name="note" form="' . esc_attr($form) . '" value="' . esc_attr($assembly->note) . '"></label>' : '')
             . '</div>'
@@ -684,10 +698,13 @@ final class OrdersPage
     }
 
     /**
-     * Only before the first finished board of a revision: in which Hardware-Sparte its record is made (D-1261). The modeller's
-     * node chooser, rooted at Hardware, with the Sparte of another revision of the board preselected.
+     * Only before the first completed board of a revision: in which Material-Kategorie (a group under Hardware) its record is
+     * made (D-1261; the word his, 17.11. «das ist die material kategorie»). The modeller's node chooser, the category of another
+     * revision of the board preselected and shown, never set unseen (architecture 17.11.).
+     *
+     * @param array<int, string> $labels
      */
-    private function sparteChooser(Assembly $assembly, string $form): string
+    private function categoryChooser(BuildOrder $order, Assembly $assembly, array $labels): string
     {
         $s = $this->service->structure();
 
@@ -696,13 +713,57 @@ final class OrdersPage
         }
 
         $chooser = apply_filters(\Taxmod\WordPress\Plugin::NODE_CHOOSER_FILTER, '', [
-            'name'        => 'sparte',
+            'name'        => 'category[' . $assembly->id . ']',
             'root'        => $s->node('hardware'),
             'preselected' => $this->service->suggestedSparte($assembly->revision) ?? 0,
-            'form'        => $form,
+            'form'        => 'taxmod-mf-finish-form-' . $order->id,
         ]);
 
-        return '<label>' . esc_html__('Hardware-Sparte', 'taxmod-manufacturing') . ' ' . (is_string($chooser) ? $chooser : '') . '</label>';
+        return '<p><label>' . esc_html(sprintf(__('Material-Kategorie für «%s»', 'taxmod-manufacturing'), $labels[$assembly->revision] ?? '#' . $assembly->revision)) . '<br>' . (is_string($chooser) ? $chooser : '') . '</label></p>';
+    }
+
+    /**
+     * D-1419 «Fertigung abschließen →»: how many of the fully fitted boards to complete (all of them preset); a partial
+     * completion keeps the rest of the order in «In Fertigung» (his words 17.11. 16:52/16:53).
+     *
+     * @param array<int, string> $labels
+     */
+    private function finishDialog(BuildOrder $order, array $labels): string
+    {
+        $ready = $this->service->readyToFinish($order);
+        $max   = $ready === [] ? 0 : min($ready);
+        $done  = $order->assemblies === [] ? 0 : min(array_map(static fn (Assembly $a): int => $a->done, $order->assemblies));
+        $label = __('Fertigung abschließen', 'taxmod-manufacturing') . ' →';
+
+        if ($max < 1) {
+            return '<button type="button" class="button button-primary" disabled title="' . esc_attr__('Erst wenn eine Platine voll bestückt ist.', 'taxmod-manufacturing') . '">' . esc_html($label) . '</button>';
+        }
+
+        $categories = '';
+
+        foreach ($order->assemblies as $assembly) {
+            $categories .= $this->categoryChooser($order, $assembly, $labels);
+        }
+
+        $body = esc_html(sprintf(__('Voll bestückt und offen: %1$d. Abgeschlossen sind %2$d von %3$d.', 'taxmod-manufacturing'), $max, $done, $order->count))
+            . '</p><p><label>' . esc_html__('Platinen abschließen', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="boards" min="1" max="' . esc_attr((string) $max) . '" value="' . esc_attr((string) $max) . '" required></label></p>'
+            . '<p class="description">' . esc_html__('Bucht den Verbrauch ihrer Teile aus dem Gebinde und legt die Platinen ungeprüft auf den Platz «Test». Weniger als alle: der Rest bleibt in Fertigung, Gebinde und Reservierungen bleiben. Alle: der Auftrag geht in «Test». Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing') . '</p>'
+            . $categories . '<p>';
+
+        return '<form method="post" id="taxmod-mf-finish-form-' . esc_attr((string) $order->id) . '" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+            . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => 'detail'])
+            . ListPage::dialogAction('taxmod-mf-finish-' . $order->id, $label, __('Fertigung abschließen', 'taxmod-manufacturing'), '<p>' . $body . '</p>', 'do', 'finish', __('Abschließen', 'taxmod-manufacturing'))
+            . '</form>';
+    }
+
+    /** D-1419: «Fertiggestellt» once every completed board has passed or is scrapped. */
+    private function testsSettled(BuildOrder $order): bool
+    {
+        try {
+            return $order->testsSettled(array_column($this->service->testLots($order->id), 'state'));
+        } catch (ManufacturingError) {
+            return false;
+        }
     }
 
     /**
@@ -892,7 +953,18 @@ final class OrdersPage
             'assigned'  => __('Der Position zugewiesen und für den Auftrag reserviert.', 'taxmod-manufacturing'),
             'cleared'   => __('Gebinde leer geräumt, alles zurück an seinen Platz.', 'taxmod-manufacturing'),
             'building'  => __('In Fertigung.', 'taxmod-manufacturing'),
+            'finished'      => __('Fertigung abgeschlossen: Verbrauch gebucht, Platinen ungeprüft auf «Test». Der Auftrag ist jetzt im Test.', 'taxmod-manufacturing'),
+            'finished_part' => __('Teil abgeschlossen: Verbrauch gebucht, Platinen ungeprüft auf «Test». Der Rest bleibt in Fertigung.', 'taxmod-manufacturing'),
+            'test_passed'   => __('Test bestanden eingetragen.', 'taxmod-manufacturing'),
+            'test_failed'   => __('Test nicht bestanden eingetragen; die Platine wartet auf Reparatur und neuen Test.', 'taxmod-manufacturing'),
+            'scrapped'      => __('Verschrottet (Defekt/Ausschuss im Lager).', 'taxmod-manufacturing'),
         ][sanitize_key((string) ($_GET['msg'] ?? ''))] ?? '';
+        $act  = absint($_GET['act'] ?? 0);
+
+        if ($text !== '' && $act > 0) {
+            /* translators: %d: the change number of the modeller (D-1410) */
+            $text .= ' ' . sprintf(__('Änderung Nr. %d, zurücknehmen unter Taxonomy Modeller › Änderungen.', 'taxmod-manufacturing'), $act);
+        }
 
         return $text === '' ? '' : '<div class="notice notice-success"><p>' . esc_html($text) . '</p></div>';
     }
@@ -913,7 +985,12 @@ final class OrdersPage
             'assembly_not_of_order'    => __('Diese Platine gehört nicht zum Auftrag.', 'taxmod-manufacturing'),
             'boards_out_of_range'      => __('Eine Platinenzahl liegt außerhalb von 0 bis zur Stückzahl.', 'taxmod-manufacturing'),
             'done_beyond_fitted'       => __('Fertig können höchstens so viele Platinen sein, wie voll bestückt sind.', 'taxmod-manufacturing'),
-            'sparte_needed'            => __('Für die erste fertige Platine dieser Revision bitte die Hardware-Sparte wählen.', 'taxmod-manufacturing'),
+            'sparte_needed'            => __('Für die erste fertige Platine dieser Revision bitte die Material-Kategorie wählen.', 'taxmod-manufacturing'),
+            /* translators: %s: asked > ready */
+            'not_ready_to_finish'      => sprintf(__('So viele Platinen sind nicht voll bestückt und offen (%s).', 'taxmod-manufacturing'), $error->detail),
+            'no_act_bracket'           => __('Der Abschluss braucht einen neueren Taxonomy Modeller (ein Vorgang für alle Buchungen); nichts gebucht.', 'taxmod-manufacturing'),
+            'tests_open'               => __('Erst wenn jede Platine den Test bestanden hat oder verschrottet ist.', 'taxmod-manufacturing'),
+            'nothing_selected'         => __('Keine Platine dieses Auftrags angehakt.', 'taxmod-manufacturing'),
             'stock_refused'            => sprintf(__('Das Lager hat die Buchung abgelehnt, nichts gespeichert: %s', 'taxmod-manufacturing'), $error->detail),
             'assemblies_not_done'      => __('Erst wenn alle Platinen fertig sind, lässt sich der Auftrag abschließen.', 'taxmod-manufacturing'),
             'position_not_on_revision' => __('Nur optionale Positionen der Stückliste lassen sich weglassen.', 'taxmod-manufacturing'),
@@ -943,6 +1020,7 @@ final class OrdersPage
             'order_planned'   => __('geplant', 'taxmod-manufacturing'),
             'order_staging'   => __('Bereitstellung', 'taxmod-manufacturing'),
             'order_building'  => __('in Bau', 'taxmod-manufacturing'),
+            'order_test'      => __('im Test', 'taxmod-manufacturing'),
             'order_done'      => __('fertig', 'taxmod-manufacturing'),
             'order_cancelled' => __('abgebrochen', 'taxmod-manufacturing'),
         ][$step] ?? $step;
@@ -962,7 +1040,7 @@ final class OrdersPage
         return match ($tab) {
             'done', 'order_done' => $order->step === 'order_done',
             'cancelled'          => $order->step === 'order_cancelled',
-            'order_planned', 'order_staging', 'order_building' => $order->step === $tab,
+            'order_planned', 'order_staging', 'order_building', 'order_test' => $order->step === $tab,
             'all'                => true,
             default     => ! $order->isClosed(),
         };
