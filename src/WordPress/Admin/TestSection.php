@@ -55,12 +55,13 @@ final class TestSection
 
         $names = $labels + $this->service->labelsOf(array_values(array_unique([...array_column($lots, 'thing'), ...array_column($lots, 'place')])));
         $form  = 'taxmod-mf-test-' . $order->id;
-        $body  = '';
+        $grid  = [];
 
         foreach ($lots as $lot => $row) {
             $closed = $row['state'] === 'scrapped';
-            $tick   = $closed ? '' : '<input type="checkbox" name="lots[]" form="' . esc_attr($form) . '" value="' . esc_attr((string) $lot) . '">';
-            $cells  = [
+            $tick   = $closed ? '' : '<input type="checkbox" name="lots[]" form="' . esc_attr($form) . '" value="' . esc_attr((string) $lot) . '" aria-label="' . esc_attr__('Auswählen', 'taxmod-manufacturing') . '">';
+            $grid[] = [
+                $tick,
                 $this->lot($lot, $row['thing']),
                 esc_html($names[$row['thing']] ?? '#' . $row['thing']),
                 esc_html($row['place'] > 0 ? ($names[$row['place']] ?? '#' . $row['place']) : '—'),
@@ -68,22 +69,21 @@ final class TestSection
                 esc_html($row['tested_on']),
                 esc_html($row['note']),
             ];
-
-            $body .= '<tr><th scope="row" class="check-column">' . $tick . '</th><td>' . implode('</td><td>', $cells) . '</td><td></td></tr>';
         }
 
         $note = static fn (string $name, string $label, bool $required): string => '<p><label>' . esc_html($label) . '<br><input type="text" class="regular-text" name="' . esc_attr($name) . '" form="' . esc_attr($form) . '"' . ($required ? ' required' : '') . '></label></p>';
-        $bar  = ListPage::bulkBar($form, $this->nonce, [self::PASSED => __('Test bestanden', 'taxmod-manufacturing')], sprintf(_n('%d Platine', '%d Platinen', count($lots), 'taxmod-manufacturing'), count($lots)), '', false, [
+        $bar  = ListPage::bulkBar($form, $this->nonce, [self::PASSED => __('Test bestanden', 'taxmod-manufacturing')], '', '', false, [
             $form . '-failed' => [__('Test nicht bestanden …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-failed', __('Test nicht bestanden …', 'taxmod-manufacturing'), __('Test nicht bestanden', 'taxmod-manufacturing'),
                 $note('note', __('Was ist aufgefallen?', 'taxmod-manufacturing'), true) . '<p class="description">' . esc_html__('Die Platine wartet auf Reparatur; danach einfach neu testen.', 'taxmod-manufacturing') . '</p>', 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form)],
             $form . '-scrap'  => [__('Verschrotten …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-scrap', __('Verschrotten …', 'taxmod-manufacturing'), __('Platinen verschrotten?', 'taxmod-manufacturing'),
                 $note('reason', __('Grund', 'taxmod-manufacturing'), true) . '<p class="description">' . esc_html__('Die Platinen gehen ganz als «Defekt/Ausschuss» aus dem Lager, mit diesem Auftrag als Bezug. Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing') . '</p>', 'action', self::SCRAP, __('Verschrotten', 'taxmod-manufacturing'), $form)],
         ]) . $this->hidden(['order' => (string) $order->id, 'tab' => $this->tab], $form);
 
-        return $bar . ListPage::table([
-            [__('Posten', 'taxmod-manufacturing')], [__('Platine', 'taxmod-manufacturing')], [__('Lagerort', 'taxmod-manufacturing')],
+        // The lines of a form, not a list: no filter, grouping or actions column (his report 17.11. «button chaos»).
+        return $bar . ListPage::grid([
+            [''], [__('Posten', 'taxmod-manufacturing')], [__('Platine', 'taxmod-manufacturing')], [__('Lagerort', 'taxmod-manufacturing')],
             [__('Zustand', 'taxmod-manufacturing')], [__('Getestet am', 'taxmod-manufacturing')], [__('Befund', 'taxmod-manufacturing')],
-        ], $body);
+        ], $grid);
     }
 
     private function state(string $state): string

@@ -102,9 +102,8 @@ final class OrderActions
 
                 $back['msg'] = match ($do) {
                     'create'   => $this->create($back),
-                    'assembly' => $this->updateAssembly($order, $today, $back),
                     'box'      => $this->box($order, $back),
-                    'head'     => $this->head($order, $back),
+                    'head'     => $this->head($order, $today, $back),
                     'options'  => $this->options($order, $today, $back),
                     'readd'    => $this->readd($order, $today, $back),
                     'back'     => $this->stepBack($order, $back),
@@ -168,35 +167,37 @@ final class OrderActions
         return 'created';
     }
 
-    /** @param array<string, string|int> $back */
-    private function updateAssembly(int $order, string $today, array &$back): string
+    /**
+     * The fitting of every board of the order, sent with the master data by its one 💾 (his report 17.11. «button chaos»: one
+     * save). Fields are named per assembly: `fitted[assembly][position]`, `unused[assembly][]`, `scrap[assembly][position]`,
+     * `note[assembly]`, `scrap_reason[assembly]`.
+     */
+    private function saveFittings(int $order, string $today): void
     {
-        $fitted = [];
+        $decimal = static fn (mixed $v): float => max(0.0, (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) $v))));
+        $sent    = (array) ($_POST['fitted'] ?? []);
+        $notes   = (array) ($_POST['note'] ?? []);
 
-        foreach ((array) ($_POST['fitted'] ?? []) as $position => $pieces) {
-            $fitted[absint($position)] = max(0.0, (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) $pieces))));
+        foreach (array_unique([...array_keys($sent), ...array_keys($notes)]) as $assembly) {
+            $assembly = absint($assembly);
+            $fitted   = [];
+            $scrap    = [];
+
+            foreach ((array) ($sent[$assembly] ?? []) as $position => $pieces) {
+                $fitted[absint($position)] = $decimal($pieces);
+            }
+
+            foreach ((array) ($_POST['scrap'][$assembly] ?? []) as $position => $pieces) {
+                $scrap[absint($position)] = $decimal($pieces);
+            }
+
+            $unused = array_values(array_filter(array_map('absint', (array) ($_POST['unused'][$assembly] ?? []))));
+            $note   = isset($notes[$assembly]) ? sanitize_text_field(wp_unslash((string) $notes[$assembly])) : null;
+
+            $this->service->updateAssembly($order, $assembly, $fitted, $unused, null, null, $note, $today);
+            // After the counts, which check themselves before booking anything: scrap is its own booking (D-1302).
+            $this->service->bookScrap($order, $assembly, $scrap, sanitize_text_field(wp_unslash((string) ($_POST['scrap_reason'][$assembly] ?? ''))), $today);
         }
-
-        $unused = array_values(array_filter(array_map('absint', (array) ($_POST['unused'] ?? []))));
-        $number = static fn (string $key): ?int => isset($_POST[$key]) && $_POST[$key] !== '' ? absint($_POST[$key]) : null;
-        $note   = isset($_POST['note']) ? sanitize_text_field(wp_unslash((string) $_POST['note'])) : null;
-
-        $scrap = [];
-
-        foreach ((array) ($_POST['scrap'] ?? []) as $position => $pieces) {
-            $scrap[absint($position)] = max(0.0, (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) $pieces))));
-        }
-
-        $assembly        = absint($_POST['assembly'] ?? 0);
-        $back['auftrag'] = $order;
-        // His report 17.11. «erhöhung unten … bestückt bringt nix»: a refused «Fertig» took the fitted counts down with it. The
-        // fitted counts are saved first; «Fertig» is its own step after them, and its refusal names that the rest was saved.
-        $this->service->updateAssembly($order, $assembly, $fitted, $unused, $number('tested'), null, $note, $today);
-        // After the counts, which check themselves before booking anything: scrap is its own booking (D-1302).
-        $this->service->bookScrap($order, $assembly, $scrap, sanitize_text_field(wp_unslash((string) ($_POST['scrap_reason'] ?? ''))), $today);
-
-        // D-1419: «Fertig» is no input any more; boards are completed through «Fertigung abschließen».
-        return 'saved';
     }
 
     /**
@@ -450,7 +451,7 @@ final class OrderActions
     }
 
     /** @param array<string, string|int> $back */
-    private function head(int $order, array &$back): string
+    private function head(int $order, string $today, array &$back): string
     {
         $built           = $this->service->order($order);
         $back['auftrag'] = $order;
@@ -471,6 +472,8 @@ final class OrderActions
         if (isset($_POST['box']) && absint($_POST['box']) !== (int) $built->box) {
             $this->service->setBox($order, absint($_POST['box']));
         }
+
+        $this->saveFittings($order, $today);
 
         return 'head';
     }

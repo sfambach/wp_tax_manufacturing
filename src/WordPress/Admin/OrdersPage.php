@@ -4,6 +4,7 @@ namespace TaxmodManufacturing\WordPress\Admin;
 
 use Taxmod\Core\Renderer\Control;
 use Taxmod\Core\Renderer\ControlMarkup;
+use Taxmod\Core\Renderer\GridMarkup;
 use Taxmod\WordPress\Admin\ListPage;
 use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
@@ -256,7 +257,7 @@ final class OrdersPage
         // His word 16.11. «wenn was reserviert ist kann ich das nicht mehr ändern, selbst wenn ich es zurück in angelegt schiebe»:
         // back to «Angelegt» gives the order's reservations free (D-1384: picking belongs to «Bereitstellung»); the box keeps its parts.
         $back = match (true) {
-            $previous === ''                                       => ListPage::stepButton(__('Liste', 'taxmod-manufacturing'), false, $list),
+            $previous === ''                                       => ListPage::stepButton(__('Zurück', 'taxmod-manufacturing'), false, $list),
             $previous === 'order_planned' && $held !== []          => $this->dialogForm('back', $order, '← ' . $name[$previous], sprintf(__('Zurück nach «%s»?', 'taxmod-manufacturing'), $name[$previous]),
                 esc_html(sprintf(_n('%d Reservierung dieses Auftrags wird freigegeben (Storno im Lager). Was schon im Gebinde liegt, bleibt dort.', '%d Reservierungen dieses Auftrags werden freigegeben (Storno im Lager). Was schon im Gebinde liegt, bleibt dort.', count($held), 'taxmod-manufacturing'), count($held)))),
             default                                                => ListPage::stepButton($name[$previous], false, '', 'do', 'back', $form),
@@ -330,7 +331,7 @@ final class OrdersPage
 
         return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => 'detail']) . '</form>'
-            . ListPage::record($order->label, $steps, $order->step, $back, $forward, $actions, $this->headForm($order, $labels, $missing), $sections);
+            . ListPage::record($order->label, $steps, $order->step, $back, $forward, $actions, $this->headForm($order, $labels, $missing, $demand), $sections);
     }
 
     /**
@@ -403,8 +404,9 @@ final class OrdersPage
      * (one revision per order for now), the box while it is open; the rest is shown.
      *
      * @param array<int, string> $labels
+     * @param array<int, list<array{boards: int, position: int, unused: bool}>> $demand assembly → rows, from Demand::of
      */
-    private function headForm(BuildOrder $order, array $labels, int $missing): string
+    private function headForm(BuildOrder $order, array $labels, int $missing, array $demand = []): string
     {
         $planned  = $order->step === 'order_planned';
         $id       = 'taxmod-mf-head-' . $order->id;
@@ -456,16 +458,44 @@ final class OrdersPage
 
         $rows = [...$rows,
             ['label' => __('Begonnen', 'taxmod-manufacturing'), 'control' => $text($order->started ?? '—')],
-            ['label' => __('Fertig', 'taxmod-manufacturing'), 'control' => $text($order->finished ?? '—')],
+            ['label' => __('Fertiggestellt am', 'taxmod-manufacturing'), 'control' => $text($order->finished ?? '—')],
         ];
 
         if ($order->shortageReason !== '') {
             $rows[] = ['label' => __('Grund Fehlteile', 'taxmod-manufacturing'), 'control' => $text($order->shortageReason)];
         }
 
-        return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+        // D-1419 and his report 17.11. «button chaos»: the fitting is saved with the master data, by this one 💾; per board its
+        // count «Fertig» (shown, not entered), its note and the reason for scrap stand here.
+        foreach (in_array($order->step, ['order_building', 'order_test', 'order_done'], true) ? $order->assemblies : [] as $assembly) {
+            $a     = (string) $assembly->id;
+            $name  = count($order->assemblies) > 1 ? ' · ' . ($named[$assembly->revision] ?? '#' . $assembly->revision) : '';
+            $rows[] = ['label' => __('Fertig', 'taxmod-manufacturing') . $name, 'control' => $text(sprintf(__('%1$d voll bestückt · %2$d von %3$d abgeschlossen', 'taxmod-manufacturing'), Demand::boardsFitted($demand[$assembly->id] ?? []), $assembly->done, $order->count)),
+                'hint' => __('Voll bestückte Platinen schließt oben «Fertigung abschließen» ab: Verbrauch buchen, Platinen ungeprüft auf «Test».', 'taxmod-manufacturing')];
+
+            if ($order->isClosed()) {
+                continue;
+            }
+
+            if ($this->service->structure()->hasField('assembly_note')) {
+                $rows[] = ['label' => __('Hinweis', 'taxmod-manufacturing') . $name, 'for' => $id . '-note-' . $a, 'control' => '<input type="text" class="regular-text" name="note[' . esc_attr($a) . ']" id="' . esc_attr($id . '-note-' . $a) . '" value="' . esc_attr($assembly->note) . '">'];
+            }
+
+            if ($order->box !== null && $this->service->canScrap()) {
+                $rows[] = ['label' => __('Grund Ausschuss', 'taxmod-manufacturing') . $name, 'for' => $id . '-scrap-' . $a, 'control' => '<input type="text" class="regular-text" name="scrap_reason[' . esc_attr($a) . ']" id="' . esc_attr($id . '-scrap-' . $a) . '" list="taxmod-mf-scrap-reasons">'
+                    . '<datalist id="taxmod-mf-scrap-reasons"><option value="' . esc_attr__('heruntergefallen', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('defekt', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('falsch bestückt', 'taxmod-manufacturing') . '"></datalist>',
+                    'hint' => __('Optional. Gilt für die Zahlen in der Spalte «Ausschuss» der Bestückung.', 'taxmod-manufacturing')];
+            }
+        }
+
+        return '<form method="post" id="' . esc_attr(self::headFormId($order)) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'do' => 'head', 'order' => (string) $order->id, 'tab' => $this->tab()])
             . ListPage::form($rows, $order->isClosed() ? '' : $this->saveButton()) . '</form>';
+    }
+
+    private static function headFormId(BuildOrder $order): string
+    {
+        return 'taxmod-mf-head-form-' . $order->id;
     }
 
     /**
@@ -630,23 +660,24 @@ final class OrdersPage
         $refs   = array_column($positions, 'ref', 'id');
         $count  = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
         $boxed  = $order->box !== null;
-        $pieces = $order->count;
-        $body   = [];
-        $form   = 'taxmod-mf-a' . $assembly->id;
+        $form   = self::headFormId($order);
         $scrap  = $boxed && ! $order->isClosed() && $this->service->canScrap();
-
         $bulk   = 'taxmod-mf-fitbulk-' . $assembly->id;
         $closed = $order->isClosed();
+        $a      = (string) $assembly->id;
+        $grid   = [];
 
         foreach ($rows as $row) {
             $position = (string) $row['position'];
+            // His report 17.11. «button chaos»: the fields join the master data's form, whose one 💾 saves both.
             $fit      = $row['position'] === 0 || $row['unused'] || $closed
                 ? esc_html($count($row['boards'] * $row['count']))
-                : '<input type="number" class="small-text" name="fitted[' . esc_attr($position) . ']" form="' . esc_attr($form) . '" min="0" max="' . esc_attr($count($row['needed'])) . '" step="' . esc_attr($count($row['count'])) . '" value="' . esc_attr($count($row['boards'] * $row['count'])) . '">';
+                : '<input type="number" class="small-text" name="fitted[' . esc_attr($a) . '][' . esc_attr($position) . ']" form="' . esc_attr($form) . '" min="0" max="' . esc_attr($count($row['needed'])) . '" step="' . esc_attr($count($row['count'])) . '" value="' . esc_attr($count($row['boards'] * $row['count'])) . '" aria-label="' . esc_attr__('Bestückt (Teile)', 'taxmod-manufacturing') . '">';
             // D-1403: what acts on rows is a bulk choice («Nicht verwenden», «Wieder verwenden»); the save keeps what is left out.
-            $kept     = $row['unused'] ? '<input type="hidden" name="unused[]" form="' . esc_attr($form) . '" value="' . esc_attr($position) . '">' : '';
-            $tick     = $row['position'] === 0 || $closed ? '' : '<input type="checkbox" name="selected[]" form="' . esc_attr($bulk) . '" value="' . esc_attr($position) . '">';
+            $kept     = $row['unused'] ? '<input type="hidden" name="unused[' . esc_attr($a) . '][]" form="' . esc_attr($form) . '" value="' . esc_attr($position) . '">' : '';
+            $tick     = $row['position'] === 0 || $closed ? '' : '<input type="checkbox" name="selected[]" form="' . esc_attr($bulk) . '" value="' . esc_attr($position) . '" aria-label="' . esc_attr__('Auswählen', 'taxmod-manufacturing') . '">';
             $cells    = [
+                $tick,
                 esc_html($row['position'] === 0 ? __('Platine', 'taxmod-manufacturing') : (string) ($refs[$row['position']] ?? '')),
                 $this->part($row['thing'], $labels, $order),
                 esc_html($count($row['needed'])),
@@ -657,44 +688,31 @@ final class OrdersPage
             ];
 
             if ($scrap) {
-                $cells[] = '<input type="number" class="small-text" name="scrap[' . esc_attr($position) . ']" form="' . esc_attr($form) . '" min="0" step="1" value="" aria-label="' . esc_attr__('Ausschuss', 'taxmod-manufacturing') . '">';
+                $cells[] = $row['position'] === 0 ? '' : '<input type="number" class="small-text" name="scrap[' . esc_attr($a) . '][' . esc_attr($position) . ']" form="' . esc_attr($form) . '" min="0" step="1" value="" aria-label="' . esc_attr__('Ausschuss', 'taxmod-manufacturing') . '">';
             }
 
-            $body[] = '<tr' . ($row['unused'] ? ' class="taxmod-mf-unused"' : '') . '><th scope="row" class="check-column">' . $tick . '</th><td>' . implode('</td><td>', $cells) . '</td><td></td></tr>';
+            $grid[] = $cells;
         }
 
-        $table = ListPage::table(array_merge([
-            [__('Referenz', 'taxmod-manufacturing')], [__('Teil', 'taxmod-manufacturing')], [__('Bedarf (Teile)', 'taxmod-manufacturing')],
-            [__('Bestückt (Teile)', 'taxmod-manufacturing')], [__('Im Gebinde', 'taxmod-manufacturing')], [__('Fehlt', 'taxmod-manufacturing')],
+        // The lines of a form, not a list: no filter, grouping or actions column (his report 17.11.).
+        $table = ListPage::grid(array_merge([
+            [''], [__('Referenz', 'taxmod-manufacturing')], [__('Teil', 'taxmod-manufacturing')], [__('Bedarf (Teile)', 'taxmod-manufacturing'), GridMarkup::NUMBER],
+            [__('Bestückt (Teile)', 'taxmod-manufacturing')], [__('Im Gebinde', 'taxmod-manufacturing'), GridMarkup::NUMBER], [__('Fehlt', 'taxmod-manufacturing'), GridMarkup::NUMBER],
             [__('Option', 'taxmod-manufacturing')],
-        ], $scrap ? [[__('Ausschuss', 'taxmod-manufacturing')]] : []), implode('', $body));
+        ], $scrap ? [[__('Ausschuss', 'taxmod-manufacturing')]] : []), $grid);
 
-        $fittedBoards = Demand::boardsFitted($rows);
-        // D-1403: one bar — the choices on ticked rows, the save of this board in the same row.
+        // D-1403: the choices on ticked rows; the save is the master data's one 💾.
         $bar = $closed ? '' : ListPage::bulkBar($bulk, self::NONCE, [
             self::BULK_FIT_FULL => __('Voll bestückt (alle Stück)', 'taxmod-manufacturing'),
             self::BULK_FIT_NONE => __('Bestückt auf 0', 'taxmod-manufacturing'),
             self::BULK_UNUSE    => __('Nicht verwenden', 'taxmod-manufacturing'),
             self::BULK_USE      => __('Wieder verwenden', 'taxmod-manufacturing'),
-        ], sprintf(_n('%d Position', '%d Positionen', count($rows), 'taxmod-manufacturing'), count($rows)), '<div class="alignleft actions">' . $this->saveButton($form) . '</div>', false)
+        ], '', '', false)
             . $this->hidden(['order' => (string) $order->id, 'assembly' => (string) $assembly->id, 'tab' => $this->tab()], $bulk);
-        // D-1419: «Fertig» is shown, not entered — the fully fitted boards, and how many of them are completed already.
-        $counts = $this->service->structure()->hasField('assembly_done')
-            ? '<span class="taxmod-mf-count">' . esc_html(sprintf(__('Fertig (voll bestückt): %1$d · abgeschlossen: %2$d von %3$d', 'taxmod-manufacturing'), $fittedBoards, $assembly->done, $pieces)) . '</span>'
-            : '';
 
-        return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-assembly">'
-            . wp_nonce_field(self::NONCE, '_wpnonce', true, false) . $this->hidden(['action' => self::ACTION, 'do' => 'assembly', 'order' => (string) $order->id, 'assembly' => (string) $assembly->id, 'tab' => $this->tab()])
-            . '<h3>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision)
-            . ' · ' . esc_html(sprintf(__('%1$d von %2$d bestückt', 'taxmod-manufacturing'), $fittedBoards, $pieces)) . '</h3>'
-            . '</form>' . $bar
-            . '<p class="description">' . esc_html__('So geht es: «Bestückt» je Position eintragen (oder Zeilen anhaken → «Voll bestückt») und 💾 speichern. Voll bestückte Platinen schließt oben «Fertigung abschließen» ab: Verbrauch buchen, Platinen auf «Test».', 'taxmod-manufacturing') . '</p>'
-            . '<div class="taxmod-mf-counts">'
-            . $counts
-            . ($scrap ? '<label>' . esc_html__('Grund Ausschuss (optional)', 'taxmod-manufacturing') . ' <input type="text" name="scrap_reason" form="' . esc_attr($form) . '" list="taxmod-mf-scrap-reasons"></label><datalist id="taxmod-mf-scrap-reasons"><option value="' . esc_attr__('heruntergefallen', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('defekt', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('falsch bestückt', 'taxmod-manufacturing') . '"></datalist>' : '')
-            . ($this->service->structure()->hasField('assembly_note') ? '<label>' . esc_html__('Hinweis', 'taxmod-manufacturing') . ' <input type="text" class="regular-text" name="note" form="' . esc_attr($form) . '" value="' . esc_attr($assembly->note) . '"></label>' : '')
-            . '</div>'
-            . $table;
+        return '<h3>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision)
+            . ' · ' . esc_html(sprintf(__('%1$d von %2$d bestückt', 'taxmod-manufacturing'), Demand::boardsFitted($rows), $order->count)) . '</h3>'
+            . $bar . $table;
     }
 
     /**
@@ -719,7 +737,9 @@ final class OrdersPage
             'form'        => 'taxmod-mf-finish-form-' . $order->id,
         ]);
 
-        return '<p><label>' . esc_html(sprintf(__('Material-Kategorie für «%s»', 'taxmod-manufacturing'), $labels[$assembly->revision] ?? '#' . $assembly->revision)) . '<br>' . (is_string($chooser) ? $chooser : '') . '</label></p>';
+        // ⚠️ *A div, not a p or label: the chooser holds divs and labels of its own, and a p around them is closed early by the
+        // parser, which tore the dialog apart (his report 17.11. «button chaos»).*
+        return '<div class="taxmod-mf-field"><span>' . esc_html(sprintf(__('Material-Kategorie für «%s»', 'taxmod-manufacturing'), $labels[$assembly->revision] ?? '#' . $assembly->revision)) . '</span> ' . (is_string($chooser) ? $chooser : '') . '</div>';
     }
 
     /**
@@ -739,20 +759,26 @@ final class OrdersPage
             return '<button type="button" class="button button-primary" disabled title="' . esc_attr__('Erst wenn eine Platine voll bestückt ist.', 'taxmod-manufacturing') . '">' . esc_html($label) . '</button>';
         }
 
+        return $this->finishForm($order, $labels, $max, $done, $label);
+    }
+
+    /** @param array<int, string> $labels */
+    private function finishForm(BuildOrder $order, array $labels, int $max, int $done, string $label): string
+    {
         $categories = '';
 
         foreach ($order->assemblies as $assembly) {
             $categories .= $this->categoryChooser($order, $assembly, $labels);
         }
 
-        $body = esc_html(sprintf(__('Voll bestückt und offen: %1$d. Abgeschlossen sind %2$d von %3$d.', 'taxmod-manufacturing'), $max, $done, $order->count))
-            . '</p><p><label>' . esc_html__('Platinen abschließen', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="boards" min="1" max="' . esc_attr((string) $max) . '" value="' . esc_attr((string) $max) . '" required></label></p>'
-            . '<p class="description">' . esc_html__('Bucht den Verbrauch ihrer Teile aus dem Gebinde und legt die Platinen ungeprüft auf den Platz «Test». Weniger als alle: der Rest bleibt in Fertigung, Gebinde und Reservierungen bleiben. Alle: der Auftrag geht in «Test». Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing') . '</p>'
-            . $categories . '<p>';
+        $body = '<div>' . esc_html(sprintf(__('Voll bestückt und offen: %1$d. Abgeschlossen sind %2$d von %3$d.', 'taxmod-manufacturing'), $max, $done, $order->count)) . '</div>'
+            . '<div class="taxmod-mf-field"><label>' . esc_html__('Platinen abschließen', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="boards" min="1" max="' . esc_attr((string) $max) . '" value="' . esc_attr((string) $max) . '" required></label></div>'
+            . $categories
+            . '<div class="description">' . esc_html__('Bucht den Verbrauch ihrer Teile aus dem Gebinde und legt die Platinen ungeprüft auf den Platz «Test». Weniger als alle: der Rest bleibt in Fertigung, Gebinde und Reservierungen bleiben. Alle: der Auftrag geht in «Test». Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing') . '</div>';
 
         return '<form method="post" id="taxmod-mf-finish-form-' . esc_attr((string) $order->id) . '" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => 'detail'])
-            . ListPage::dialogAction('taxmod-mf-finish-' . $order->id, $label, __('Fertigung abschließen', 'taxmod-manufacturing'), '<p>' . $body . '</p>', 'do', 'finish', __('Abschließen', 'taxmod-manufacturing'))
+            . ListPage::dialogAction('taxmod-mf-finish-' . $order->id, $label, __('Fertigung abschließen', 'taxmod-manufacturing'), $body, 'do', 'finish', __('Abschließen', 'taxmod-manufacturing'))
             . '</form>';
     }
 
