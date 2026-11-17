@@ -805,11 +805,11 @@ final class OrdersPage
         }
 
         $settings = SettingsTab::settings();
-        $money    = static fn (float $n): string => number_format($n, 2, ',', '.');
+        $money    = static fn (float $n): string => ListPage::number(number_format($n, 2, '.', ''));
 
-        return '<div class="taxmod-mf-field"><label>' . esc_html__('Produktionszeit je Platine', 'taxmod-manufacturing') . ' <input type="text" inputmode="decimal" class="small-text" name="minutes" pattern="[0-9]+([,.][0-9]+)?" value="' . esc_attr($last === null ? '' : rtrim(rtrim(number_format($last, 2, ',', ''), '0'), ',')) . '" required> ' . esc_html__('Minuten', 'taxmod-manufacturing') . '</label></div>'
+        return '<div class="taxmod-mf-field"><label>' . esc_html__('Produktionszeit je Platine', 'taxmod-manufacturing') . ' <input type="text" inputmode="decimal" class="small-text" name="minutes" pattern="[0-9]+([,.][0-9]+)?" value="' . esc_attr($last === null ? '' : ListPage::number($last, 2)) . '" required> ' . esc_html__('Minuten', 'taxmod-manufacturing') . '</label></div>'
             /* translators: 1: wage per hour, 2: set-up hours per order */
-            . '<div class="description">' . esc_html(sprintf(__('Preis je Platine = Teile (Kaufpreise der verbrauchten Posten) + Bereitstellung (%2$s h je Auftrag, verteilt) + Zeit × %1$s € je Stunde. Einstellbar unter Produktion.', 'taxmod-manufacturing'), $money($settings->wage), rtrim(rtrim(number_format($settings->setupHours, 2, ',', ''), '0'), ','))) . '</div>';
+            . '<div class="description">' . esc_html(sprintf(__('Preis je Platine = Teile (Kaufpreise der verbrauchten Posten) + Bereitstellung (%2$s h je Auftrag, verteilt) + Zeit × %1$s € je Stunde. Einstellbar unter Produktion.', 'taxmod-manufacturing'), $money($settings->wage), ListPage::number($settings->setupHours, 2))) . '</div>';
     }
 
     /** D-1419: «Fertiggestellt» once every completed board has passed or is scrapped. */

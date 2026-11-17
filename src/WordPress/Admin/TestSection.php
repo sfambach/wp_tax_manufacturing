@@ -99,8 +99,8 @@ final class TestSection
      */
     private function cost(array $cost, array $names): string
     {
-        $money  = static fn (float|int|string|null $n): string => number_format((float) $n, 2, ',', '.') . ' €';
-        $number = static fn (float|int|string|null $n): string => rtrim(rtrim(number_format((float) $n, 3, ',', '.'), '0'), ',');
+        $money  = static fn (float|int|string|null $n): string => ListPage::number(number_format((float) $n, 2, '.', '')) . ' €';
+        $number = static fn (float|int|string|null $n): string => ListPage::number((float) $n);
         $lines  = '';
 
         foreach ((array) ($cost['parts'] ?? []) as $part) {

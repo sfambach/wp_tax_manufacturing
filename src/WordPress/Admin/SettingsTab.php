@@ -107,7 +107,7 @@ final class SettingsTab
         }
 
         // D-1425: the price of a completed board.
-        $money  = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
+        $money  = static fn (float $n): string => ListPage::number($n, 2);
         $rows[] = ['label' => __('Stundenlohn', 'taxmod-manufacturing'), 'for' => 'taxmod-production-wage',
             'control' => '<input type="text" inputmode="decimal" class="small-text" name="taxmod_production_wage" id="taxmod-production-wage" value="' . esc_attr($money(self::settings()->wage)) . '"> ' . esc_html__('€ je Stunde', 'taxmod-manufacturing'),
             'hint' => __('Arbeitslohn für den Fertigungspreis: Produktionszeit je Platine und Bereitstellung mal diesen Lohn. Gilt ab dem nächsten Abschluss; abgeschlossene Platinen behalten ihren Preis.', 'taxmod-manufacturing')];
