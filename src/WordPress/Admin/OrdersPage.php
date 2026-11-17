@@ -350,22 +350,21 @@ final class OrdersPage
             $rows = array_filter($all, static fn (array $row): bool => $row['position'] > 0);
             $miss = static fn (array $row): string => $row['missing'] > 0.0 ? ' · ' . sprintf(__('fehlt %s', 'taxmod-manufacturing'), rtrim(rtrim(number_format($row['missing'], 2, ',', ''), '0'), ',')) : '';
             // His word 2026-11-15 «die platine wird auch nicht aufgelistet»: the bare board heads the list; it is always built.
-            $formId = 'taxmod-mf-options-' . $assembly->id;
+            // Architecture 17.11.: one 💾 on every step — the ticks join the master data's form.
+            $formId = self::headFormId($order);
+            $a      = (string) $assembly->id;
             // Architecture 16.11.: «Alle auswählen / abwählen» is the tick in the table head, not two buttons.
             $list   = isset($all[0]) && $all[0]['position'] === 0
                 ? '<tr><th scope="row" class="check-column"><input type="checkbox" checked disabled></th><td>' . esc_html(sprintf(__('Platine: %s', 'taxmod-manufacturing'), $labels[$all[0]['thing']] ?? '#' . $all[0]['thing'])) . '</td><td>' . esc_html(ltrim($miss($all[0]), ' ·')) . '</td><td></td></tr>'
                 : '';
 
             foreach ($rows as $row) {
-                $list .= '<tr><th scope="row" class="check-column"><input type="checkbox" name="build[]" form="' . esc_attr($formId) . '" value="' . esc_attr((string) $row['position']) . '"' . checked(! $row['unused'], true, false) . '>'
-                    . '<input type="hidden" name="optional[]" form="' . esc_attr($formId) . '" value="' . esc_attr((string) $row['position']) . '"></th>'
+                $list .= '<tr><th scope="row" class="check-column"><input type="checkbox" name="build[' . esc_attr($a) . '][]" form="' . esc_attr($formId) . '" value="' . esc_attr((string) $row['position']) . '"' . checked(! $row['unused'], true, false) . '>'
+                    . '<input type="hidden" name="optional[' . esc_attr($a) . '][]" form="' . esc_attr($formId) . '" value="' . esc_attr((string) $row['position']) . '"></th>'
                     . '<td>' . esc_html($labels[$row['thing']] ?? '#' . $row['thing']) . '</td><td>' . esc_html($row['unused'] ? '' : ltrim($miss($row), ' ·')) . '</td><td></td></tr>';
             }
 
-            $html .= '<form method="post" id="' . esc_attr($formId) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
-                . $this->hidden(['action' => self::ACTION, 'do' => 'options', 'order' => (string) $order->id, 'assembly' => (string) $assembly->id, 'tab' => $this->tab()])
-                . ListPage::toolbar([$this->saveButton()]) . '</form>'
-                . '<p><strong>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision) . '</strong></p>'
+            $html .= '<p><strong>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision) . '</strong></p>'
                 . ListPage::table([[__('Position', 'taxmod-manufacturing')], [__('Fehlt', 'taxmod-manufacturing')]], $list);
         }
 
@@ -482,15 +481,17 @@ final class OrdersPage
             }
 
             if ($order->box !== null && $this->service->canScrap()) {
-                $rows[] = ['label' => __('Grund Ausschuss', 'taxmod-manufacturing') . $name, 'for' => $id . '-scrap-' . $a, 'control' => '<input type="text" class="regular-text" name="scrap_reason[' . esc_attr($a) . ']" id="' . esc_attr($id . '-scrap-' . $a) . '" list="taxmod-mf-scrap-reasons">'
-                    . '<datalist id="taxmod-mf-scrap-reasons"><option value="' . esc_attr__('heruntergefallen', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('defekt', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('falsch bestückt', 'taxmod-manufacturing') . '"></datalist>',
+                $rows[] = ['label' => __('Grund Ausschuss', 'taxmod-manufacturing') . $name, 'for' => $id . '-scrap-' . $a, 'control' => '<input type="text" class="regular-text" name="scrap_reason[' . esc_attr($a) . ']" id="' . esc_attr($id . '-scrap-' . $a) . '" list="taxmod-mf-scrap-reasons">',
                     'hint' => __('Optional. Gilt für die Zahlen in der Spalte «Ausschuss» der Bestückung.', 'taxmod-manufacturing')];
             }
         }
 
         return '<form method="post" id="' . esc_attr(self::headFormId($order)) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'do' => 'head', 'order' => (string) $order->id, 'tab' => $this->tab()])
-            . ListPage::form($rows, $order->isClosed() ? '' : $this->saveButton()) . '</form>';
+            . ListPage::form($rows, $order->isClosed() ? '' : $this->saveButton())
+            // Once, whatever the number of boards: an id stands once on a page.
+            . '<datalist id="taxmod-mf-scrap-reasons"><option value="' . esc_attr__('heruntergefallen', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('defekt', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('falsch bestückt', 'taxmod-manufacturing') . '"></datalist>'
+            . '</form>';
     }
 
     private static function headFormId(BuildOrder $order): string

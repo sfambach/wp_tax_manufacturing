@@ -104,7 +104,6 @@ final class OrderActions
                     'create'   => $this->create($back),
                     'box'      => $this->box($order, $back),
                     'head'     => $this->head($order, $today, $back),
-                    'options'  => $this->options($order, $today, $back),
                     'readd'    => $this->readd($order, $today, $back),
                     'back'     => $this->stepBack($order, $back),
                     'assign'   => $this->assign($order, $today, $back),
@@ -456,8 +455,11 @@ final class OrderActions
         $built           = $this->service->order($order);
         $back['auftrag'] = $order;
 
+        $revision = absint($_POST['revision'] ?? 0);
+        // A new revision has other positions: its options are chosen after it is saved, not with the old ones.
+        $sameRevision = $revision === 0 || count($built->assemblies) !== 1 || $built->assemblies[0]->revision === $revision;
+
         if (! $built->isClosed() && isset($_POST['count'])) {
-            $revision = absint($_POST['revision'] ?? 0);
             $due      = isset($_POST['due']) ? sanitize_text_field(wp_unslash((string) $_POST['due'])) : null;
             $this->service->setHead($order, sanitize_text_field(wp_unslash((string) $_POST['count'])), $revision > 0 ? $revision : null, $due);
             $after = $this->service->order($order);
@@ -473,26 +475,28 @@ final class OrderActions
             $this->service->setBox($order, absint($_POST['box']));
         }
 
+        if ($sameRevision) {
+            $this->saveOptions($order, $today);
+        }
+
         $this->saveFittings($order, $today);
 
         return 'head';
     }
 
-    /** @param array<string, string|int> $back */
-    private function options(int $order, string $today, array &$back): string
+    /**
+     * The build options of «Angelegt», sent with the master data by its one 💾 (architecture 17.11.): per board the optional
+     * positions, `optional[assembly][]`, and the ticked ones, `build[assembly][]`; what is not ticked is left out.
+     */
+    private function saveOptions(int $order, string $today): void
     {
-        $optional = array_map('absint', (array) ($_POST['optional'] ?? []));
-        $all      = isset($_POST['all']) ? sanitize_key((string) $_POST['all']) : '';
-        $built    = match ($all) {
-            '1'     => $optional,
-            '0'     => [],
-            default => array_map('absint', (array) ($_POST['build'] ?? [])),
-        };
+        $built = (array) ($_POST['build'] ?? []);
 
-        $this->service->updateAssembly($order, absint($_POST['assembly'] ?? 0), [], array_values(array_diff($optional, $built)), null, null, null, $today);
-        $back['auftrag'] = $order;
-
-        return 'options';
+        foreach ((array) ($_POST['optional'] ?? []) as $assembly => $optional) {
+            $optional = array_map('absint', (array) $optional);
+            $ticked   = array_map('absint', (array) ($built[$assembly] ?? []));
+            $this->service->updateAssembly($order, absint($assembly), [], array_values(array_diff($optional, $ticked)), null, null, null, $today);
+        }
     }
 
     /** @param array<string, string|int> $back */
