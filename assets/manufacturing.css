@@ -3,7 +3,7 @@
 .taxmod-mf-field { display: block; margin-bottom: .5em; }
 .taxmod-mf-details { margin: .5em 0; }
 .taxmod-mf-nowrap { white-space: nowrap; }
-.taxmod-mf-unused { opacity: .55; }
+.taxmod-mf-unused td { opacity: .55; }
 .taxmod-mf-assembly { border-top: 1px solid #dcdcde; padding: .75em 0; }
 .taxmod-mf-counts { display: flex; align-items: center; gap: 1em; flex-wrap: wrap; }
 .taxmod-mf-pick { padding: .25em 0 .75em; }

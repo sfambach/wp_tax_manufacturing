@@ -90,6 +90,8 @@ final class OrderActions
                 $back['msg'] = $action === OrdersPage::BULK_CANCEL ? 'cancelled' : 'reopened';
             } elseif ($action === OrdersPage::BULK_PICK || $action === OrdersPage::BULK_RESERVE) {
                 $back['msg'] = $this->pick(absint($_POST['order'] ?? 0), $today, $back, $action === OrdersPage::BULK_RESERVE);
+            } elseif (in_array($action, OrdersPage::FITTING, true)) {
+                $back['msg'] = $this->fitBulk(absint($_POST['order'] ?? 0), $action, $today, $back);
             } elseif ($action === StagingSection::CHANGE || $action === StagingSection::RELEASE) {
                 $back['msg'] = $this->changeReservations(absint($_POST['order'] ?? 0), $today, $back, $action === StagingSection::RELEASE);
             } else {
@@ -182,13 +184,72 @@ final class OrderActions
             $scrap[absint($position)] = max(0.0, (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) $pieces))));
         }
 
-        $booked       = $this->service->updateAssembly($order, absint($_POST['assembly'] ?? 0), $fitted, $unused, $number('tested'), $number('done'), $note, $today, absint($_POST['sparte'] ?? 0) ?: null);
+        $assembly        = absint($_POST['assembly'] ?? 0);
         $back['auftrag'] = $order;
+        // His report 17.11. «erhöhung unten … bestückt bringt nix»: a refused «Fertig» took the fitted counts down with it. The
+        // fitted counts are saved first; «Fertig» is its own step after them, and its refusal names that the rest was saved.
+        $this->service->updateAssembly($order, $assembly, $fitted, $unused, $number('tested'), null, $note, $today);
         // After the counts, which check themselves before booking anything: scrap is its own booking (D-1302).
-        $this->service->bookScrap($order, absint($_POST['assembly'] ?? 0), $scrap, sanitize_text_field(wp_unslash((string) ($_POST['scrap_reason'] ?? ''))), $today);
+        $this->service->bookScrap($order, $assembly, $scrap, sanitize_text_field(wp_unslash((string) ($_POST['scrap_reason'] ?? ''))), $today);
 
+        $done = $number('done');
+        $part = $this->service->order($order)->assembly($assembly);
+
+        if ($done === null || $part === null || $done === $part->done) {
+            return 'saved';
+        }
+
+        try {
+            $booked = $this->service->updateAssembly($order, $assembly, [], $part->unused, null, $done, null, $today, absint($_POST['sparte'] ?? 0) ?: null);
+        } catch (ManufacturingError $error) {
+            $back['err'] = rawurlencode(sprintf(__('Bestückung gespeichert, «Fertig» nicht: %s', 'taxmod-manufacturing'), $this->page->message($error)));
+
+            return '';
+        }
 
         return ['booked' => 'saved_booked', 'unbooked' => 'saved_unbooked'][$booked] ?? 'saved';
+    }
+
+    /**
+     * D-1403, his word 17.11. «keine kästchen am anfang für bulk operation»: the fitting table's choices on the ticked positions.
+     * «Voll bestückt» sets each to all pieces of the order, «Bestückt auf 0» to none; «Nicht verwenden» / «Wieder verwenden»
+     * leave a position out of this build or take it back (D-1384).
+     *
+     * @param array<string, string|int> $back
+     */
+    private function fitBulk(int $order, string $action, string $today, array &$back): string
+    {
+        $assembly        = absint($_POST['assembly'] ?? 0);
+        $selected        = array_values(array_filter(array_map('absint', (array) ($_POST['selected'] ?? []))));
+        $back['auftrag'] = $order;
+        $built           = $this->service->order($order);
+        $part            = $built->assembly($assembly) ?? throw ManufacturingError::assemblyNotOfOrder($assembly, $order);
+
+        if ($selected === []) {
+            return 'nothing_picked';
+        }
+
+        if ($action === OrdersPage::BULK_UNUSE || $action === OrdersPage::BULK_USE) {
+            $unused = $action === OrdersPage::BULK_UNUSE
+                ? array_values(array_unique([...$part->unused, ...$selected]))
+                : array_values(array_diff($part->unused, $selected));
+            $this->service->updateAssembly($order, $assembly, [], $unused, null, null, null, $today);
+
+            return 'saved';
+        }
+
+        $counts = array_column($this->service->partsLists([$part->revision])[$part->revision] ?? [], 'count', 'id');
+        $pieces = [];
+
+        foreach ($selected as $position) {
+            if (isset($counts[$position]) && ! in_array($position, $part->unused, true)) {
+                $pieces[$position] = $action === OrdersPage::BULK_FIT_FULL ? (float) $counts[$position] * $built->count : 0.0;
+            }
+        }
+
+        $this->service->updateAssembly($order, $assembly, $pieces, $part->unused, null, null, null, $today);
+
+        return 'saved';
     }
 
     /**
