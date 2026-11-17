@@ -476,6 +476,13 @@ final class OrdersPage
                 continue;
             }
 
+            $category = $order->step === 'order_building' ? $this->categoryChooser($order, $assembly) : '';
+
+            if ($category !== '') {
+                $rows[] = ['label' => __('Material-Kategorie', 'taxmod-manufacturing') . $name, 'control' => $category,
+                    'hint' => __('Wo die fertige Platine im Katalog angelegt wird. Gilt beim ersten «Fertigung abschließen».', 'taxmod-manufacturing')];
+            }
+
             if ($this->service->structure()->hasField('assembly_note')) {
                 $rows[] = ['label' => __('Hinweis', 'taxmod-manufacturing') . $name, 'for' => $id . '-note-' . $a, 'control' => '<input type="text" class="regular-text" name="note[' . esc_attr($a) . ']" id="' . esc_attr($id . '-note-' . $a) . '" value="' . esc_attr($assembly->note) . '">'];
             }
@@ -719,28 +726,29 @@ final class OrdersPage
     /**
      * Only before the first completed board of a revision: in which Material-Kategorie (a group under Hardware) its record is
      * made (D-1261; the word his, 17.11. «das ist die material kategorie»). The modeller's node chooser, the category of another
-     * revision of the board preselected and shown, never set unseen (architecture 17.11.).
-     *
-     * @param array<int, string> $labels
+     * revision of the board preselected and shown, never set unseen (architecture 17.11.). It stands in the master data and
+     * joins the finish form by its id: the chooser is a dialog of its own, and inside the finish dialog its shade covered
+     * that dialog whole, Cancel included (his report 17.11. 21:37 «unktioniert nix noch nihct mal cancel»).
      */
-    private function categoryChooser(BuildOrder $order, Assembly $assembly, array $labels): string
+    private function categoryChooser(BuildOrder $order, Assembly $assembly): string
     {
-        $s = $this->service->structure();
-
         if (! $this->service->canReceive() || $this->service->existingMaterial($assembly->revision) !== null) {
             return '';
         }
 
         $chooser = apply_filters(\Taxmod\WordPress\Plugin::NODE_CHOOSER_FILTER, '', [
             'name'        => 'category[' . $assembly->id . ']',
-            'root'        => $s->node('hardware'),
+            'root'        => $this->service->structure()->node('hardware'),
             'preselected' => $this->service->suggestedSparte($assembly->revision) ?? 0,
-            'form'        => 'taxmod-mf-finish-form-' . $order->id,
+            'form'        => self::finishFormId($order),
         ]);
 
-        // ⚠️ *A div, not a p or label: the chooser holds divs and labels of its own, and a p around them is closed early by the
-        // parser, which tore the dialog apart (his report 17.11. «button chaos»).*
-        return '<div class="taxmod-mf-field"><span>' . esc_html(sprintf(__('Material-Kategorie für «%s»', 'taxmod-manufacturing'), $labels[$assembly->revision] ?? '#' . $assembly->revision)) . '</span> ' . (is_string($chooser) ? $chooser : '') . '</div>';
+        return is_string($chooser) ? $chooser : '';
+    }
+
+    private static function finishFormId(BuildOrder $order): string
+    {
+        return 'taxmod-mf-finish-form-' . $order->id;
     }
 
     /**
@@ -766,18 +774,14 @@ final class OrdersPage
     /** @param array<int, string> $labels */
     private function finishForm(BuildOrder $order, array $labels, int $max, int $done, string $label): string
     {
-        $categories = '';
-
-        foreach ($order->assemblies as $assembly) {
-            $categories .= $this->categoryChooser($order, $assembly, $labels);
-        }
+        $categories = array_filter($order->assemblies, fn (Assembly $assembly): bool => $this->categoryChooser($order, $assembly) !== '');
 
         $body = '<div>' . esc_html(sprintf(__('Voll bestückt und offen: %1$d. Abgeschlossen sind %2$d von %3$d.', 'taxmod-manufacturing'), $max, $done, $order->count)) . '</div>'
             . '<div class="taxmod-mf-field"><label>' . esc_html__('Platinen abschließen', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="boards" min="1" max="' . esc_attr((string) $max) . '" value="' . esc_attr((string) $max) . '" required></label></div>'
-            . $categories
+            . ($categories === [] ? '' : '<div>' . esc_html__('Die Material-Kategorie der Platine steht in den Stammdaten.', 'taxmod-manufacturing') . '</div>')
             . '<div class="description">' . esc_html__('Bucht den Verbrauch ihrer Teile aus dem Gebinde und legt die Platinen ungeprüft auf den Platz «Test». Weniger als alle: der Rest bleibt in Fertigung, Gebinde und Reservierungen bleiben. Alle: der Auftrag geht in «Test». Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing') . '</div>';
 
-        return '<form method="post" id="taxmod-mf-finish-form-' . esc_attr((string) $order->id) . '" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
+        return '<form method="post" id="' . esc_attr(self::finishFormId($order)) . '" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => 'detail'])
             . ListPage::dialogAction('taxmod-mf-finish-' . $order->id, $label, __('Fertigung abschließen', 'taxmod-manufacturing'), $body, 'do', 'finish', __('Abschließen', 'taxmod-manufacturing'))
             . '</form>';
