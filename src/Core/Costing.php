@@ -28,7 +28,7 @@ final class Costing
      * @param int $share how many boards the set-up is spread over: the order's count times its boards (D-1425: «so that partial
      *        completions add up to it once»)
      * @return array{order: int, date: string, parts: list<array{thing: int, quantity: float, unit_price: ?float, source: string}>,
-     *         parts_total: float, complete: bool, setup: array{hours: float, wage: float, boards: int, amount: float},
+     *         parts_total: float, complete: bool, setup: array{hours: float, wage: float, divisor: int, amount: float},
      *         work: array{minutes: float, wage: float, amount: float}, scrap: list<array{thing: int, quantity: float}>, total: float}
      */
     public static function perBoard(int $order, string $date, int $boards, array $consumed, array $prices, float $minutes, float $wage, float $setupHours, int $share, array $scrap = []): array
@@ -53,7 +53,7 @@ final class Costing
             $parts[] = $part;
         }
 
-        $setup = ['hours' => $setupHours, 'wage' => $wage, 'boards' => $share, 'amount' => $setupHours * $wage / $share];
+        $setup = ['hours' => $setupHours, 'wage' => $wage, 'divisor' => $share, 'amount' => $setupHours * $wage / $share];
         $work  = ['minutes' => $minutes, 'wage' => $wage, 'amount' => $minutes / 60 * $wage];
 
         return [

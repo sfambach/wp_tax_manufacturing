@@ -119,7 +119,7 @@ final class TestSection
         $setup = (array) ($cost['setup'] ?? []);
         $work  = (array) ($cost['work'] ?? []);
         /* translators: 1: hours, 2: wage, 3: boards, 4: amount */
-        $lines .= '<li>' . esc_html(sprintf(__('Bereitstellung: %1$s h × %2$s ÷ %3$d Platinen = %4$s', 'taxmod-manufacturing'), $number($setup['hours'] ?? 0), $money($setup['wage'] ?? 0), (int) ($setup['boards'] ?? 1), $money($setup['amount'] ?? 0))) . '</li>';
+        $lines .= '<li>' . esc_html(sprintf(__('Bereitstellung: %1$s h × %2$s ÷ %3$d Platinen = %4$s', 'taxmod-manufacturing'), $number($setup['hours'] ?? 0), $money($setup['wage'] ?? 0), (int) ($setup['divisor'] ?? 1), $money($setup['amount'] ?? 0))) . '</li>';
         /* translators: 1: minutes, 2: wage, 3: amount */
         $lines .= '<li>' . esc_html(sprintf(__('Arbeit: %1$s min × %2$s je Stunde = %3$s', 'taxmod-manufacturing'), $number($work['minutes'] ?? 0), $money($work['wage'] ?? 0), $money($work['amount'] ?? 0))) . '</li>';
 
