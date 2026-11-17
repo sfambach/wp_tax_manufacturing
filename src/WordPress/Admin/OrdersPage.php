@@ -281,7 +281,9 @@ final class OrdersPage
 
         $actions = [];
 
-        if ($order->box !== null && has_filter(ManufacturingService::RETURN_FILTER)) {
+        // His word 17.11. 22:04 «warum ist der button gebinde leer räumen überall in fertigung zu sehen»: what is left goes back
+        // once the order has ended, and only when something is left.
+        if ($order->box !== null && $order->isClosed() && has_filter(ManufacturingService::RETURN_FILTER) && $this->service->presentIn($order->box) !== []) {
             $actions[] = $this->dialogForm('clear', $order, __('Gebinde leer räumen', 'taxmod-manufacturing'), __('Gebinde leer räumen?', 'taxmod-manufacturing'),
                 esc_html__('Alles im Gebinde geht zurück an den Platz, von dem es kam. Ein Vorgang, rückgängig über Storno.', 'taxmod-manufacturing'));
         }
@@ -644,7 +646,9 @@ final class OrdersPage
                 esc_html__('Alle Platinen aller Baugruppen sind fertig. Der Auftrag wird als fertig markiert; «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'));
         }
 
-        if ($order->box !== null && has_filter(ManufacturingService::RETURN_FILTER)) {
+        // His word 17.11. 22:04 «warum ist der button gebinde leer räumen überall in fertigung zu sehen»: what is left goes back
+        // once the order has ended, and only when something is left.
+        if ($order->box !== null && $order->isClosed() && has_filter(ManufacturingService::RETURN_FILTER) && $this->service->presentIn($order->box) !== []) {
             $buttons .= $this->dialogForm('clear', $order, __('Box leer räumen', 'taxmod-manufacturing'), __('Gebinde leer räumen?', 'taxmod-manufacturing'),
                 esc_html__('Alles im Gebinde geht zurück an den Platz, von dem es kam. Ein Vorgang, rückgängig über Storno.', 'taxmod-manufacturing'));
         }
@@ -1042,8 +1046,9 @@ final class OrdersPage
             'boards_out_of_range'      => __('Eine Platinenzahl liegt außerhalb von 0 bis zur Stückzahl.', 'taxmod-manufacturing'),
             'done_beyond_fitted'       => __('Fertig können höchstens so viele Platinen sein, wie voll bestückt sind.', 'taxmod-manufacturing'),
             'sparte_needed'            => __('Für die erste fertige Platine dieser Revision bitte die Material-Kategorie wählen.', 'taxmod-manufacturing'),
-            /* translators: %s: asked > ready */
             'not_an_amount'            => __('Die Produktionszeit je Platine fehlt oder ist keine Zahl ab 0 (Minuten, z. B. 12 oder 7,5).', 'taxmod-manufacturing'),
+            'text_needed'              => $error->detail === 'reason' ? __('Bitte einen Grund für das Verschrotten angeben; nichts gebucht.', 'taxmod-manufacturing') : __('Bitte eintragen, was beim Test aufgefallen ist; nichts gebucht.', 'taxmod-manufacturing'),
+            /* translators: %s: asked > ready */
             'not_ready_to_finish'      => sprintf(__('So viele Platinen sind nicht voll bestückt und offen (%s).', 'taxmod-manufacturing'), $error->detail),
             'no_act_bracket'           => __('Der Abschluss braucht einen neueren Taxonomy Modeller (ein Vorgang für alle Buchungen); nichts gebucht.', 'taxmod-manufacturing'),
             'tests_open'               => __('Erst wenn jede Platine den Test bestanden hat oder verschrottet ist.', 'taxmod-manufacturing'),

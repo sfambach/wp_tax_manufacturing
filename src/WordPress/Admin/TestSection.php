@@ -59,10 +59,12 @@ final class TestSection
         $priced = $this->service->canPrice() || $costs !== [];
         $form  = 'taxmod-mf-test-' . $order->id;
         $grid  = [];
+        // The bar counts and sends only boxes named «selected[]» (ListPage::bulkBar); any other name reads as nothing ticked
+        // (his report 17.11. 21:56 «test bestanden bulk macht nix … ein item selektiert»).
 
         foreach ($lots as $lot => $row) {
             $closed = $row['state'] === 'scrapped';
-            $tick   = $closed ? '' : '<input type="checkbox" name="lots[]" form="' . esc_attr($form) . '" value="' . esc_attr((string) $lot) . '" aria-label="' . esc_attr__('Auswählen', 'taxmod-manufacturing') . '">';
+            $tick   = $closed ? '' : '<input type="checkbox" name="selected[]" form="' . esc_attr($form) . '" value="' . esc_attr((string) $lot) . '" aria-label="' . esc_attr__('Auswählen', 'taxmod-manufacturing') . '">';
             $grid[] = [
                 $tick,
                 $this->lot($lot, $row['thing']),
@@ -72,10 +74,13 @@ final class TestSection
                 esc_html($row['tested_on']),
                 esc_html($row['note']),
                 ...($priced ? [isset($costs[$lot]) ? $this->cost($costs[$lot], $names) : '—'] : []),
+                $closed ? '' : $this->judge($order, $lot, $row['state'], $row['note']),
             ];
         }
 
-        $note = static fn (string $name, string $label, bool $required): string => '<p><label>' . esc_html($label) . '<br><input type="text" class="regular-text" name="' . esc_attr($name) . '" form="' . esc_attr($form) . '"' . ($required ? ' required' : '') . '></label></p>';
+        // Not «required»: the boxes belong to the bar's form even while their dialog is shut, and an empty required box there
+        // blocks every action of the bar without a word (his report 17.11. 21:56). The handler asks for them instead.
+        $note = static fn (string $name, string $label, bool $required): string => '<p><label>' . esc_html($label) . '<br><input type="text" class="regular-text" name="' . esc_attr($name) . '" form="' . esc_attr($form) . '"></label></p>';
         $bar  = ListPage::bulkBar($form, $this->nonce, [self::PASSED => __('Test bestanden', 'taxmod-manufacturing')], '', '', false, [
             $form . '-failed' => [__('Test nicht bestanden …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-failed', __('Test nicht bestanden …', 'taxmod-manufacturing'), __('Test nicht bestanden', 'taxmod-manufacturing'),
                 $note('note', __('Was ist aufgefallen?', 'taxmod-manufacturing'), true) . '<p class="description">' . esc_html__('Die Platine wartet auf Reparatur; danach einfach neu testen.', 'taxmod-manufacturing') . '</p>', 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form)],
@@ -88,6 +93,7 @@ final class TestSection
             [__('Alle wählen', 'taxmod-manufacturing')], [__('Posten', 'taxmod-manufacturing')], [__('Platine', 'taxmod-manufacturing')], [__('Lagerort', 'taxmod-manufacturing')],
             [__('Zustand', 'taxmod-manufacturing')], [__('Getestet am', 'taxmod-manufacturing')], [__('Befund', 'taxmod-manufacturing')],
             ...($priced ? [[__('Preis je Platine', 'taxmod-manufacturing')]] : []),
+            [''],
         ], $grid, '', 'taxmod-mf-ticks');
     }
 
@@ -124,6 +130,26 @@ final class TestSection
         $total = $money($cost['total'] ?? 0) . (($cost['complete'] ?? true) ? '' : ' ' . __('(unvollständig)', 'taxmod-manufacturing'));
 
         return '<details><summary>' . esc_html($total) . '</summary><ul>' . $lines . '</ul></details>';
+    }
+
+    /**
+     * His words 17.11. 22:04: «warum kann ich bei einzellen test postionen nicht sagen getestet, nacharbeit», «befund ist da aber man
+     * kann ihn nirgendswo eingeben» — one board judged on its own: the result and its Befund, in a form of its own beside the bar.
+     */
+    private function judge(BuildOrder $order, int $lot, string $state, string $note): string
+    {
+        $form    = 'taxmod-mf-judge-' . $lot;
+        $choice  = static fn (string $action, string $label, bool $checked): string => '<label style="display:block;margin:.2em 0"><input type="radio" name="action" value="' . esc_attr($action) . '" form="' . esc_attr($form) . '"' . ($checked ? ' checked' : '') . '> ' . esc_html($label) . '</label>';
+        $body    = '<div>' . $choice(self::PASSED, __('Test bestanden', 'taxmod-manufacturing'), $state !== 'failed')
+            . $choice(self::FAILED, __('Nicht bestanden · Nacharbeit', 'taxmod-manufacturing'), $state === 'failed')
+            . $choice(self::SCRAP, __('Verschrotten', 'taxmod-manufacturing'), false) . '</div>'
+            . '<div style="margin-top:.5em"><label>' . esc_html__('Befund', 'taxmod-manufacturing') . '<br><input type="text" class="regular-text" name="note" form="' . esc_attr($form) . '" value="' . esc_attr($note) . '"></label></div>'
+            . '<div class="description">' . esc_html__('Bei «Nicht bestanden» und «Verschrotten» bitte den Befund angeben. Verschrotten bucht die Platine als Ausschuss aus dem Lager.', 'taxmod-manufacturing') . '</div>';
+
+        return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field($this->nonce, '_wpnonce', true, false)
+            . $this->hidden(['order' => (string) $order->id, 'tab' => $this->tab, 'selected[]' => (string) $lot], $form)
+            . ListPage::dialogAction($form . '-dialog', __('Ergebnis …', 'taxmod-manufacturing'), sprintf(__('Platine #%d', 'taxmod-manufacturing'), $lot), $body, 'row', (string) $lot, __('Eintragen', 'taxmod-manufacturing'), $form)
+            . '</form>';
     }
 
     private function state(string $state): string

@@ -207,16 +207,23 @@ final class OrderActions
     private function test(int $order, string $action, string $today, array &$back): string
     {
         $back['auftrag'] = $order;
-        $lots            = array_values(array_filter(array_map('absint', (array) ($_POST['lots'] ?? []))));
+        $lots            = array_values(array_filter(array_map('absint', (array) ($_POST['selected'] ?? []))));
+
+        // The bar's scrap dialog names it «reason»; a row's dialog has one box «Befund» for every result.
+        $text = sanitize_text_field(wp_unslash((string) ($_POST[$action === TestSection::SCRAP && ($_POST['reason'] ?? '') !== '' ? 'reason' : 'note'] ?? '')));
+
+        if ($action !== TestSection::PASSED && trim($text) === '') {
+            throw ManufacturingError::textNeeded($action === TestSection::SCRAP ? 'reason' : 'note');
+        }
 
         if ($action === TestSection::SCRAP) {
-            $this->service->scrapBoards($order, $lots, sanitize_text_field(wp_unslash((string) ($_POST['reason'] ?? ''))), $today);
+            $this->service->scrapBoards($order, $lots, $text, $today);
 
             return 'scrapped';
         }
 
         $passed      = $action === TestSection::PASSED;
-        $back['act'] = $this->service->recordTest($order, $lots, $passed ? 'passed' : 'failed', $passed ? '' : sanitize_text_field(wp_unslash((string) ($_POST['note'] ?? ''))), $today);
+        $back['act'] = $this->service->recordTest($order, $lots, $passed ? 'passed' : 'failed', $passed ? '' : $text, $today);
 
         return $passed ? 'test_passed' : 'test_failed';
     }

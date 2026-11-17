@@ -70,6 +70,12 @@ final class ManufacturingError extends \RuntimeException
         return new self('not_an_amount', $setting . ': ' . $given);
     }
 
+    /** D-1419: «nicht bestanden» needs what was found, «Verschrotten» its reason. */
+    public static function textNeeded(string $field): self
+    {
+        return new self('text_needed', $field);
+    }
+
     /** D-1300: the wished date is a day, Y-m-d. */
     public static function dueNotDate(string $given): self
     {
