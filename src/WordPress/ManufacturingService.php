@@ -2,6 +2,8 @@
 
 namespace TaxmodManufacturing\WordPress;
 
+use Taxmod\WordPress\Admin\ListPage;
+use Taxmod\Core\Renderer\DecimalText;
 use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\BuildOrders;
@@ -38,49 +40,7 @@ final class ManufacturingService
         $file    = dirname(__DIR__, 2) . '/structure-live.json';
         $bundled = is_readable($file) ? json_decode((string) file_get_contents($file), true) : [];
 
-        $completed = Structure::completed(is_array($stored) ? $stored : [], is_array($bundled) ? $bundled : []);
-        self::shareRoles($completed);
-
-        return $this->structure = Structure::fromArray($completed);
-    }
-
-    /** The option that remembers for which release this site's roles went into the modeller's role table. */
-    private const ROLES_SHARED = 'taxmod_manufacturing_roles_shared';
-
-    /**
-     * D-1394: role names are global, and «order» / «order_status» name the stock's purchase order there; the build order
-     * goes in as «build_order» / «build_order_status».
-     */
-    private const SHARED_NAMES = ['nodes' => ['order' => 'build_order'], 'fields' => ['order_status' => 'build_order_status']];
-
-    /**
-     * D-1394: hand this site's structure to the modeller's one role table, once per release; the modeller keeps what it has
-     * and never overwrites. Step one of the move — the module still reads its own structure until it reads the roles.
-     *
-     * @param array<string, mixed> $structure
-     */
-    private static function shareRoles(array $structure): void
-    {
-        if (! method_exists(\Taxmod\WordPress\ModelDoor::class, 'adoptRoles') || get_option(self::ROLES_SHARED) === TAXMOD_MANUFACTURING_VERSION) {
-            return;
-        }
-
-        foreach (self::SHARED_NAMES as $group => $names) {
-            foreach ($names as $own => $shared) {
-                if (isset($structure[$group][$own])) {
-                    $structure[$group][$shared] = $structure[$group][$own];
-                    unset($structure[$group][$own]);
-                }
-            }
-        }
-
-        $conflicts = \Taxmod\WordPress\ModelDoor::adoptRoles($structure);
-
-        if ($conflicts !== []) {
-            error_log('Taxmod Manufacturing: roles set differently in the modeller: ' . wp_json_encode($conflicts));
-        }
-
-        update_option(self::ROLES_SHARED, TAXMOD_MANUFACTURING_VERSION, true);
+        return $this->structure = Structure::fromArray(Structure::completed(is_array($stored) ? $stored : [], is_array($bundled) ? $bundled : []));
     }
 
     public function table(string $node): Table
@@ -153,7 +113,7 @@ final class ManufacturingService
         $lines = [];
 
         foreach ($quantities as $thing => $pieces) {
-            $lines[$thing] = rtrim(rtrim(number_format($pieces, 3, '.', ''), '0'), '.');
+            $lines[$thing] = DecimalText::stored($pieces, 3);
         }
 
         try {
@@ -653,7 +613,7 @@ final class ManufacturingService
 
             if ($short !== []) {
                 $names = $this->labelsOf(array_keys($short));
-                $count = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
+                $count = static fn (float $n): string => ListPage::number($n, 2);
 
                 throw ManufacturingError::shortAtFinish(implode(', ', array_map(static fn (int $thing, float $n): string => $count($n) . ' × ' . ($names[$thing] ?? '#' . $thing), array_keys($short), $short)));
             }

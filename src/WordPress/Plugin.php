@@ -25,10 +25,11 @@ final class Plugin
 
     public function bootWhenModellerIsThere(): void
     {
-        // The one door into the model (D-1186); since D-1419 its bracket for one act over several bookings (modeller 0.2.127).
-        if (! class_exists(\Taxmod\WordPress\Plugin::class) || ! class_exists(\Taxmod\WordPress\ModelDoor::class) || ! method_exists(\Taxmod\WordPress\ModelDoor::class, 'inAct')) {
+        // The one door into the model (D-1186), its bracket for one act over several bookings (D-1419, 0.2.127) and ListPage::number (D-1423, 0.2.130).
+        // Asked by version, not by loading the classes (D-1422).
+        if (! class_exists(\Taxmod\WordPress\Plugin::class, false) || version_compare(\Taxmod\WordPress\Plugin::VERSION, '0.2.130', '<')) {
             add_action('admin_notices', static function (): void {
-                echo '<div class="notice notice-error"><p>' . esc_html__('Taxmod Fertigung braucht den aktiven Taxonomy Modeller ab 0.2.127.', 'taxmod-manufacturing') . '</p></div>';
+                echo '<div class="notice notice-error"><p>' . esc_html__('Taxmod Fertigung braucht den aktiven Taxonomy Modeller ab 0.2.130.', 'taxmod-manufacturing') . '</p></div>';
             });
 
             return;

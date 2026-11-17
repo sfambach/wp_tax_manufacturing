@@ -348,7 +348,7 @@ final class OrdersPage
         foreach ($order->assemblies as $assembly) {
             $all  = $demand[$assembly->id] ?? [];
             $rows = array_filter($all, static fn (array $row): bool => $row['position'] > 0);
-            $miss = static fn (array $row): string => $row['missing'] > 0.0 ? ' · ' . sprintf(__('fehlt %s', 'taxmod-manufacturing'), rtrim(rtrim(number_format($row['missing'], 2, ',', ''), '0'), ',')) : '';
+            $miss = static fn (array $row): string => $row['missing'] > 0.0 ? ' · ' . sprintf(__('fehlt %s', 'taxmod-manufacturing'), ListPage::number($row['missing'], 2)) : '';
             // His word 2026-11-15 «die platine wird auch nicht aufgelistet»: the bare board heads the list; it is always built.
             // Architecture 17.11.: one 💾 on every step — the ticks join the master data's form.
             $formId = self::headFormId($order);
@@ -666,7 +666,7 @@ final class OrdersPage
     private function assemblyForm(BuildOrder $order, Assembly $assembly, array $labels, array $positions, array $rows): string
     {
         $refs   = array_column($positions, 'ref', 'id');
-        $count  = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
+        $count  = static fn (float $n): string => ListPage::number($n, 2);
         $boxed  = $order->box !== null;
         $form   = self::headFormId($order);
         $scrap  = $boxed && ! $order->isClosed() && $this->service->canScrap();
@@ -832,7 +832,7 @@ final class OrdersPage
     private function boxList(array $orders, array $boxes): string
     {
         $labels = $this->service->labelsOf(array_values(array_unique(array_column($boxes, 'project'))));
-        $count  = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
+        $count  = static fn (float $n): string => ListPage::number($n, 2);
         $rows   = '';
 
         foreach ($boxes as $place => $box) {
