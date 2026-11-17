@@ -360,7 +360,7 @@ final class StagingSection
 
     private function count(float $n): string
     {
-        return rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
+        return ListPage::number($n, 2);
     }
 
     /** @param array<string, string> $fields */

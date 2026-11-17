@@ -2,6 +2,8 @@
 
 namespace TaxmodManufacturing\WordPress;
 
+use Taxmod\WordPress\Admin\ListPage;
+use Taxmod\Core\Renderer\DecimalText;
 use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\BuildOrders;
@@ -152,7 +154,7 @@ final class ManufacturingService
         $lines = [];
 
         foreach ($quantities as $thing => $pieces) {
-            $lines[$thing] = rtrim(rtrim(number_format($pieces, 3, '.', ''), '0'), '.');
+            $lines[$thing] = DecimalText::stored($pieces, 3);
         }
 
         try {
@@ -651,7 +653,7 @@ final class ManufacturingService
 
             if ($short !== []) {
                 $names = $this->labelsOf(array_keys($short));
-                $count = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
+                $count = static fn (float $n): string => ListPage::number($n, 2);
 
                 throw ManufacturingError::shortAtFinish(implode(', ', array_map(static fn (int $thing, float $n): string => $count($n) . ' × ' . ($names[$thing] ?? '#' . $thing), array_keys($short), $short)));
             }
