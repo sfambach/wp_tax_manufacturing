@@ -96,6 +96,8 @@ final class Plugin
             'show_in_rest'      => ['schema' => ['type' => 'object', 'properties' => [
                 'deadlines' => ['type' => 'object', 'additionalProperties' => ['type' => 'integer']],
                 'label'     => ['type' => 'integer'],
+                'wage'      => ['type' => 'number'],
+                'setup'     => ['type' => 'number'],
             ]]],
         ]);
     }

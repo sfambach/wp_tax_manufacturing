@@ -106,6 +106,15 @@ final class SettingsTab
                 'hint' => __('Gilt für fertige Platinen, wenn weder Material noch Sparte ein Etikett nennen.', 'taxmod-manufacturing')];
         }
 
+        // D-1425: the price of a completed board.
+        $money  = static fn (float $n): string => rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',');
+        $rows[] = ['label' => __('Stundenlohn', 'taxmod-manufacturing'), 'for' => 'taxmod-production-wage',
+            'control' => '<input type="text" inputmode="decimal" class="small-text" name="taxmod_production_wage" id="taxmod-production-wage" value="' . esc_attr($money(self::settings()->wage)) . '"> ' . esc_html__('€ je Stunde', 'taxmod-manufacturing'),
+            'hint' => __('Arbeitslohn für den Fertigungspreis: Produktionszeit je Platine und Bereitstellung mal diesen Lohn. Gilt ab dem nächsten Abschluss; abgeschlossene Platinen behalten ihren Preis.', 'taxmod-manufacturing')];
+        $rows[] = ['label' => __('Bereitstellung', 'taxmod-manufacturing'), 'for' => 'taxmod-production-setup',
+            'control' => '<input type="text" inputmode="decimal" class="small-text" name="taxmod_production_setup" id="taxmod-production-setup" value="' . esc_attr($money(self::settings()->setupHours)) . '"> ' . esc_html__('Stunden je Auftrag', 'taxmod-manufacturing'),
+            'hint' => __('Wird auf die Platinen des Auftrags verteilt und als eigene Zeile im Preis ausgewiesen.', 'taxmod-manufacturing')];
+
         $stock = class_exists(\TaxmodStock\WordPress\Admin\SettingsPage::class) && method_exists(\TaxmodStock\WordPress\Admin\SettingsPage::class, 'url')
             ? ' <a href="' . esc_url(\TaxmodStock\WordPress\Admin\SettingsPage::url()) . '">' . esc_html__('Zu den Grundeinstellungen des Lagers', 'taxmod-manufacturing') . '</a>'
             : '';
@@ -126,10 +135,15 @@ final class SettingsTab
         $days     = array_map(static fn ($v): string => sanitize_text_field((string) $v), (array) ($post['taxmod_production_days'] ?? []));
 
         try {
-            update_option(self::OPTION, ProductionSettings::fromRows(array_values($channels), array_values($days), absint($post['taxmod_production_label'] ?? 0))->toArray(), false);
+            update_option(self::OPTION, ProductionSettings::fromRows(array_values($channels), array_values($days), absint($post['taxmod_production_label'] ?? 0),
+                sanitize_text_field((string) ($post['taxmod_production_wage'] ?? '')), sanitize_text_field((string) ($post['taxmod_production_setup'] ?? '')))->toArray(), false);
         } catch (ManufacturingError $e) {
-            /* translators: %s: the channel and the value given */
-            set_transient(self::ERROR . get_current_user_id(), sprintf(__('Die Frist muss eine ganze Zahl von Tagen ab 0 sein (%s).', 'taxmod-manufacturing'), $e->detail), 60);
+            $message = $e->reason === 'not_an_amount'
+                /* translators: %s: the setting and the value given */
+                ? __('Stundenlohn und Bereitstellung sind Zahlen ab 0, z. B. 15 oder 0,5 (%s).', 'taxmod-manufacturing')
+                /* translators: %s: the channel and the value given */
+                : __('Die Frist muss eine ganze Zahl von Tagen ab 0 sein (%s).', 'taxmod-manufacturing');
+            set_transient(self::ERROR . get_current_user_id(), sprintf($message, $e->detail), 60);
         }
     }
 }

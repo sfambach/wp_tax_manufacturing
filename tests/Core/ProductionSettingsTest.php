@@ -18,7 +18,7 @@ final class ProductionSettingsTest extends TestCase
     {
         $settings = ProductionSettings::fromRows(['eBay', ' Shop ', ''], ['3', '0', '']);
 
-        self::assertSame(['deadlines' => ['eBay' => 3, 'Shop' => 0], 'label' => 0], $settings->toArray());
+        self::assertSame(['deadlines' => ['eBay' => 3, 'Shop' => 0], 'label' => 0, 'wage' => 15.0, 'setup' => 0.5], $settings->toArray());
         self::assertSame(49037, ProductionSettings::fromArray(ProductionSettings::fromRows(['eBay'], ['2'], 49037)->toArray())->label);
         self::assertSame($settings->deadlines, ProductionSettings::fromArray($settings->toArray())->deadlines);
 

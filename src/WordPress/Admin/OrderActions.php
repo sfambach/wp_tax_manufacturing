@@ -236,7 +236,9 @@ final class OrderActions
             $categories[absint($assembly)] = absint($category);
         }
 
-        $done = $this->service->finishBuild($order, absint($_POST['boards'] ?? 0), $today, $categories);
+        // D-1425: minutes per board, a decimal with comma or point; empty when the stock does not price yet.
+        $minutes = str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($_POST['minutes'] ?? ''))));
+        $done    = $this->service->finishBuild($order, absint($_POST['boards'] ?? 0), $today, $categories, is_numeric($minutes) ? (float) $minutes : null);
 
         if ($done['act'] !== null) {
             $back['act'] = $done['act'];

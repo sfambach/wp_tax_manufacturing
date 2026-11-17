@@ -778,6 +778,7 @@ final class OrdersPage
 
         $body = '<div>' . esc_html(sprintf(__('Voll bestückt und offen: %1$d. Abgeschlossen sind %2$d von %3$d.', 'taxmod-manufacturing'), $max, $done, $order->count)) . '</div>'
             . '<div class="taxmod-mf-field"><label>' . esc_html__('Platinen abschließen', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="boards" min="1" max="' . esc_attr((string) $max) . '" value="' . esc_attr((string) $max) . '" required></label></div>'
+            . $this->minutesField($order)
             . ($categories === [] ? '' : '<div>' . esc_html__('Die Material-Kategorie der Platine steht in den Stammdaten.', 'taxmod-manufacturing') . '</div>')
             . '<div class="description">' . esc_html__('Bucht den Verbrauch ihrer Teile aus dem Gebinde und legt die Platinen ungeprüft auf den Platz «Test». Weniger als alle: der Rest bleibt in Fertigung, Gebinde und Reservierungen bleiben. Alle: der Auftrag geht in «Test». Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing') . '</div>';
 
@@ -785,6 +786,30 @@ final class OrdersPage
             . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => 'detail'])
             . ListPage::dialogAction('taxmod-mf-finish-' . $order->id, $label, __('Fertigung abschließen', 'taxmod-manufacturing'), $body, 'do', 'finish', __('Abschließen', 'taxmod-manufacturing'))
             . '</form>';
+    }
+
+    /**
+     * D-1425: the production time per board, preset from the revision's last completion, else empty — never a guessed number.
+     * Only when the stock prices; without it the completion books as before.
+     */
+    private function minutesField(BuildOrder $order): string
+    {
+        if (! $this->service->canPrice()) {
+            return '';
+        }
+
+        $last = null;
+
+        foreach ($order->assemblies as $assembly) {
+            $last ??= $this->service->lastMinutes($assembly->revision);
+        }
+
+        $settings = SettingsTab::settings();
+        $money    = static fn (float $n): string => number_format($n, 2, ',', '.');
+
+        return '<div class="taxmod-mf-field"><label>' . esc_html__('Produktionszeit je Platine', 'taxmod-manufacturing') . ' <input type="text" inputmode="decimal" class="small-text" name="minutes" pattern="[0-9]+([,.][0-9]+)?" value="' . esc_attr($last === null ? '' : rtrim(rtrim(number_format($last, 2, ',', ''), '0'), ',')) . '" required> ' . esc_html__('Minuten', 'taxmod-manufacturing') . '</label></div>'
+            /* translators: 1: wage per hour, 2: set-up hours per order */
+            . '<div class="description">' . esc_html(sprintf(__('Preis je Platine = Teile (Kaufpreise der verbrauchten Posten) + Bereitstellung (%2$s h je Auftrag, verteilt) + Zeit × %1$s € je Stunde. Einstellbar unter Produktion.', 'taxmod-manufacturing'), $money($settings->wage), rtrim(rtrim(number_format($settings->setupHours, 2, ',', ''), '0'), ','))) . '</div>';
     }
 
     /** D-1419: «Fertiggestellt» once every completed board has passed or is scrapped. */
@@ -1018,6 +1043,7 @@ final class OrdersPage
             'done_beyond_fitted'       => __('Fertig können höchstens so viele Platinen sein, wie voll bestückt sind.', 'taxmod-manufacturing'),
             'sparte_needed'            => __('Für die erste fertige Platine dieser Revision bitte die Material-Kategorie wählen.', 'taxmod-manufacturing'),
             /* translators: %s: asked > ready */
+            'not_an_amount'            => __('Die Produktionszeit je Platine fehlt oder ist keine Zahl ab 0 (Minuten, z. B. 12 oder 7,5).', 'taxmod-manufacturing'),
             'not_ready_to_finish'      => sprintf(__('So viele Platinen sind nicht voll bestückt und offen (%s).', 'taxmod-manufacturing'), $error->detail),
             'no_act_bracket'           => __('Der Abschluss braucht einen neueren Taxonomy Modeller (ein Vorgang für alle Buchungen); nichts gebucht.', 'taxmod-manufacturing'),
             'tests_open'               => __('Erst wenn jede Platine den Test bestanden hat oder verschrottet ist.', 'taxmod-manufacturing'),

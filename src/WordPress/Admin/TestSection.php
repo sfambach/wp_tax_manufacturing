@@ -53,7 +53,10 @@ final class TestSection
             return '<p class="description">' . esc_html__('Das Lager kennt noch keine Platine dieses Auftrags.', 'taxmod-manufacturing') . '</p>';
         }
 
-        $names = $labels + $this->service->labelsOf(array_values(array_unique([...array_column($lots, 'thing'), ...array_column($lots, 'place')])));
+        $costs = $this->service->costOf(array_keys($lots));
+        $parts = array_merge([], ...array_map(static fn (array $cost): array => [...array_column((array) ($cost['parts'] ?? []), 'thing'), ...array_column((array) ($cost['scrap'] ?? []), 'thing')], array_values($costs)));
+        $names = $labels + $this->service->labelsOf(array_values(array_unique([...array_column($lots, 'thing'), ...array_column($lots, 'place'), ...array_map('intval', $parts)])));
+        $priced = $this->service->canPrice() || $costs !== [];
         $form  = 'taxmod-mf-test-' . $order->id;
         $grid  = [];
 
@@ -68,6 +71,7 @@ final class TestSection
                 $this->state($row['state']),
                 esc_html($row['tested_on']),
                 esc_html($row['note']),
+                ...($priced ? [isset($costs[$lot]) ? $this->cost($costs[$lot], $names) : '—'] : []),
             ];
         }
 
@@ -83,7 +87,43 @@ final class TestSection
         return $bar . ListPage::grid([
             [__('Alle wählen', 'taxmod-manufacturing')], [__('Posten', 'taxmod-manufacturing')], [__('Platine', 'taxmod-manufacturing')], [__('Lagerort', 'taxmod-manufacturing')],
             [__('Zustand', 'taxmod-manufacturing')], [__('Getestet am', 'taxmod-manufacturing')], [__('Befund', 'taxmod-manufacturing')],
+            ...($priced ? [[__('Preis je Platine', 'taxmod-manufacturing')]] : []),
         ], $grid, '', 'taxmod-mf-ticks');
+    }
+
+    /**
+     * D-1425, his word 17.11. «der presi soll transparent sein»: the frozen price of a board, opened to its lines.
+     *
+     * @param array<string, mixed> $cost
+     * @param array<int, string> $names
+     */
+    private function cost(array $cost, array $names): string
+    {
+        $money  = static fn (float|int|string|null $n): string => number_format((float) $n, 2, ',', '.') . ' €';
+        $number = static fn (float|int|string|null $n): string => rtrim(rtrim(number_format((float) $n, 3, ',', '.'), '0'), ',');
+        $lines  = '';
+
+        foreach ((array) ($cost['parts'] ?? []) as $part) {
+            $name   = $names[(int) ($part['thing'] ?? 0)] ?? '#' . (int) ($part['thing'] ?? 0);
+            $price  = $part['unit_price'] === null ? __('ohne Preis', 'taxmod-manufacturing') : $money($part['unit_price']) . ' = ' . $money((float) $part['quantity'] * (float) $part['unit_price']);
+            $marker = ($part['source'] ?? '') === 'last_purchase' ? ' ' . __('(letzter Kaufpreis)', 'taxmod-manufacturing') : '';
+            $lines .= '<li>' . esc_html($number($part['quantity']) . ' × ' . $name . ': ' . $price . $marker) . '</li>';
+        }
+
+        $setup = (array) ($cost['setup'] ?? []);
+        $work  = (array) ($cost['work'] ?? []);
+        /* translators: 1: hours, 2: wage, 3: boards, 4: amount */
+        $lines .= '<li>' . esc_html(sprintf(__('Bereitstellung: %1$s h × %2$s ÷ %3$d Platinen = %4$s', 'taxmod-manufacturing'), $number($setup['hours'] ?? 0), $money($setup['wage'] ?? 0), (int) ($setup['boards'] ?? 1), $money($setup['amount'] ?? 0))) . '</li>';
+        /* translators: 1: minutes, 2: wage, 3: amount */
+        $lines .= '<li>' . esc_html(sprintf(__('Arbeit: %1$s min × %2$s je Stunde = %3$s', 'taxmod-manufacturing'), $number($work['minutes'] ?? 0), $money($work['wage'] ?? 0), $money($work['amount'] ?? 0))) . '</li>';
+
+        foreach ((array) ($cost['scrap'] ?? []) as $scrap) {
+            $lines .= '<li>' . esc_html(sprintf(__('Ausschuss (nicht eingerechnet): %1$s × %2$s', 'taxmod-manufacturing'), $number($scrap['quantity'] ?? 0), $names[(int) ($scrap['thing'] ?? 0)] ?? '#' . (int) ($scrap['thing'] ?? 0))) . '</li>';
+        }
+
+        $total = $money($cost['total'] ?? 0) . (($cost['complete'] ?? true) ? '' : ' ' . __('(unvollständig)', 'taxmod-manufacturing'));
+
+        return '<details><summary>' . esc_html($total) . '</summary><ul>' . $lines . '</ul></details>';
     }
 
     private function state(string $state): string

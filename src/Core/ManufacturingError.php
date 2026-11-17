@@ -64,6 +64,12 @@ final class ManufacturingError extends \RuntimeException
         return new self('deadline_not_whole', $channel . ': ' . $given);
     }
 
+    /** D-1425: the hourly wage and the set-up time are decimals from 0. */
+    public static function notAnAmount(string $setting, string $given): self
+    {
+        return new self('not_an_amount', $setting . ': ' . $given);
+    }
+
     /** D-1300: the wished date is a day, Y-m-d. */
     public static function dueNotDate(string $given): self
     {

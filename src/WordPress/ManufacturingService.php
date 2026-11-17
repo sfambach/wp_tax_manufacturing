@@ -5,6 +5,7 @@ namespace TaxmodManufacturing\WordPress;
 use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\BuildOrders;
+use TaxmodManufacturing\Core\Costing;
 use TaxmodManufacturing\Core\Demand;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\OrderChanges;
@@ -620,7 +621,7 @@ final class ManufacturingService
      * @param list<int>       $unused
      * @return 'booked'|'nothing'|'unbooked' unbooked: there was something to book, but the stock module offers no interface yet
      */
-    public function updateAssembly(int $order, int $assembly, array $pieces, array $unused, ?int $tested, ?int $done, ?string $note, string $today, ?int $sparte = null): string
+    public function updateAssembly(int $order, int $assembly, array $pieces, array $unused, ?int $tested, ?int $done, ?string $note, string $today, ?int $sparte = null, ?float $minutes = null): string
     {
         $built = $this->order($order);
         $part  = $built->assembly($assembly) ?? throw ManufacturingError::assemblyNotOfOrder($assembly, $order);
@@ -638,6 +639,7 @@ final class ManufacturingService
         }
 
         $booked  = 'nothing';
+        $cost    = null;
         // D-1302: parts are used up when a board is finished, not when it is fitted; a half-fitted board keeps its parts in the box.
         $use     = Demand::finished($part, $made, $list, $unused);
 
@@ -656,6 +658,8 @@ final class ManufacturingService
                 throw ManufacturingError::shortAtFinish(implode(', ', array_map(static fn (int $thing, float $n): string => $count($n) . ' × ' . ($names[$thing] ?? '#' . $thing), array_keys($short), $short)));
             }
 
+            // D-1425: the price is read from the very lots the booking below takes, before it takes them.
+            $cost   = $made > 0 && $minutes !== null ? $this->costPerBoard($built, $made, $use, $minutes, $today) : null;
             $answer = apply_filters(self::BOOK_FILTER, null, ['reference' => $order, 'place' => $built->box, 'lines' => $use, 'title' => $built->label, 'date' => $today]);
 
             if (is_wp_error($answer)) {
@@ -669,7 +673,7 @@ final class ManufacturingService
 
         if ($made !== 0 && $this->canReceive()) {
             try {
-                $this->bookOutput($built, $part->revision, $made, $today, $sparte);
+                $this->bookOutput($built, $part->revision, $made, $today, $sparte, $cost);
             } catch (ManufacturingError $error) {
                 if ($booked === 'booked') {
                     // The consumption is already booked; give it back so the box shows what it did before.
@@ -714,7 +718,7 @@ final class ManufacturingService
      * @param array<int, int> $categories assembly → Material-Kategorie, for a revision whose board material does not exist yet
      * @return array{act: ?int, step: string}
      */
-    public function finishBuild(int $order, int $boards, string $today, array $categories): array
+    public function finishBuild(int $order, int $boards, string $today, array $categories, ?float $minutes = null): array
     {
         if (! method_exists(\Taxmod\WordPress\ModelDoor::class, 'inAct')) {
             throw ManufacturingError::noActBracket();
@@ -732,9 +736,13 @@ final class ManufacturingService
             throw ManufacturingError::notReadyToFinish($boards, min($ready ?: [0]));
         }
 
-        $answer = \Taxmod\WordPress\ModelDoor::inAct(function () use ($built, $boards, $today, $categories): string {
+        if ($this->canPrice() && ($minutes === null || $minutes < 0)) {
+            throw ManufacturingError::notAnAmount('minutes', (string) $minutes);
+        }
+
+        $answer = \Taxmod\WordPress\ModelDoor::inAct(function () use ($built, $boards, $today, $categories, $minutes): string {
             foreach ($built->assemblies as $part) {
-                $this->updateAssembly($built->id, $part->id, [], $part->unused, null, $part->done + $boards, null, $today, ($categories[$part->id] ?? 0) ?: null);
+                $this->updateAssembly($built->id, $part->id, [], $part->unused, null, $part->done + $boards, null, $today, ($categories[$part->id] ?? 0) ?: null, $minutes);
             }
 
             $after = $this->order($built->id);
@@ -749,6 +757,73 @@ final class ManufacturingService
         });
 
         return ['act' => $answer['act'], 'step' => $answer['result']];
+    }
+
+    /** D-1425: the stock's filters of the price — the consumed lots' prices, and the frozen breakdown at a board's lot. */
+    public const PRICES_FILTER = 'taxmod_stock_build_prices';
+    public const COST_FILTER   = 'taxmod_stock_cost_breakdown';
+
+    public function canPrice(): bool
+    {
+        return has_filter(self::PRICES_FILTER) && has_filter(self::BOOK_FILTER) && $this->canReceive();
+    }
+
+    /**
+     * D-1425: the price of one of `$made` boards completed now. The set-up is spread over every board the order makes —
+     * its count times its boards — so that all its completions carry it once.
+     *
+     * @param array<int, float> $use thing → pieces used up
+     * @return array<string, mixed>|null null when the stock does not price yet
+     */
+    private function costPerBoard(BuildOrder $order, int $made, array $use, float $minutes, string $today): ?array
+    {
+        if (! $this->canPrice()) {
+            return null;
+        }
+
+        $answer = apply_filters(self::PRICES_FILTER, null, ['reference' => $order->id, 'place' => $order->box, 'lines' => $use]);
+
+        if (is_wp_error($answer) || ! is_array($answer)) {
+            throw ManufacturingError::stockRefused(is_wp_error($answer) ? $answer->get_error_message() : __('Das Lager kennt die Preise der Teile nicht.', 'taxmod-manufacturing'));
+        }
+
+        $settings = \TaxmodManufacturing\WordPress\Admin\SettingsTab::settings();
+
+        return Costing::perBoard($order->id, $today, $made, $use, (array) ($answer['parts'] ?? []), $minutes, $settings->wage, $settings->setupHours,
+            max(1, $order->count * count($order->assemblies)), array_map('floatval', (array) ($answer['scrap'] ?? [])));
+    }
+
+    /**
+     * D-1425: the minutes per board of the revision's last completion, to preset the dialog; null when there is none.
+     */
+    public function lastMinutes(int $revision): ?float
+    {
+        $material = has_filter(self::COST_FILTER) ? $this->existingMaterial($revision) : null;
+
+        if ($material === null) {
+            return null;
+        }
+
+        $answer = apply_filters(self::COST_FILTER, null, ['thing' => $material]);
+
+        return is_array($answer) && is_numeric($answer['work']['minutes'] ?? null) ? (float) $answer['work']['minutes'] : null;
+    }
+
+    /**
+     * D-1425: the frozen breakdowns of lots, as the stock keeps them.
+     *
+     * @param list<int> $lots
+     * @return array<int, array<string, mixed>> lot → breakdown; lots without one are left out
+     */
+    public function costOf(array $lots): array
+    {
+        if ($lots === [] || ! has_filter(self::COST_FILTER)) {
+            return [];
+        }
+
+        $answer = apply_filters(self::COST_FILTER, null, ['lots' => $lots]);
+
+        return is_array($answer) ? array_filter($answer, 'is_array') : [];
     }
 
     /** D-1419, D-1420: the stock's filters of the step «Test» — read the order's boards, record a result, scrap whole lots. */
@@ -880,7 +955,8 @@ final class ManufacturingService
      * Finished boards as their own material (D-1143), untested, one lot per piece, onto the stock's place «Test» when one is
      * set, else into the order's box (D-1342); fewer finished give them back.
      */
-    private function bookOutput(BuildOrder $order, int $revision, int $boards, string $today, ?int $sparte): void
+    /** @param array<string, mixed>|null $cost D-1425: the breakdown per board, the stock freezes it at each new lot */
+    private function bookOutput(BuildOrder $order, int $revision, int $boards, string $today, ?int $sparte, ?array $cost = null): void
     {
         $test  = has_filter(self::TEST_PLACE_FILTER) ? (int) apply_filters(self::TEST_PLACE_FILTER, null) : 0;
         $place = $test > 0 ? $test : $order->box;
@@ -889,7 +965,8 @@ final class ManufacturingService
             throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
         }
 
-        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $place, 'lines' => [$this->materialFor($revision, $sparte) => (float) $boards], 'title' => $order->label, 'date' => $today]);
+        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $place, 'lines' => [$this->materialFor($revision, $sparte) => (float) $boards], 'title' => $order->label, 'date' => $today]
+            + ($cost === null ? [] : ['cost' => $cost]));
 
         if (is_wp_error($answer)) {
             throw ManufacturingError::stockRefused($answer->get_error_message());
