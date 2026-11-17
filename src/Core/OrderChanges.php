@@ -53,7 +53,7 @@ final class OrderChanges
      * @param list<int> $revisions from {@see revisionsOf()}
      * @return list<array<string, mixed>>
      */
-    public function create(int $project, array $revisions, string $count, ?int $box, string $title): array
+    public function create(int $project, array $revisions, string $count, ?int $box, string $title, bool $kit = false): array
     {
         $s = $this->s;
 
@@ -84,6 +84,15 @@ final class OrderChanges
 
         if ($box !== null && $box > 0 && $s->hasField('order_box')) {
             $values[(string) $s->field('order_box')] = (string) $box;
+        }
+
+        // D-1428: «Bestücken» is the default; an order is a kit only when the model knows the art.
+        if ($kit) {
+            if (! $s->hasField('order_art') || ! $s->hasValue('art_kit')) {
+                throw ManufacturingError::notConfigured('order_art');
+            }
+
+            $values[(string) $s->field('order_art')] = (string) $s->value('art_kit');
         }
 
         return [
@@ -208,7 +217,7 @@ final class OrderChanges
 
         // D-1419: «Test» once every board of the order is completed; from there, or without that step, «Fertiggestellt».
         if ($to === 'order_test') {
-            if ($order->step !== 'order_building' || ! $this->s->hasValue('order_test')) {
+            if ($order->step !== 'order_building' || ! $this->s->hasValue('order_test') || $order->kit) {
                 throw ManufacturingError::unknownStatus($to);
             }
 

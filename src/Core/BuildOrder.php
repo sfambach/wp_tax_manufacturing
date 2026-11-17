@@ -20,6 +20,8 @@ final class BuildOrder
         public readonly string $shortageReason = '',
         /** D-1300: the wished date, Y-m-d; null when none is set */
         public readonly ?string $due = null,
+        /** D-1428: a kit — board and parts packed for sale, no fitting and no «Test» */
+        public readonly bool $kit = false,
     ) {
     }
 

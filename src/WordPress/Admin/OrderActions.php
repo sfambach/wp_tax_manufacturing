@@ -158,7 +158,9 @@ final class OrderActions
         $chosen = array_values(array_filter(array_map('absint', (array) wp_unslash($_POST['boards'] ?? []))));
         $label  = $this->service->labelsOf([$project])[$project] ?? '#' . $project;
         $box    = absint($_POST['box'] ?? 0);
-        $id     = $this->service->create($project, $count, $box > 0 && isset($this->service->boxesOf($project)[$box]) ? $box : null, sprintf(__('Fertigung %1$s, %2$s', 'taxmod-manufacturing'), $label, current_time('Y-m-d')), $chosen);
+        $kit    = sanitize_key(wp_unslash((string) ($_POST['art'] ?? ''))) === 'kit';
+        $title  = $kit ? sprintf(__('Kit %1$s, %2$s', 'taxmod-manufacturing'), $label, current_time('Y-m-d')) : sprintf(__('Fertigung %1$s, %2$s', 'taxmod-manufacturing'), $label, current_time('Y-m-d'));
+        $id     = $this->service->create($project, $count, $box > 0 && isset($this->service->boxesOf($project)[$box]) ? $box : null, $title, $chosen, $kit);
 
         $back['auftrag'] = $id;
         $back['tab']     = 'open';
@@ -245,13 +247,18 @@ final class OrderActions
 
         // D-1425: minutes per board, a decimal with comma or point; empty when the stock does not price yet.
         $minutes = str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($_POST['minutes'] ?? ''))));
-        $done    = $this->service->finishBuild($order, absint($_POST['boards'] ?? 0), $today, $categories, is_numeric($minutes) ? (float) $minutes : null);
+        $place   = absint($_POST['place'] ?? 0);
+        $done    = $this->service->finishBuild($order, absint($_POST['boards'] ?? 0), $today, $categories, is_numeric($minutes) ? (float) $minutes : null, $place > 0 ? $place : null);
 
         if ($done['act'] !== null) {
             $back['act'] = $done['act'];
         }
 
-        return $done['step'] === 'order_test' ? 'finished' : 'finished_part';
+        return match ($done['step']) {
+            'order_test' => 'finished',
+            'order_done' => 'kits_finished',
+            default      => $this->service->order($order)->kit ? 'kits_part' : 'finished_part',
+        };
     }
 
     /**

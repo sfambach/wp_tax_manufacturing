@@ -63,7 +63,7 @@ final class ManufacturingService
      * @param list<int>|null $chosen revisions to build; null builds every board of the project (D-1300)
      * @return int the new order's id
      */
-    public function create(int $project, string $count, ?int $box, string $title, ?array $chosen = null): int
+    public function create(int $project, string $count, ?int $box, string $title, ?array $chosen = null, bool $kit = false): int
     {
         $changes   = new OrderChanges($this->structure());
         $revisions = $changes->revisionsOf($project, $this->table('project'), $this->table('board'));
@@ -75,7 +75,7 @@ final class ManufacturingService
                 throw ManufacturingError::noBoardChosen($project);
             }
         }
-        $answer    = $this->model->write($changes->create($project, $revisions, $count, $box, $title));
+        $answer    = $this->model->write($changes->create($project, $revisions, $count, $box, $title, $kit));
 
         return (int) ($answer['refs']['auftrag'] ?? 0);
     }
@@ -581,7 +581,7 @@ final class ManufacturingService
      * @param list<int>       $unused
      * @return 'booked'|'nothing'|'unbooked' unbooked: there was something to book, but the stock module offers no interface yet
      */
-    public function updateAssembly(int $order, int $assembly, array $pieces, array $unused, ?int $tested, ?int $done, ?string $note, string $today, ?int $sparte = null, ?float $minutes = null): string
+    public function updateAssembly(int $order, int $assembly, array $pieces, array $unused, ?int $tested, ?int $done, ?string $note, string $today, ?int $sparte = null, ?float $minutes = null, ?int $place = null): string
     {
         $built = $this->order($order);
         $part  = $built->assembly($assembly) ?? throw ManufacturingError::assemblyNotOfOrder($assembly, $order);
@@ -594,7 +594,8 @@ final class ManufacturingService
         $boards  = $this->boardsAfter($part, $fitted, $unused, $list);
 
         // D-1304/D-1342 replace D-1177: the test is a report at the board's lot on «Test», so «Fertig» only needs the board fully fitted.
-        if (($done ?? $part->done) > $boards) {
+        // D-1428: a kit is packed, not fitted — the box's parts are checked when it is booked.
+        if (! $built->kit && ($done ?? $part->done) > $boards) {
             throw ManufacturingError::doneBeyondFitted($done ?? $part->done, $boards);
         }
 
@@ -633,7 +634,7 @@ final class ManufacturingService
 
         if ($made !== 0 && $this->canReceive()) {
             try {
-                $this->bookOutput($built, $part->revision, $made, $today, $sparte, $cost);
+                $this->bookOutput($built, $part->revision, $made, $today, $sparte, $cost, $place);
             } catch (ManufacturingError $error) {
                 if ($booked === 'booked') {
                     // The consumption is already booked; give it back so the box shows what it did before.
@@ -662,7 +663,8 @@ final class ManufacturingService
         $out   = [];
 
         foreach ($order->assemblies as $part) {
-            $ready          = min($this->boardsAfter($part, [], $part->unused, $lists[$part->revision] ?? []), $order->count) - $part->done;
+            // D-1428: a kit needs no fitting; what the box lacks, the booking names.
+            $ready          = $order->kit ? $order->count - $part->done : min($this->boardsAfter($part, [], $part->unused, $lists[$part->revision] ?? []), $order->count) - $part->done;
             $out[$part->id] = max(0, $ready);
         }
 
@@ -678,7 +680,7 @@ final class ManufacturingService
      * @param array<int, int> $categories assembly → Material-Kategorie, for a revision whose board material does not exist yet
      * @return array{act: ?int, step: string}
      */
-    public function finishBuild(int $order, int $boards, string $today, array $categories, ?float $minutes = null): array
+    public function finishBuild(int $order, int $boards, string $today, array $categories, ?float $minutes = null, ?int $place = null): array
     {
         if (! method_exists(\Taxmod\WordPress\ModelDoor::class, 'inAct')) {
             throw ManufacturingError::noActBracket();
@@ -700,12 +702,24 @@ final class ManufacturingService
             throw ManufacturingError::notAnAmount('minutes', (string) $minutes);
         }
 
-        $answer = \Taxmod\WordPress\ModelDoor::inAct(function () use ($built, $boards, $today, $categories, $minutes): string {
+        // D-1428, INF-134 open: a kit goes where the dialog says — the production inbound or the order's box.
+        if ($built->kit && ! in_array($place, array_keys($this->kitPlaces($built)), true)) {
+            throw ManufacturingError::notConfigured('kit_place');
+        }
+
+        $answer = \Taxmod\WordPress\ModelDoor::inAct(function () use ($built, $boards, $today, $categories, $minutes, $place): string {
             foreach ($built->assemblies as $part) {
-                $this->updateAssembly($built->id, $part->id, [], $part->unused, null, $part->done + $boards, null, $today, ($categories[$part->id] ?? 0) ?: null, $minutes);
+                $this->updateAssembly($built->id, $part->id, [], $part->unused, null, $part->done + $boards, null, $today, ($categories[$part->id] ?? 0) ?: null, $minutes, $built->kit ? $place : null);
             }
 
             $after = $this->order($built->id);
+
+            // D-1428: a kit has no «Test»; once all are packed it is done.
+            if ($after->kit && $after->isFinished()) {
+                $this->model->write((new OrderChanges($this->structure()))->setStep($after, 'order_done', $today));
+
+                return 'order_done';
+            }
 
             if ($after->isFinished() && $this->structure()->hasValue('order_test')) {
                 $this->model->write((new OrderChanges($this->structure()))->setStep($after, 'order_test', $today));
@@ -756,9 +770,9 @@ final class ManufacturingService
     /**
      * D-1425: the minutes per board of the revision's last completion, to preset the dialog; null when there is none.
      */
-    public function lastMinutes(int $revision): ?float
+    public function lastMinutes(int $revision, bool $kit = false): ?float
     {
-        $material = has_filter(self::COST_FILTER) ? $this->existingMaterial($revision) : null;
+        $material = has_filter(self::COST_FILTER) ? $this->existingMaterial($revision, $kit) : null;
 
         if ($material === null) {
             return null;
@@ -915,17 +929,22 @@ final class ManufacturingService
      * Finished boards as their own material (D-1143), untested, one lot per piece, onto the stock's place «Test» when one is
      * set, else into the order's box (D-1342); fewer finished give them back.
      */
-    /** @param array<string, mixed>|null $cost D-1425: the breakdown per board, the stock freezes it at each new lot */
-    private function bookOutput(BuildOrder $order, int $revision, int $boards, string $today, ?int $sparte, ?array $cost = null): void
+    /**
+     * @param array<string, mixed>|null $cost D-1425: the breakdown per board, the stock freezes it at each new lot
+     * @param int|null $kitPlace D-1428: where packed kits go, chosen in the dialog
+     */
+    private function bookOutput(BuildOrder $order, int $revision, int $boards, string $today, ?int $sparte, ?array $cost = null, ?int $kitPlace = null): void
     {
-        $test  = has_filter(self::TEST_PLACE_FILTER) ? (int) apply_filters(self::TEST_PLACE_FILTER, null) : 0;
-        $place = $test > 0 ? $test : $order->box;
+        $test  = $order->kit ? 0 : (has_filter(self::TEST_PLACE_FILTER) ? (int) apply_filters(self::TEST_PLACE_FILTER, null) : 0);
+        $place = $order->kit ? $kitPlace : ($test > 0 ? $test : $order->box);
 
         if ($place === null) {
             throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
         }
 
-        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $place, 'lines' => [$this->materialFor($revision, $sparte) => (float) $boards], 'title' => $order->label, 'date' => $today]
+        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $place, 'lines' => [$this->materialFor($revision, $sparte, $order->kit) => (float) $boards], 'title' => $order->label, 'date' => $today]
+            // D-1428: a kit is not tested — one lot, ready for sale.
+            + ($order->kit ? ['tested' => true] : [])
             + ($cost === null ? [] : ['cost' => $cost]));
 
         if (is_wp_error($answer)) {
@@ -937,9 +956,9 @@ final class ManufacturingService
      * The material «assembled board» of a revision (D-1261): the hardware record whose «Revision» names it. Made at the first
      * finished board in the Sparte chosen then — the Sparte is where the record lies, nothing else stores it.
      */
-    public function materialFor(int $revision, ?int $sparte = null): int
+    public function materialFor(int $revision, ?int $sparte = null, bool $kit = false): int
     {
-        $existing = $this->existingMaterial($revision);
+        $existing = $this->existingMaterial($revision, $kit);
 
         if ($existing !== null) {
             return $existing;
@@ -952,24 +971,64 @@ final class ManufacturingService
         }
 
         // D-1176: the revision's name with «bestückt»; every other field stays empty until reviewed (D-1250, D-1255).
-        $name   = sprintf(__('%s, bestückt', 'taxmod-manufacturing'), $this->labelsOf([$revision])[$revision] ?? '#' . $revision);
+        $base   = $this->labelsOf([$revision])[$revision] ?? '#' . $revision;
+        $name   = $kit ? sprintf(__('%s, Kit', 'taxmod-manufacturing'), $base) : sprintf(__('%s, bestückt', 'taxmod-manufacturing'), $base);
         $answer = apply_filters(self::CREATE_THING_FILTER, null, ['name' => $name, 'group' => $sparte]);
 
         if (is_wp_error($answer) || ! is_int($answer)) {
             throw ManufacturingError::stockRefused(is_wp_error($answer) ? $answer->get_error_message() : __('Das Lager hat kein Material angelegt.', 'taxmod-manufacturing'));
         }
 
-        $this->model->write([['op' => 'set_values', 'record' => (string) $answer, 'values' => [(string) $s->field('assembled_revision') => (string) $revision]]]);
+        $values = [(string) $s->field('assembled_revision') => (string) $revision];
+
+        // D-1428: the art tells kit and assembled board apart, never the name.
+        if ($s->hasField('assembled_art') && $s->hasValue($kit ? 'art_kit' : 'art_fitting')) {
+            $values[(string) $s->field('assembled_art')] = (string) $s->value($kit ? 'art_kit' : 'art_fitting');
+        }
+
+        $this->model->write([['op' => 'set_values', 'record' => (string) $answer, 'values' => $values]]);
         $this->model->markForReview([$answer]);
 
         return $answer;
     }
 
-    public function existingMaterial(int $revision): ?int
+    /** D-1428: the kit and the assembled board of a revision are told apart by their art; one without art is assembled. */
+    public function existingMaterial(int $revision, bool $kit = false): ?int
     {
-        $found = $this->model->referrers([$revision], $this->structure()->field('assembled_revision'));
+        $s     = $this->structure();
+        $found = $this->model->referrers([$revision], $s->field('assembled_revision'));
+
+        if ($found !== [] && $s->hasField('assembled_art') && $s->hasValue('art_kit')) {
+            $arts  = $this->model->records($found);
+            $found = array_values(array_filter($found, static fn (int $thing): bool => ((int) ($arts->first($thing, $s->field('assembled_art')) ?? 0) === $s->value('art_kit')) === $kit));
+        } elseif ($kit) {
+            return null;
+        }
 
         return $found === [] ? null : min($found);
+    }
+
+    /** D-1428: whether this site's model knows the art «Kit» at order and material. */
+    public function canKit(): bool
+    {
+        $s = $this->structure();
+
+        return $s->hasField('order_art') && $s->hasField('assembled_art') && $s->hasValue('art_kit') && $s->hasValue('art_fitting');
+    }
+
+    /**
+     * D-1428, INF-134 open: where packed kits may go until he decides — the production inbound, else the order's box.
+     *
+     * @return array<int, string> place → its name
+     */
+    public function kitPlaces(BuildOrder $order): array
+    {
+        $inbound = has_filter('taxmod_stock_production_inbound') ? (int) apply_filters('taxmod_stock_production_inbound', null) : 0;
+        $places  = array_values(array_filter([$inbound, (int) $order->box]));
+
+        $names   = $places === [] ? [] : $this->labelsOf($places);
+
+        return array_combine($places, array_map(static fn (int $place): string => $names[$place] ?? '#' . $place, $places));
     }
 
     /**

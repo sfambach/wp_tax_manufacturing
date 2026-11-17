@@ -47,10 +47,12 @@ final class Structure
         // D-1300: the wished date of an order; D-1304: the test steps at a revision.
         'order_due', 'revision_checks', 'check_instruction', 'check_firmware',
         // D-1393/D-1398: the pins of one piece at a BOM line (a unit value) and the amount field of a unit value.
-        'position_poles', 'unit_amount'];
+        'position_poles', 'unit_amount',
+        // D-1428: the art of an order and of its result material — «Bestücken» or «Kit».
+        'order_art', 'assembled_art'];
 
     /** D-954: the «Best.» values that matter here — «optional» may be left out, «nein» is never needed. */
-    private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no', 'fitting_external', 'order_staging', 'order_test'];
+    private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no', 'fitting_external', 'order_staging', 'order_test', 'art_fitting', 'art_kit'];
 
     /**
      * @param array<string, int> $nodes
