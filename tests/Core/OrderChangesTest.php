@@ -200,6 +200,18 @@ final class OrderChangesTest extends TestCase
         self::assertSame([['op' => 'set_values', 'record' => '500', 'values' => ['22' => '41', '25' => '']]], (new OrderChanges($s))->setStep($failed, 'reopen', '2026-11-18'));
     }
 
+    /** D-1460: the systems' ids are optional — without them nothing is missing and nothing is offered. */
+    public function testSystemsAreOptional(): void
+    {
+        $raw                               = self::S;
+        $raw['fields']['hardware_systems'] = 60;
+        $s                                 = Structure::fromArray($raw);
+
+        self::assertSame([], $s->missing());
+        self::assertTrue($s->hasField('hardware_systems'));
+        self::assertFalse($s->hasField('board_systems'));
+    }
+
     /** @param list<array{0: array<int, int>, 1: int}> $parts fitted (position → boards) and finished boards per assembly, ids from 600, fitted parts from 800 */
     private function order(string $status, array $parts): \TaxmodManufacturing\Core\BuildOrder
     {

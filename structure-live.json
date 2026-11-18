@@ -11,7 +11,8 @@
     "assembled": 149000110343,
     "lager": 149000110147,
     "hardware": 149000103001,
-    "check_step": 149000110485
+    "check_step": 149000110485,
+    "systems": 149000110516
   },
   "fields": {
     "label": 149000103839,
@@ -51,7 +52,8 @@
     "position_poles": 149000110442,
     "unit_amount": 4234,
     "order_art": 149000110506,
-    "assembled_art": 149000110507
+    "assembled_art": 149000110507,
+    "hardware_systems": 149000110510
   },
   "values": {
     "order_planned": 149000110324,
@@ -69,6 +71,7 @@
     "order_staging": 149000110439,
     "order_test": 149000110491,
     "art_fitting": 149000110499,
-    "art_kit": 149000110500
+    "art_kit": 149000110500,
+    "order_failed": 149000110526
   }
 }
