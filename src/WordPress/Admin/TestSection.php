@@ -144,7 +144,7 @@ final class TestSection
             . '<p class="description">' . esc_html__('Die Platine wartet auf Nacharbeit; danach neu testen.', 'taxmod-manufacturing') . '</p>';
 
         // Side by side, one size (G14–G16): the two answers of one board read as one choice.
-        return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:flex;gap:4px;flex-wrap:nowrap">' . wp_nonce_field($this->nonce, '_wpnonce', true, false)
+        return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-judge">' . wp_nonce_field($this->nonce, '_wpnonce', true, false)
             . $this->hidden(['order' => (string) $order->id, 'tab' => $this->tab, 'selected[]' => (string) $lot], $form)
             . $passed
             . ListPage::dialogAction($form . '-dialog', __('Nacharbeit …', 'taxmod-manufacturing'), sprintf(__('Platine #%d: Nacharbeit', 'taxmod-manufacturing'), $lot), $body, 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form)

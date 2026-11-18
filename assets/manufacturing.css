@@ -24,3 +24,4 @@
 	.taxmod-mf-pick { position: absolute; left: 0; top: 0; width: 100%; }
 	.taxmod-mf-noprint { display: none; }
 }
+.taxmod-mf-judge { display: flex; gap: 4px; flex-wrap: nowrap; }
