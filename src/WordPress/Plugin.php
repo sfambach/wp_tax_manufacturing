@@ -23,6 +23,8 @@ final class Plugin
         add_action('plugins_loaded', [$this, 'bootWhenModellerIsThere']);
     }
 
+    public const STOCK_VERSION = '0.64.120';
+
     public function bootWhenModellerIsThere(): void
     {
         // The one door into the model (D-1186), its bracket for one act over several bookings (D-1419, 0.2.127) and ListPage::number (D-1423, 0.2.130).
@@ -64,9 +66,11 @@ final class Plugin
             }
         }
 
-        if (! class_exists(\TaxmodStock\WordPress\Plugin::class)) {
+        // D-1433, the gate 18.11.: one way only — the boards' statuses need the stock's whole-lot moves (Lager 0.64.120).
+        if (! defined('TAXMOD_STOCK_VERSION') || version_compare((string) TAXMOD_STOCK_VERSION, self::STOCK_VERSION, '<')) {
             add_action('admin_notices', static function (): void {
-                echo '<div class="notice notice-warning"><p>' . esc_html__('Taxmod Fertigung erscheint in der Logistik-Navigation; dafür muss Taxmod Stock aktiv sein.', 'taxmod-manufacturing') . '</p></div>';
+                /* translators: %s: the stock module's least version */
+                echo '<div class="notice notice-error"><p>' . esc_html(sprintf(__('Taxmod Fertigung braucht das aktive Taxmod Lager ab %s.', 'taxmod-manufacturing'), self::STOCK_VERSION)) . '</p></div>';
             });
         }
     }

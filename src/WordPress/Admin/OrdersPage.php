@@ -244,8 +244,7 @@ final class OrdersPage
             }
         }
 
-        $positions = $this->service->canPositions();
-        $order     = $positions ? Positions::derive($found[0], $lots) : $found[0];
+        $order     = Positions::derive($found[0], $lots);
         $counts    = Positions::counts($order, $lots);
         [$plain, $labels] = $this->context([$order]);
         $assigned = $this->service->assignments([$order->id])[$order->id] ?? [];
@@ -278,7 +277,7 @@ final class OrdersPage
         // back to «Angelegt» gives the order's reservations free (D-1384: picking belongs to «Bereitstellung»); the box keeps its parts.
         $back = match (true) {
             // D-1433 D, architecture 18.11.: the finished boards go back onto «Test», untested; before the completion only the undo.
-            $positions && $counts[Positions::DONE] > 0 && in_array($order->step, ['order_test', 'order_done'], true) => $this->dialogForm('back_test', $order, '← ' . __('Zurück in Fertigung', 'taxmod-manufacturing'), __('Auftrag zurück in Fertigung?', 'taxmod-manufacturing'),
+            $counts[Positions::DONE] > 0 && in_array($order->step, ['order_test', 'order_done'], true) => $this->dialogForm('back_test', $order, '← ' . __('Zurück in Fertigung', 'taxmod-manufacturing'), __('Auftrag zurück in Fertigung?', 'taxmod-manufacturing'),
                 esc_html(sprintf(_n('%d fertiggestellte Platine geht zurück auf «Test», ungetestet. Ein Vorgang, zurücknehmen über die Änderungsnummer.', '%d fertiggestellte Platinen gehen zurück auf «Test», ungetestet. Ein Vorgang, zurücknehmen über die Änderungsnummer.', $counts[Positions::DONE], 'taxmod-manufacturing'), $counts[Positions::DONE]))),
             // His report 18.11.: «Zurück» led to the list, so it says so.
             $previous === ''                                       => ListPage::stepButton(__('Übersicht', 'taxmod-manufacturing'), false, $list),
@@ -298,11 +297,8 @@ final class OrdersPage
             $order->step === 'order_building' && ! $order->isFinished() && $this->service->structure()->hasField('assembly_done') => $this->finishDialog($order, $labels),
             $order->step === 'order_building' && $order->isFinished() && ! $this->service->structure()->hasValue('order_test') => ListPage::stepButton($name['order_done'], true, '', 'do', 'done', $form),
             // D-1433 D: «Fertigstellen» passes every open board and moves it to «Wareneingang Produktion».
-            $positions && $order->step === 'order_test' => $this->dialogForm('finish_all', $order, __('Fertigstellen', 'taxmod-manufacturing') . ' →', __('Alle offenen Platinen fertigstellen?', 'taxmod-manufacturing'),
+            $order->step === 'order_test' => $this->dialogForm('finish_all', $order, __('Fertigstellen', 'taxmod-manufacturing') . ' →', __('Alle offenen Platinen fertigstellen?', 'taxmod-manufacturing'),
                 esc_html(sprintf(_n('%d offene Platine gilt als bestanden und geht auf «Wareneingang Produktion». Ein Vorgang, zurücknehmen über die Änderungsnummer.', '%d offene Platinen gelten als bestanden und gehen auf «Wareneingang Produktion». Ein Vorgang, zurücknehmen über die Änderungsnummer.', $counts[Positions::TEST] + $counts[Positions::REWORK], 'taxmod-manufacturing'), $counts[Positions::TEST] + $counts[Positions::REWORK]))),
-            $order->step === 'order_test' => $this->testsSettled($order)
-                ? ListPage::stepButton($name['order_done'], true, '', 'do', 'done', $form)
-                : '<span class="description">' . esc_html__('«Fertiggestellt», wenn jede Platine bestanden hat oder verschrottet ist.', 'taxmod-manufacturing') . '</span>',
             default => '',
         };
 
@@ -761,12 +757,13 @@ final class OrdersPage
                 $cells[] = $row['position'] === 0 ? '' : '<input type="number" class="small-text" name="scrap[' . esc_attr($a) . '][' . esc_attr($position) . ']" form="' . esc_attr($form) . '" min="0" step="1" value="" aria-label="' . esc_attr__('Ausschuss', 'taxmod-manufacturing') . '">';
             }
 
-            $grid[] = $cells;
+            // The gate 18.11.: a fitting that is only shown has no tick column.
+            $grid[] = $closed ? array_slice($cells, 1) : $cells;
         }
 
         // The lines of a form, not a list: no filter, grouping or actions column (his report 17.11.).
-        $table = ListPage::grid(array_merge([
-            [__('Alle wählen', 'taxmod-manufacturing')], [__('Referenz', 'taxmod-manufacturing')], [__('Teil', 'taxmod-manufacturing')], [__('Bedarf (Teile)', 'taxmod-manufacturing'), GridMarkup::NUMBER],
+        $table = ListPage::grid(array_merge($closed ? [] : [[__('Alle wählen', 'taxmod-manufacturing')]], [
+            [__('Referenz', 'taxmod-manufacturing')], [__('Teil', 'taxmod-manufacturing')], [__('Bedarf (Teile)', 'taxmod-manufacturing'), GridMarkup::NUMBER],
             [__('Bestückt (Teile)', 'taxmod-manufacturing')], [__('Im Gebinde', 'taxmod-manufacturing'), GridMarkup::NUMBER], [__('Fehlt', 'taxmod-manufacturing'), GridMarkup::NUMBER],
             [__('Option', 'taxmod-manufacturing')],
         ], $scrap ? [[__('Ausschuss', 'taxmod-manufacturing')]] : []), $grid, '', $closed ? '' : 'taxmod-mf-ticks');
@@ -896,16 +893,6 @@ final class OrdersPage
                 /* translators: 1: wage per hour, 2: set-up hours per order */
                 ? __('Preis je Kit = Platine und Teile (Kaufpreise der verbrauchten Posten) + Bereitstellung (%2$s h je Auftrag, verteilt) + Packzeit × %1$s € je Stunde. Einstellbar unter Produktion.', 'taxmod-manufacturing')
                 : __('Preis je Platine = Teile (Kaufpreise der verbrauchten Posten) + Bereitstellung (%2$s h je Auftrag, verteilt) + Zeit × %1$s € je Stunde. Einstellbar unter Produktion.', 'taxmod-manufacturing'), $money($settings->wage), ListPage::number($settings->setupHours, 2))) . '</div>';
-    }
-
-    /** D-1419: «Fertiggestellt» once every completed board has passed or is scrapped. */
-    private function testsSettled(BuildOrder $order): bool
-    {
-        try {
-            return $order->testsSettled(array_column($this->service->testLots($order->id), 'state'));
-        } catch (ManufacturingError) {
-            return false;
-        }
     }
 
     /**

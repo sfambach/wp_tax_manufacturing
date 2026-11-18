@@ -726,25 +726,8 @@ final class ManufacturingService
 
             $after = $this->order($built->id);
 
-            // D-1433 A: from «In Fertigung» on the step is what the boards say; it is written only for a stock that cannot say it.
-            if ($this->canPositions()) {
-                return $this->derived([$after])[0]->step;
-            }
-
-            // D-1428: a kit has no «Test»; once all are packed it is done.
-            if ($after->kit && $after->isFinished()) {
-                $this->model->write((new OrderChanges($this->structure()))->setStep($after, 'order_done', $today));
-
-                return 'order_done';
-            }
-
-            if ($after->isFinished() && $this->structure()->hasValue('order_test')) {
-                $this->model->write((new OrderChanges($this->structure()))->setStep($after, 'order_test', $today));
-
-                return 'order_test';
-            }
-
-            return $after->step;
+            // D-1433 A: from «In Fertigung» on the step is what the boards say; nothing is written for it.
+            return $this->derived([$after])[0]->step;
         });
 
         return ['act' => $answer['act'], 'step' => $answer['result']];
@@ -872,7 +855,7 @@ final class ManufacturingService
     {
         $orders = array_values(array_unique(array_filter($orders)));
 
-        if ($orders === [] || ! has_filter(self::TEST_LOTS_FILTER) || ! $this->canPositions()) {
+        if ($orders === [] || ! has_filter(self::TEST_LOTS_FILTER)) {
             return [];
         }
 
@@ -903,7 +886,7 @@ final class ManufacturingService
     {
         $started = array_values(array_filter($orders, static fn (BuildOrder $o): bool => in_array($o->step, ['order_building', 'order_test', 'order_done'], true)));
 
-        if ($started === [] || ! $this->canPositions()) {
+        if ($started === []) {
             return $orders;
         }
 
@@ -914,12 +897,6 @@ final class ManufacturingService
 
     public const MOVE_LOTS_FILTER = 'taxmod_stock_move_lots';
     public const LOT_LABEL_FILTER = 'taxmod_stock_lot_label_button';
-
-    /** D-1433: the stock moves whole lots with their test result in one act (Lager 0.64.119). */
-    public function canPositions(): bool
-    {
-        return $this->canTest() && has_filter(self::MOVE_LOTS_FILTER);
-    }
 
     /**
      * D-1433 C/D: boards passed — «Fertiggestellt» — and moved from «Test» to «Wareneingang Produktion», one act.

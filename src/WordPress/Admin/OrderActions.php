@@ -239,16 +239,15 @@ final class OrderActions
         }
 
         // D-1433 C: «Bestanden» finishes the board and moves it to «Wareneingang Produktion», one act.
-        if ($action === TestSection::PASSED && $this->service->canPositions()) {
+        if ($action === TestSection::PASSED) {
             $back['act'] = $this->service->passBoards($order, $lots, $today);
 
             return 'passed_moved';
         }
 
-        $passed      = $action === TestSection::PASSED;
-        $back['act'] = $this->service->recordTest($order, $lots, $passed ? 'passed' : 'failed', $passed ? '' : $text, $today);
+        $back['act'] = $this->service->recordTest($order, $lots, 'failed', $text, $today);
 
-        return $passed ? 'test_passed' : 'test_failed';
+        return 'test_failed';
     }
 
     /**

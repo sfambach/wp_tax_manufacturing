@@ -57,7 +57,6 @@ final class TestSection
             return $bar . '<p class="description">' . esc_html__('Das Lager kennt noch keine Platine dieses Auftrags.', 'taxmod-manufacturing') . '</p>';
         }
 
-        $moves  = $this->service->canPositions();
         $costs  = $this->service->costOf(array_keys($lots));
         $parts  = array_merge([], ...array_map(static fn (array $cost): array => [...array_column((array) ($cost['parts'] ?? []), 'thing'), ...array_column((array) ($cost['scrap'] ?? []), 'thing')], array_values($costs)));
         $names  = $labels + $this->service->labelsOf(array_values(array_unique([...array_column($lots, 'thing'), ...array_column($lots, 'place'), ...array_map('intval', $parts)])));
@@ -79,7 +78,7 @@ final class TestSection
                 esc_html($row['tested_on']),
                 esc_html($row['note']),
                 ...($priced ? [isset($costs[$lot]) ? $this->cost($costs[$lot], $names) : '—'] : []),
-                $this->rowActions($order, $lot, $status, $row['note'], $moves),
+                $this->rowActions($order, $lot, $status, $row['note']),
             ];
         }
 
@@ -91,11 +90,8 @@ final class TestSection
                 $note('note', __('Was ist aufgefallen?', 'taxmod-manufacturing')) . '<p class="description">' . esc_html__('Die Platinen warten auf Nacharbeit; danach zurück in den Test.', 'taxmod-manufacturing') . '</p>', 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form)],
         ];
 
-        if ($moves) {
-            $dialogs[$form . '-retest'] = [__('Zurück in Test …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-retest', __('Zurück in Test …', 'taxmod-manufacturing'), __('Nacharbeit erledigt', 'taxmod-manufacturing'),
+        $dialogs[$form . '-retest'] = [__('Zurück in Test …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-retest', __('Zurück in Test …', 'taxmod-manufacturing'), __('Nacharbeit erledigt', 'taxmod-manufacturing'),
                 $note('retest_note', __('Was wurde nachgearbeitet? (optional)', 'taxmod-manufacturing')) . '<p class="description">' . esc_html__('Die Platinen kommen ungetestet zurück in den Test.', 'taxmod-manufacturing') . '</p>', 'action', self::RETEST, __('Zurück in Test', 'taxmod-manufacturing'), $form)];
-        }
-
         $dialogs[$form . '-scrap'] = [__('Verschrotten …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-scrap', __('Verschrotten …', 'taxmod-manufacturing'), __('Platinen verschrotten?', 'taxmod-manufacturing'),
             $note('reason', __('Grund', 'taxmod-manufacturing')) . '<p class="description">' . esc_html__('Die Platinen gehen ganz als «Defekt/Ausschuss» aus dem Lager, mit diesem Auftrag als Bezug. Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing') . '</p>', 'action', self::SCRAP, __('Verschrotten', 'taxmod-manufacturing'), $form)];
 
@@ -133,7 +129,7 @@ final class TestSection
      * Nacharbeit» and D-1433: what a board can do next from its status, in a form beside the bar — and its label, printed only
      * when pressed (D-1433 E).
      */
-    private function rowActions(BuildOrder $order, int $lot, string $status, string $note, bool $moves): string
+    private function rowActions(BuildOrder $order, int $lot, string $status, string $note): string
     {
         $form   = 'taxmod-mf-judge-' . $lot;
         $button = static fn (string $action, string $label): string => '<button type="submit" class="button" name="action" value="' . esc_attr($action) . '" form="' . esc_attr($form) . '">' . esc_html($label) . '</button>';
@@ -143,8 +139,8 @@ final class TestSection
             Positions::TEST => $button(self::PASSED, __('Bestanden', 'taxmod-manufacturing'))
                 . ListPage::dialogAction($form . '-failed', __('Nacharbeit …', 'taxmod-manufacturing'), sprintf(__('Platine #%d: Nacharbeit', 'taxmod-manufacturing'), $lot),
                     $text('note', __('Befund', 'taxmod-manufacturing'), $note, __('Die Platine wartet auf Nacharbeit; danach zurück in den Test.', 'taxmod-manufacturing')), 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form),
-            Positions::REWORK => ($moves ? ListPage::dialogAction($form . '-retest', __('Zurück in Test …', 'taxmod-manufacturing'), sprintf(__('Platine #%d: Nacharbeit erledigt', 'taxmod-manufacturing'), $lot),
-                    $text('retest_note', __('Was wurde nachgearbeitet? (optional)', 'taxmod-manufacturing'), '', __('Die Platine kommt ungetestet zurück in den Test.', 'taxmod-manufacturing')), 'action', self::RETEST, __('Zurück in Test', 'taxmod-manufacturing'), $form) : '')
+            Positions::REWORK => ListPage::dialogAction($form . '-retest', __('Zurück in Test …', 'taxmod-manufacturing'), sprintf(__('Platine #%d: Nacharbeit erledigt', 'taxmod-manufacturing'), $lot),
+                    $text('retest_note', __('Was wurde nachgearbeitet? (optional)', 'taxmod-manufacturing'), '', __('Die Platine kommt ungetestet zurück in den Test.', 'taxmod-manufacturing')), 'action', self::RETEST, __('Zurück in Test', 'taxmod-manufacturing'), $form)
                 . ListPage::dialogAction($form . '-scrap', __('Verschrotten …', 'taxmod-manufacturing'), sprintf(__('Platine #%d verschrotten?', 'taxmod-manufacturing'), $lot),
                     $text('reason', __('Grund', 'taxmod-manufacturing'), '', __('Die Platine geht ganz als «Defekt/Ausschuss» aus dem Lager. Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing')), 'action', self::SCRAP, __('Verschrotten', 'taxmod-manufacturing'), $form),
             default => '',
