@@ -86,6 +86,7 @@ final class Positions
         return match (true) {
             $counts[self::BUILDING] > 0                       => 'order_building',
             $counts[self::TEST] + $counts[self::REWORK] > 0   => 'order_test',
+            $order->hasFailed()                               => 'order_failed',
             default                                           => 'order_done',
         };
     }

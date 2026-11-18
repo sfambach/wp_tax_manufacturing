@@ -64,6 +64,7 @@ final class BuildOrders
                 $count($assemblies, $part, 'assembly_tested'),
                 $count($assemblies, $part, 'assembly_done'),
                 $s->hasField('assembly_note') ? (string) ($assemblies->first($part, $s->field('assembly_note')) ?? '') : '',
+                $s->hasValue('order_failed') && $assemblies->first($part, $s->field('assembly_status')) === (string) $s->value('order_failed'),
             );
         }
 

@@ -58,8 +58,23 @@ final class BuildOrder
         return $this->isFinished() && $states !== [] && array_diff($states, ['passed', 'scrapped']) === [];
     }
 
+    /** D-1464: the assemblies marked «Fehlgeschlagen». @return list<Assembly> */
+    public function failedAssemblies(): array
+    {
+        return array_values(array_filter($this->assemblies, static fn (Assembly $a): bool => $a->failed));
+    }
+
+    /**
+     * D-1464, the one place of the mixed case (INFERRED, open with him): the order failed when every assembly of it failed;
+     * one failed among several leaves it «Fertig».
+     */
+    public function hasFailed(): bool
+    {
+        return $this->assemblies !== [] && count($this->failedAssemblies()) === count($this->assemblies);
+    }
+
     public function isClosed(): bool
     {
-        return in_array($this->step, ['order_done', 'order_cancelled'], true);
+        return in_array($this->step, ['order_done', 'order_failed', 'order_cancelled'], true);
     }
 }

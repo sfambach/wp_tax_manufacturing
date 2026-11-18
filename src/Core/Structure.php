@@ -52,7 +52,7 @@ final class Structure
         'order_art', 'assembled_art'];
 
     /** D-954: the «Best.» values that matter here — «optional» may be left out, «nein» is never needed. */
-    private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no', 'fitting_external', 'order_staging', 'order_test', 'art_fitting', 'art_kit'];
+    private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no', 'fitting_external', 'order_staging', 'order_test', 'art_fitting', 'art_kit', 'order_failed'];
 
     /**
      * @param array<string, int> $nodes
@@ -111,7 +111,8 @@ final class Structure
             isset($this->fields[$key]) || $out[] = 'fields.' . $key;
         }
 
-        foreach ([...self::ORDER_STEPS, ...self::ASSEMBLY_STEPS] as $key) {
+        // D-1464: the assembly's own steps fell away with «Fehlgeschlagen»; before that model they are still needed.
+        foreach ([...self::ORDER_STEPS, ...(isset($this->values['order_failed']) ? [] : self::ASSEMBLY_STEPS)] as $key) {
             isset($this->values[$key]) || $out[] = 'values.' . $key;
         }
 

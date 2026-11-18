@@ -12,6 +12,7 @@ use TaxmodManufacturing\Core\Demand;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\OrderChanges;
 use TaxmodManufacturing\Core\Positions;
+use TaxmodManufacturing\Core\RevisionStatus;
 use TaxmodManufacturing\Core\Structure;
 use TaxmodManufacturing\Core\Table;
 
@@ -895,6 +896,40 @@ final class ManufacturingService
         return array_map(static fn (BuildOrder $o): BuildOrder => Positions::derive($o, $lots[$o->id] ?? []), $orders);
     }
 
+    /**
+     * D-1464: a fault found after the end marks these assemblies «Fehlgeschlagen»; the order is judged as its boards say.
+     *
+     * @param list<int> $assemblies
+     */
+    public function markFailed(int $order, array $assemblies, string $finding): void
+    {
+        $this->model->write((new OrderChanges($this->structure()))->markFailed($this->derived([$this->order($order)])[0], $assemblies, $finding));
+    }
+
+    /**
+     * D-1463: the status of each revision, derived from all orders as their boards say — read when asked, never kept.
+     *
+     * @param list<int> $revisions
+     * @return array<int, array{status: string, label: string}>
+     */
+    public function revisionStatuses(array $revisions): array
+    {
+        if ($revisions === []) {
+            return [];
+        }
+
+        $words = [RevisionStatus::NEW => __('Neu', 'taxmod-manufacturing'), RevisionStatus::CONFIRMED => __('Bestätigt', 'taxmod-manufacturing'), RevisionStatus::REJECTED => __('Nicht bestätigt', 'taxmod-manufacturing')]
+            + \TaxmodManufacturing\WordPress\Admin\OrdersPage::viewLabels();
+
+        return array_map(static fn (string $status): array => ['status' => $status, 'label' => (string) ($words[$status] ?? $status)], RevisionStatus::ofEach($revisions, $this->derived($this->orders())));
+    }
+
+    /** D-1464: «Fehlgeschlagen» is in the model (Teil 1b); before it the action is not offered. */
+    public function canFail(): bool
+    {
+        return $this->structure()->hasValue('order_failed');
+    }
+
     public const MOVE_LOTS_FILTER = 'taxmod_stock_move_lots';
     public const LOT_LABEL_FILTER = 'taxmod_stock_lot_label_button';
 
@@ -945,7 +980,7 @@ final class ManufacturingService
             throw ManufacturingError::nothingSelected();
         }
 
-        return $this->moveLots($order, $done, $place, 'untested', __('Auftrag zurück in Fertigung', 'taxmod-manufacturing'), $today);
+        return $this->moveLots($order, $done, $place, 'untested', __('Auftrag zurück in Bau', 'taxmod-manufacturing'), $today);
     }
 
     /**
