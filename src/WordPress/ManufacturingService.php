@@ -1455,8 +1455,9 @@ final class ManufacturingService
             return [];
         }
 
+        // Review F3: only the stock records of these materials, not the whole stock node (D-1195).
         $wanted = array_flip($things);
-        $table  = $this->table('lager');
+        $table  = $this->model->records($this->model->referrers($things, $s->field('lager_thing')));
         $out    = [];
 
         foreach ($table->ids() as $id) {
@@ -1483,8 +1484,8 @@ final class ManufacturingService
      */
     public function boardsOfRevisions(array $revisions): array
     {
-        $boards = $this->table('board');
         $field  = $this->structure()->field('board_revisions');
+        $boards = $this->model->records($this->model->referrers($revisions, $field));
         $want   = array_flip($revisions);
         $out    = [];
 

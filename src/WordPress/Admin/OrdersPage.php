@@ -90,6 +90,8 @@ final class OrdersPage
 
     /** @var array<int, array<int, string>>|null */
     private ?array $boards = null;
+    /** @var array<string, string> Review F5: order:assembly → its category chooser, drawn once per page */
+    private array $choosers = [];
 
     public function __construct(private readonly ManufacturingService $service = new ManufacturingService())
     {
@@ -790,6 +792,11 @@ final class OrdersPage
      * that dialog whole, Cancel included (his report 17.11. 21:37 «unktioniert nix noch nihct mal cancel»).
      */
     private function categoryChooser(BuildOrder $order, Assembly $assembly): string
+    {
+        return $this->choosers[$order->id . ':' . $assembly->id] ??= $this->drawCategoryChooser($order, $assembly);
+    }
+
+    private function drawCategoryChooser(BuildOrder $order, Assembly $assembly): string
     {
         if (! $this->service->canReceive() || $this->service->existingMaterial($assembly->revision, $order->kit) !== null) {
             return '';
