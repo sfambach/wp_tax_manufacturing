@@ -277,11 +277,11 @@ final class OrdersPage
         // back to «Angelegt» gives the order's reservations free (D-1384: picking belongs to «Bereitstellung»); the box keeps its parts.
         $back = match (true) {
             // D-1433 D, architecture 18.11.: the finished boards go back onto «Test», untested; before the completion only the undo.
-            $counts[Positions::DONE] > 0 && in_array($order->step, ['order_test', 'order_done'], true) => $this->dialogForm('back_test', $order, '← ' . __('Zurück in Fertigung', 'taxmod-manufacturing'), __('Auftrag zurück in Fertigung?', 'taxmod-manufacturing'),
+            $counts[Positions::DONE] > 0 && in_array($order->step, ['order_test', 'order_done'], true) => $this->dialogForm('back_test', $order, '← ' . __('Zurück in Fertigung', 'taxmod-manufacturing'), __('Zurück in Fertigung', 'taxmod-manufacturing'),
                 esc_html(sprintf(_n('%d fertiggestellte Platine geht zurück auf «Test», ungetestet. Ein Vorgang, zurücknehmen über die Änderungsnummer.', '%d fertiggestellte Platinen gehen zurück auf «Test», ungetestet. Ein Vorgang, zurücknehmen über die Änderungsnummer.', $counts[Positions::DONE], 'taxmod-manufacturing'), $counts[Positions::DONE]))),
             // His report 18.11.: «Zurück» led to the list, so it says so.
             $previous === ''                                       => ListPage::stepButton(__('Übersicht', 'taxmod-manufacturing'), false, $list),
-            $previous === 'order_planned' && $held !== []          => $this->dialogForm('back', $order, '← ' . $name[$previous], sprintf(__('Zurück nach «%s»?', 'taxmod-manufacturing'), $name[$previous]),
+            $previous === 'order_planned' && $held !== []          => $this->dialogForm('back', $order, '← ' . $name[$previous], sprintf(__('Zurück nach «%s»', 'taxmod-manufacturing'), $name[$previous]),
                 esc_html(sprintf(_n('%d Reservierung dieses Auftrags wird freigegeben (Storno im Lager). Was schon im Gebinde liegt, bleibt dort.', '%d Reservierungen dieses Auftrags werden freigegeben (Storno im Lager). Was schon im Gebinde liegt, bleibt dort.', count($held), 'taxmod-manufacturing'), count($held)))),
             default                                                => ListPage::stepButton($name[$previous], false, '', 'do', 'back', $form),
         };
@@ -289,7 +289,7 @@ final class OrdersPage
         $forward = match (true) {
             $order->step === 'order_planned' && $staging => ListPage::stepButton($name['order_staging'], true, '', 'do', 'staging', $form),
             in_array($order->step, ['order_planned', 'order_staging'], true) => $missing > 0 && $order->box !== null
-                ? $this->dialogForm('building', $order, $name['order_building'] . ' →', __('In Fertigung geben, obwohl Teile fehlen?', 'taxmod-manufacturing'),
+                ? $this->dialogForm('building', $order, $name['order_building'] . ' →', __('Trotz Fehlteilen in Fertigung geben', 'taxmod-manufacturing'),
                     esc_html(sprintf(_n('Es fehlt noch %d Position. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', 'Es fehlen noch %d Positionen. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', $missing, 'taxmod-manufacturing'), $missing))
                     . '</p><p><label>' . esc_html__('Grund', 'taxmod-manufacturing') . '<br><input type="text" class="regular-text" name="reason" required></label>')
                 : ListPage::stepButton($name['order_building'], true, '', 'do', 'building', $form),
@@ -297,7 +297,7 @@ final class OrdersPage
             $order->step === 'order_building' && ! $order->isFinished() && $this->service->structure()->hasField('assembly_done') => $this->finishDialog($order, $labels),
             $order->step === 'order_building' && $order->isFinished() && ! $this->service->structure()->hasValue('order_test') => ListPage::stepButton($name['order_done'], true, '', 'do', 'done', $form),
             // D-1433 D: «Fertigstellen» passes every open board and moves it to «Wareneingang Produktion».
-            $order->step === 'order_test' => $this->dialogForm('finish_all', $order, __('Fertigstellen', 'taxmod-manufacturing') . ' →', __('Alle offenen Platinen fertigstellen?', 'taxmod-manufacturing'),
+            $order->step === 'order_test' => $this->dialogForm('finish_all', $order, __('Fertigstellen', 'taxmod-manufacturing') . ' →', __('Alle offenen Platinen fertigstellen', 'taxmod-manufacturing'),
                 esc_html(sprintf(_n('%d offene Platine gilt als bestanden und geht auf «Wareneingang Produktion». Ein Vorgang, zurücknehmen über die Änderungsnummer.', '%d offene Platinen gelten als bestanden und gehen auf «Wareneingang Produktion». Ein Vorgang, zurücknehmen über die Änderungsnummer.', $counts[Positions::TEST] + $counts[Positions::REWORK], 'taxmod-manufacturing'), $counts[Positions::TEST] + $counts[Positions::REWORK]))),
             default => '',
         };
@@ -307,14 +307,14 @@ final class OrdersPage
         // His word 17.11. 22:04 «warum ist der button gebinde leer räumen überall in fertigung zu sehen»: what is left goes back
         // once the order has ended, and only when something is left.
         if ($order->box !== null && $order->isClosed() && has_filter(ManufacturingService::RETURN_FILTER) && $this->service->presentIn($order->box) !== []) {
-            $actions[] = $this->dialogForm('clear', $order, __('Gebinde leer räumen', 'taxmod-manufacturing'), __('Gebinde leer räumen?', 'taxmod-manufacturing'),
+            $actions[] = $this->dialogForm('clear', $order, __('Gebinde leer räumen', 'taxmod-manufacturing'), __('Gebinde leer räumen', 'taxmod-manufacturing'),
                 esc_html__('Alles im Gebinde geht zurück an den Platz, von dem es kam. Ein Vorgang, rückgängig über Storno.', 'taxmod-manufacturing'));
         }
 
         $actions[] = $order->isClosed()
-            ? $this->dialogForm('reopen', $order, __('Wieder aufnehmen', 'taxmod-manufacturing'), __('Auftrag wieder aufnehmen?', 'taxmod-manufacturing'),
+            ? $this->dialogForm('reopen', $order, __('Wieder aufnehmen', 'taxmod-manufacturing'), __('Wieder aufnehmen', 'taxmod-manufacturing'),
                 esc_html__('Der Auftrag kommt zurück, mit dem Stand seiner Platinen.', 'taxmod-manufacturing'))
-            : $this->dialogForm('cancel', $order, __('Abbrechen', 'taxmod-manufacturing'), __('Auftrag abbrechen?', 'taxmod-manufacturing'),
+            : $this->dialogForm('cancel', $order, __('Abbrechen', 'taxmod-manufacturing'), __('Abbrechen', 'taxmod-manufacturing'),
                 esc_html__('Nichts wird gelöscht; «Wieder aufnehmen» holt ihn zurück.', 'taxmod-manufacturing'));
 
         $sections = [];
@@ -681,37 +681,37 @@ final class OrdersPage
         $buttons = '';
 
         if ($order->step === 'order_planned' && $this->service->structure()->hasValue('order_staging')) {
-            $buttons .= $this->dialogForm('staging', $order, __('In Bereitstellung geben', 'taxmod-manufacturing'), __('In Bereitstellung geben?', 'taxmod-manufacturing'),
+            $buttons .= $this->dialogForm('staging', $order, __('In Bereitstellung geben', 'taxmod-manufacturing'), __('In Bereitstellung geben', 'taxmod-manufacturing'),
                 esc_html__('Die Teile werden jetzt ins Gebinde umgelagert oder reserviert.', 'taxmod-manufacturing'));
         }
 
         if (in_array($order->step, ['order_planned', 'order_staging'], true)) {
             $buttons .= $missing === 0 || $order->box === null
-                ? $this->dialogForm('building', $order, __('In Fertigung geben', 'taxmod-manufacturing'), __('In Fertigung geben?', 'taxmod-manufacturing'),
+                ? $this->dialogForm('building', $order, __('In Fertigung geben', 'taxmod-manufacturing'), __('In Fertigung geben', 'taxmod-manufacturing'),
                     esc_html__('Alle Teile sind bereit.', 'taxmod-manufacturing'))
-                : $this->dialogForm('building', $order, __('Trotzdem in Fertigung geben …', 'taxmod-manufacturing'), __('Trotzdem in Fertigung geben?', 'taxmod-manufacturing'),
+                : $this->dialogForm('building', $order, __('Trotzdem in Fertigung geben …', 'taxmod-manufacturing'), __('Trotz Fehlteilen in Fertigung geben', 'taxmod-manufacturing'),
                     esc_html(sprintf(_n('Es fehlt noch %d Position. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', 'Es fehlen noch %d Positionen. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', $missing, 'taxmod-manufacturing'), $missing))
                     . '</p><p><label>' . esc_html__('Grund', 'taxmod-manufacturing') . '<br><input type="text" class="regular-text" name="reason" required></label>');
         }
 
         if (! $order->isClosed() && $order->isFinished()) {
-            $buttons .= $this->dialogForm('done', $order, __('Abschließen', 'taxmod-manufacturing'), __('Auftrag abschließen?', 'taxmod-manufacturing'),
+            $buttons .= $this->dialogForm('done', $order, __('Abschließen', 'taxmod-manufacturing'), __('Abschließen', 'taxmod-manufacturing'),
                 esc_html__('Alle Platinen aller Baugruppen sind fertig. Der Auftrag wird als fertig markiert; «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'));
         }
 
         // His word 17.11. 22:04 «warum ist der button gebinde leer räumen überall in fertigung zu sehen»: what is left goes back
         // once the order has ended, and only when something is left.
         if ($order->box !== null && $order->isClosed() && has_filter(ManufacturingService::RETURN_FILTER) && $this->service->presentIn($order->box) !== []) {
-            $buttons .= $this->dialogForm('clear', $order, __('Box leer räumen', 'taxmod-manufacturing'), __('Gebinde leer räumen?', 'taxmod-manufacturing'),
+            $buttons .= $this->dialogForm('clear', $order, __('Box leer räumen', 'taxmod-manufacturing'), __('Gebinde leer räumen', 'taxmod-manufacturing'),
                 esc_html__('Alles im Gebinde geht zurück an den Platz, von dem es kam. Ein Vorgang, rückgängig über Storno.', 'taxmod-manufacturing'));
         }
 
         if ($order->isClosed()) {
-            return $buttons . $this->dialogForm('reopen', $order, __('Wieder aufnehmen', 'taxmod-manufacturing'), __('Auftrag wieder aufnehmen?', 'taxmod-manufacturing'),
+            return $buttons . $this->dialogForm('reopen', $order, __('Wieder aufnehmen', 'taxmod-manufacturing'), __('Wieder aufnehmen', 'taxmod-manufacturing'),
                 esc_html__('Der Auftrag kommt zurück in «Offen», mit dem Stand seiner Platinen.', 'taxmod-manufacturing'));
         }
 
-        return $buttons . $this->dialogForm('cancel', $order, __('Abbrechen', 'taxmod-manufacturing'), __('Auftrag abbrechen?', 'taxmod-manufacturing'),
+        return $buttons . $this->dialogForm('cancel', $order, __('Abbrechen', 'taxmod-manufacturing'), __('Abbrechen', 'taxmod-manufacturing'),
             esc_html__('Nichts wird gelöscht; «Wieder aufnehmen» holt ihn zurück.', 'taxmod-manufacturing'));
     }
 
@@ -843,7 +843,7 @@ final class OrdersPage
 
         return '<form method="post" id="' . esc_attr(self::finishFormId($order)) . '" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => 'detail'])
-            . ListPage::dialogAction('taxmod-mf-finish-' . $order->id, $label, $order->kit ? __('Kits abschließen', 'taxmod-manufacturing') : __('Fertigung abschließen', 'taxmod-manufacturing'), $body, 'do', 'finish', __('Abschließen', 'taxmod-manufacturing'))
+            . ListPage::dialogAction('taxmod-mf-finish-' . $order->id, $label, sprintf(__('%1$s: %2$s', 'taxmod-manufacturing'), $order->kit ? __('Kits abschließen', 'taxmod-manufacturing') : __('Fertigung abschließen', 'taxmod-manufacturing'), $order->label), $body, 'do', 'finish', __('Abschließen', 'taxmod-manufacturing'))
             . '</form>';
     }
 
@@ -982,7 +982,7 @@ final class OrdersPage
 
         return '<form method="post" id="' . esc_attr($formId) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'tab' => $this->tab()] + ($box > 0 ? ['box' => (string) $box] : []))
-            . ListPage::dialogAction('taxmod-mf-new' . ($box > 0 ? '-' . $box : ''), $box > 0 ? __('+ Auftrag', 'taxmod-manufacturing') : __('Neuer Auftrag', 'taxmod-manufacturing'), __('Neuer Fertigungsauftrag', 'taxmod-manufacturing'), $body, 'do', 'create', __('Anlegen', 'taxmod-manufacturing'))
+            . ListPage::dialogAction('taxmod-mf-new' . ($box > 0 ? '-' . $box : ''), $box > 0 ? __('+ Auftrag', 'taxmod-manufacturing') : __('Neuer Auftrag', 'taxmod-manufacturing'), __('Anlegen: Fertigungsauftrag', 'taxmod-manufacturing'), $body, 'do', 'create', __('Anlegen', 'taxmod-manufacturing'))
             . '</form>';
     }
 
@@ -1041,7 +1041,8 @@ final class OrdersPage
     {
         return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => absint($_GET['auftrag'] ?? 0) === $order->id ? 'detail' : ''])
-            . ListPage::dialogAction('taxmod-mf-' . $do . '-' . $order->id, $opener, $title, '<p>' . $body . '</p>', 'do', $do, $opener)
+            // D-1436: the title is the verb, and the order it acts on.
+            . ListPage::dialogAction('taxmod-mf-' . $do . '-' . $order->id, $opener, sprintf(__('%1$s: %2$s', 'taxmod-manufacturing'), $title, $order->label), '<p>' . $body . '</p>', 'do', $do, $opener)
             . '</form>';
     }
 

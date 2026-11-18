@@ -174,7 +174,7 @@ final class StagingSection
         $reorder = $list !== '' && $this->service->canReorder()
             ? '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-inline">' . wp_nonce_field($this->nonce, '_wpnonce', true, false)
                 . $this->hidden(['action' => $this->action, 'order' => (string) $order->id, 'tab' => $this->tab])
-                . ListPage::dialogAction('taxmod-mf-reorder-' . $order->id, __('Fehlendes nachbestellen', 'taxmod-manufacturing'), __('Fehlendes nachbestellen?', 'taxmod-manufacturing'),
+                . ListPage::dialogAction('taxmod-mf-reorder-' . $order->id, __('Fehlendes nachbestellen', 'taxmod-manufacturing'), sprintf(__('Fehlendes nachbestellen: %s', 'taxmod-manufacturing'), $order->label),
                     '<p>' . esc_html__('Was an keinem Lagerort liegt, kommt als neuer Bedarf in den Einkauf. Packungsgröße und Händler wählst du dort.', 'taxmod-manufacturing') . '</p><ul>' . $list . '</ul>',
                     'do', 'reorder', __('Bedarf anlegen', 'taxmod-manufacturing'))
                 . '</form>'
@@ -284,7 +284,7 @@ final class StagingSection
 
         return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-noprint taxmod-mf-assign">' . wp_nonce_field($this->nonce, '_wpnonce', true, false)
             . $this->hidden(['action' => $this->action, 'order' => (string) $order->id, 'position' => (string) $position, 'tab' => $this->tab])
-            . ListPage::dialogAction($key . '-dialog', __('Aus Bestand wählen', 'taxmod-manufacturing'), sprintf(__('Aus Bestand wählen · %s', 'taxmod-manufacturing'), $labels[$wanted] ?? '#' . $wanted), $picker, 'do', 'assign', __('Zuweisen', 'taxmod-manufacturing'))
+            . ListPage::dialogAction($key . '-dialog', __('Aus Bestand wählen', 'taxmod-manufacturing'), sprintf(__('Aus Bestand wählen: %s', 'taxmod-manufacturing'), $labels[$wanted] ?? '#' . $wanted), $picker, 'do', 'assign', __('Zuweisen', 'taxmod-manufacturing'))
             . '</form>';
     }
 
