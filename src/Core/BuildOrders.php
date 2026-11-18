@@ -64,7 +64,6 @@ final class BuildOrders
                 $count($assemblies, $part, 'assembly_tested'),
                 $count($assemblies, $part, 'assembly_done'),
                 $s->hasField('assembly_note') ? (string) ($assemblies->first($part, $s->field('assembly_note')) ?? '') : '',
-                $s->hasValue('order_failed') && $assemblies->first($part, $s->field('assembly_status')) === (string) $s->value('order_failed'),
             );
         }
 
@@ -84,6 +83,7 @@ final class BuildOrders
             (string) ($optional('order_shortage_reason') ?? ''),
             ($due = substr((string) ($optional('order_due') ?? ''), 0, 10)) === '' ? null : $due,
             $s->hasValue('art_kit') && (int) ($optional('order_art') ?? 0) === $s->value('art_kit'),
+            (string) ($optional('order_note') ?? ''),
         );
     }
 }

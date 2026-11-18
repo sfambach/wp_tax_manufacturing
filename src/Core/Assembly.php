@@ -4,7 +4,7 @@ namespace TaxmodManufacturing\Core;
 
 /**
  * One board of a build order: the revision built, on how many boards each position is fitted, the options left out, and
- * how many boards are tested and finished (D-1145, D-1146), and whether it failed (D-1464).
+ * how many boards are tested and finished (D-1145, D-1146).
  */
 final class Assembly
 {
@@ -20,8 +20,6 @@ final class Assembly
         public readonly int $tested = 0,
         public readonly int $done = 0,
         public readonly string $note = '',
-        /** D-1464: marked «Fehlgeschlagen» after it was «Fertig»; otherwise it stands where its order stands */
-        public readonly bool $failed = false,
     ) {
     }
 

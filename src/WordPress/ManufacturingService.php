@@ -896,14 +896,10 @@ final class ManufacturingService
         return array_map(static fn (BuildOrder $o): BuildOrder => Positions::derive($o, $lots[$o->id] ?? []), $orders);
     }
 
-    /**
-     * D-1464: a fault found after the end marks these assemblies «Fehlgeschlagen»; the order is judged as its boards say.
-     *
-     * @param list<int> $assemblies
-     */
-    public function markFailed(int $order, array $assemblies, string $finding): void
+    /** D-1464: the plan does not work — the «Fertig» order becomes «Fehlgeschlagen», with the finding. */
+    public function markFailed(int $order, string $finding): void
     {
-        $this->model->write((new OrderChanges($this->structure()))->markFailed($this->derived([$this->order($order)])[0], $assemblies, $finding));
+        $this->model->write((new OrderChanges($this->structure()))->markFailed($this->derived([$this->order($order)])[0], $finding));
     }
 
     /**

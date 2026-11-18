@@ -22,7 +22,7 @@ final class Structure
 
     public const OWN_FIELDS = [
         'order_project', 'order_count', 'order_status', 'order_assemblies',
-        'assembly_revision', 'assembly_status', 'assembly_unused',
+        'assembly_revision', 'assembly_unused',
         // D-1146: on how many boards a position is fitted, as parts of the assembly.
         'assembly_fitted', 'fitting_position', 'fitting_boards',
     ];
@@ -31,7 +31,7 @@ final class Structure
     public const ORDER_STEPS = ['order_planned', 'order_building', 'order_done', 'order_cancelled'];
 
     /** D-1300: the process an order runs through; «Bereitstellung» and «Test» (D-1419) are optional until the model has them. */
-    public const PROCESS = ['order_planned', 'order_staging', 'order_building', 'order_test', 'order_done', 'order_cancelled'];
+    public const PROCESS = ['order_planned', 'order_staging', 'order_building', 'order_test', 'order_done', 'order_failed', 'order_cancelled'];
 
     public const ASSEMBLY_STEPS = ['build_open', 'build_parts', 'build_assembled', 'build_tested', 'build_done'];
 
@@ -40,6 +40,8 @@ final class Structure
     private const OPTIONAL_NODES = ['location', 'assembled', 'lager', 'hardware', 'check_step'];
 
     private const OPTIONAL_FIELDS = ['order_shortage_reason', 'order_box', 'order_started', 'order_finished', 'order_note', 'assembly_note', 'assembly_tested', 'assembly_done',
+        // D-1464: the assembly's own status falls away with «Fehlgeschlagen» at the order (Teil 1b, A1 removes the field).
+        'assembly_status',
         // D-954: the column «Best.» of a parts list and the reference designators; D-1030: the project a box belongs to.
         'position_fitting', 'position_ref', 'location_project', 'assembled_revision',
         // D-1178: the pins a socket strip loses at each cut, on the material's stock record.

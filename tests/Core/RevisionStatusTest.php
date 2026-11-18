@@ -12,14 +12,14 @@ final class RevisionStatusTest extends TestCase
 {
     private const REVISION = 305;
 
-    private function order(int $id, string $step, bool $failed = false, int $revision = self::REVISION): BuildOrder
+    private function order(int $id, string $step, int $revision = self::REVISION): BuildOrder
     {
-        return new BuildOrder($id, 'A', 100, 1, $step, null, null, null, [new Assembly($id + 1, $revision, [], [], 0, 1, '', $failed)]);
+        return new BuildOrder($id, 'A', 100, 1, $step, null, null, null, [new Assembly($id + 1, $revision, [], [], 0, 1)]);
     }
 
     public function testWithoutAnOrderItIsNew(): void
     {
-        self::assertSame(RevisionStatus::NEW, RevisionStatus::of(self::REVISION, [$this->order(10, 'order_done', false, 999)]));
+        self::assertSame(RevisionStatus::NEW, RevisionStatus::of(self::REVISION, [$this->order(10, 'order_done', 999)]));
     }
 
     public function testCancelledOrdersDoNotCount(): void
@@ -36,32 +36,24 @@ final class RevisionStatusTest extends TestCase
 
     public function testTheFirstIsTheOneCreatedFirstHoweverManyFollow(): void
     {
-        self::assertSame('order_planned', RevisionStatus::of(self::REVISION, [$this->order(30, 'order_done'), $this->order(10, 'order_planned'), $this->order(20, 'order_done', true)]));
+        self::assertSame('order_planned', RevisionStatus::of(self::REVISION, [$this->order(30, 'order_done'), $this->order(10, 'order_planned'), $this->order(20, 'order_failed')]));
     }
 
     public function testFirstOrderDoneIsConfirmed(): void
     {
-        self::assertSame(RevisionStatus::CONFIRMED, RevisionStatus::of(self::REVISION, [$this->order(10, 'order_done'), $this->order(20, 'order_done', true)]));
+        self::assertSame(RevisionStatus::CONFIRMED, RevisionStatus::of(self::REVISION, [$this->order(10, 'order_done'), $this->order(20, 'order_failed')]));
     }
 
     public function testFirstOrderFailedIsNotConfirmed(): void
     {
-        self::assertSame(RevisionStatus::REJECTED, RevisionStatus::of(self::REVISION, [$this->order(10, 'order_failed', true), $this->order(20, 'order_done')]));
+        self::assertSame(RevisionStatus::REJECTED, RevisionStatus::of(self::REVISION, [$this->order(10, 'order_failed'), $this->order(20, 'order_done')]));
     }
 
-    public function testAFailedAssemblyInADoneOrderIsNotConfirmed(): void
+    public function testEveryRevisionOfAFailedOrderIsNotConfirmed(): void
     {
-        $order = new BuildOrder(10, 'A', 100, 1, 'order_done', null, null, null, [new Assembly(11, self::REVISION, [], [], 0, 1, '', true), new Assembly(12, 306, [], [], 0, 1)]);
+        // D-1464 (his words 18.11. 22:52): «Fehlgeschlagen» is the whole order's; a single bad board is scrap and changes nothing here.
+        $order = new BuildOrder(10, 'A', 100, 1, 'order_failed', null, null, null, [new Assembly(11, self::REVISION, [], [], 0, 1), new Assembly(12, 306, [], [], 0, 1)]);
 
-        self::assertSame([self::REVISION => RevisionStatus::REJECTED, 306 => RevisionStatus::CONFIRMED], RevisionStatus::ofEach([self::REVISION, 306], [$order]));
-        self::assertFalse($order->hasFailed(), 'one of several failed leaves the order «Fertig» (INFERRED)');
-    }
-
-    public function testTheMixedCaseOfOneRevisionFollowsTheOrdersRule(): void
-    {
-        // D-1463/D-1464: one of two boards of the same revision failed — the same rule as BuildOrder::hasFailed() (INFERRED).
-        $order = new BuildOrder(10, 'A', 100, 1, 'order_done', null, null, null, [new Assembly(11, self::REVISION, [], [], 0, 1, '', true), new Assembly(12, self::REVISION, [], [], 0, 1)]);
-
-        self::assertSame(RevisionStatus::CONFIRMED, RevisionStatus::of(self::REVISION, [$order]));
+        self::assertSame([self::REVISION => RevisionStatus::REJECTED, 306 => RevisionStatus::REJECTED], RevisionStatus::ofEach([self::REVISION, 306], [$order]));
     }
 }

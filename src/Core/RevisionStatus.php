@@ -15,7 +15,7 @@ namespace TaxmodManufacturing\Core;
  * ```
  *
  * «Erster» is the one created first, which is the lowest id; only the first counts, however many follow (his words 18.11.
- * 20:35). The step of an assembly is its order's, unless it is marked «Fehlgeschlagen» (D-1464).
+ * 20:35). «Fehlgeschlagen» is the whole order's: a single board that does not work is scrap (D-1464, his words 22:52).
  *
  * @see docs/NewConcept/90-decision-log.md D-1463
  */
@@ -57,9 +57,9 @@ final class RevisionStatus
 
                 $set[$assembly->revision] = true;
                 $out[$assembly->revision] = match (true) {
-                    $order->step === 'order_failed' || ($order->step === 'order_done' && $order->failedFor($assembly->revision)) => self::REJECTED,
-                    $order->step === 'order_done'                        => self::CONFIRMED,
-                    default                                              => $order->step,
+                    $order->step === 'order_failed' => self::REJECTED,
+                    $order->step === 'order_done'   => self::CONFIRMED,
+                    default                         => $order->step,
                 };
             }
         }

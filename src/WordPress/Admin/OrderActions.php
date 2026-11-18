@@ -501,14 +501,13 @@ final class OrderActions
     }
 
     /**
-     * D-1464: «Fehlgeschlagen …» on a «Fertig» order — the ticked assemblies and the finding.
+     * D-1464: «Fehlgeschlagen …» on a «Fertig» order, with the finding.
      *
      * @param array<string, string|int> $back
      */
     private function markFailed(int $order, array &$back): string
     {
-        $assemblies      = array_values(array_filter(array_map('absint', (array) wp_unslash($_POST['assemblies'] ?? []))));
-        $this->service->markFailed($order, $assemblies, sanitize_textarea_field(wp_unslash((string) ($_POST['finding'] ?? ''))));
+        $this->service->markFailed($order, sanitize_textarea_field(wp_unslash((string) ($_POST['finding'] ?? ''))));
         $back['auftrag'] = $order;
 
         return 'failed';

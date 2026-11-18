@@ -70,8 +70,8 @@ final class OrderChanges
         foreach ($revisions as $i => $revision) {
             $parts['b' . ($i + 1)] = [(string) $s->field('assembly_revision') => (string) $revision];
 
-            // D-1464: with «Fehlgeschlagen» in the model the field holds only that mark; before it, the old «offen».
-            if (! $s->hasValue('order_failed')) {
+            // D-1464: with «Fehlgeschlagen» in the model the assembly has no status of its own; before it, the old «offen».
+            if (! $s->hasValue('order_failed') && $s->hasField('assembly_status')) {
                 $parts['b' . ($i + 1)][(string) $s->field('assembly_status')] = (string) $s->value('build_open');
             }
         }
@@ -192,13 +192,12 @@ final class OrderChanges
     }
 
     /**
-     * D-1464: a fault found after the end — these assemblies of a «Fertig» order become «Fehlgeschlagen», the finding added to
-     * their note. The revision's status follows (D-1463); taking it back is the undo of the change number (D-1410).
+     * D-1464: the plan does not work — a «Fertig» order becomes «Fehlgeschlagen», the finding added to its note. A single
+     * board that does not work is scrap, not this (his words 18.11. 22:52). «Wieder aufnehmen» takes it back (D-1410 too).
      *
-     * @param list<int> $assemblies
      * @return list<array<string, mixed>>
      */
-    public function markFailed(BuildOrder $order, array $assemblies, string $finding): array
+    public function markFailed(BuildOrder $order, string $finding): array
     {
         $s = $this->s;
 
@@ -206,24 +205,17 @@ final class OrderChanges
             throw ManufacturingError::unknownStatus('order_failed');
         }
 
-        if ($assemblies === []) {
-            throw ManufacturingError::nothingSelected();
+        if (trim($finding) === '') {
+            throw ManufacturingError::textNeeded('finding');
         }
 
-        $changes = [];
+        $values = $this->stepValues('order_failed', null, null);
 
-        foreach ($assemblies as $id) {
-            $assembly = $order->assembly($id) ?? throw ManufacturingError::assemblyNotOfOrder($id, $order->id);
-            $values   = [(string) $s->field('assembly_status') => (string) $s->value('order_failed')];
-
-            if (trim($finding) !== '' && $s->hasField('assembly_note')) {
-                $values[(string) $s->field('assembly_note')] = $assembly->note === '' ? trim($finding) : $assembly->note . "\n" . trim($finding);
-            }
-
-            $changes[] = ['op' => 'set_values', 'record' => (string) $assembly->id, 'values' => $values];
+        if ($s->hasField('order_note')) {
+            $values[(string) $s->field('order_note')] = $order->note === '' ? trim($finding) : $order->note . "\n" . trim($finding);
         }
 
-        return $changes;
+        return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $values]];
     }
 
     /**
@@ -290,10 +282,7 @@ final class OrderChanges
 
         if ($to === 'reopen') {
             $started = array_filter($order->assemblies, static fn (Assembly $a): bool => array_filter(array_column($a->fitted, 'boards')) !== []) !== [];
-            // D-1464 INFERRED: taken up again, a failed assembly is open again; its finding stays in the note.
-            $cleared = array_map(fn (Assembly $a): array => ['op' => 'set_values', 'record' => (string) $a->id, 'values' => [(string) $this->s->field('assembly_status') => '']], $order->failedAssemblies());
-
-            return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $this->stepValues($started ? 'order_building' : 'order_planned', null, '')], ...$cleared];
+            return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $this->stepValues($started ? 'order_building' : 'order_planned', null, '')]];
         }
 
         throw ManufacturingError::unknownStatus($to);

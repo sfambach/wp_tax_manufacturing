@@ -241,7 +241,7 @@ final class OrdersPage
         // D-1433: the boards of the order, read once — their statuses, the order's step derived from them, the positions' list.
         $lots    = [];
 
-        if (in_array($found[0]->step, ['order_building', 'order_test', 'order_done'], true) && $this->service->canTest()) {
+        if (in_array($found[0]->step, ['order_building', 'order_test', 'order_done', 'order_failed'], true) && $this->service->canTest()) {
             try {
                 $lots = $this->service->testLots($found[0]->id);
             } catch (ManufacturingError) {
@@ -316,9 +316,9 @@ final class OrdersPage
                 esc_html__('Alles im Gebinde geht zurück an den Platz, von dem es kam. Ein Vorgang, rückgängig über Storno.', 'taxmod-manufacturing'));
         }
 
-        // D-1464: a fault found after the end — only from «Fertig», only for a built order; back only by the undo.
+        // D-1464: the plan does not work — only from «Fertig», only for a built order.
         if ($order->step === 'order_done' && ! $order->kit && $this->service->canFail()) {
-            $actions[] = $this->failDialog($order, $labels);
+            $actions[] = $this->failDialog($order);
         }
 
         $actions[] = $order->isClosed()
@@ -361,7 +361,7 @@ final class OrdersPage
         }
 
         // D-1419, D-1433: the boards with their statuses from the first completion on; a kit's too, for its labels.
-        if (in_array($order->step, ['order_building', 'order_test', 'order_done'], true) && $order->doneBoards() > 0) {
+        if (in_array($order->step, ['order_building', 'order_test', 'order_done', 'order_failed'], true) && $order->doneBoards() > 0) {
             $sections[] = ['title' => __('Positionen', 'taxmod-manufacturing'), 'html' => (new TestSection($this->service, self::NONCE, $this->tab()))->render($order, $labels, $lots, $counts), 'open' => $order->step !== 'order_building'];
         }
 
@@ -1056,25 +1056,12 @@ final class OrdersPage
         return $boxes;
     }
 
-    /**
-     * D-1464 «Fehlgeschlagen …»: which assemblies failed (one alone is ticked) and what was found.
-     *
-     * @param array<int, string> $labels
-     */
-    private function failDialog(BuildOrder $order, array $labels): string
+    /** D-1464 «Fehlgeschlagen …»: the plan does not work — the whole order, with what was found. */
+    private function failDialog(BuildOrder $order): string
     {
-        $one   = count($order->assemblies) === 1;
-        $boxes = '';
-
-        foreach ($order->assemblies as $assembly) {
-            $boxes .= '<label><input type="checkbox" name="assemblies[]" value="' . esc_attr((string) $assembly->id) . '"' . ($one ? ' checked' : '') . '> '
-                . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision) . '</label><br>';
-        }
-
         return $this->dialogForm('failed', $order, __('Fehlgeschlagen …', 'taxmod-manufacturing'), __('Fehlgeschlagen', 'taxmod-manufacturing'),
-            '</p><fieldset><legend>' . esc_html__('Baupläne', 'taxmod-manufacturing') . '</legend>' . $boxes . '</fieldset>'
-            . '<p><label>' . esc_html__('Befund', 'taxmod-manufacturing') . '<br><input type="text" class="regular-text" name="finding" required></label></p>'
-            . '<p class="description">' . esc_html__('Ein Fehler, der erst nach «Fertig» auffällt. Die Revision gilt dann als «Nicht bestätigt». Zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing'));
+            '<label>' . esc_html__('Befund', 'taxmod-manufacturing') . '<br><input type="text" class="regular-text" name="finding" required></label></p>'
+            . '<p class="description">' . esc_html__('Der Bauplan funktioniert nicht. Die Revision gilt dann als «Nicht bestätigt». Ein einzelnes Stück, das nicht geht, ist Ausschuss: «Verschrotten» unter Positionen. «Wieder aufnehmen» nimmt es zurück.', 'taxmod-manufacturing'));
     }
 
     private function dialogForm(string $do, BuildOrder $order, string $opener, string $title, string $body): string
@@ -1123,7 +1110,7 @@ final class OrdersPage
             'closed'    => __('Auftrag abgeschlossen. «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'),
             'cancelled' => __('Abgebrochen. «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'),
             'reopened'  => __('Wieder aufgenommen.', 'taxmod-manufacturing'),
-            'failed'    => __('Als fehlgeschlagen eingetragen; die Revision gilt als «Nicht bestätigt».', 'taxmod-manufacturing'),
+            'failed'    => __('Fehlgeschlagen eingetragen; die Revision gilt als «Nicht bestätigt».', 'taxmod-manufacturing'),
             'staging'   => __('In Bereitstellung.', 'taxmod-manufacturing'),
             'reserved'  => __('Abgehakte Teile für den Auftrag reserviert.', 'taxmod-manufacturing'),
             'changed'   => __('Reservierung geändert.', 'taxmod-manufacturing'),

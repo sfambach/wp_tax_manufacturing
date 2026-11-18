@@ -86,7 +86,6 @@ final class Positions
         return match (true) {
             $counts[self::BUILDING] > 0                       => 'order_building',
             $counts[self::TEST] + $counts[self::REWORK] > 0   => 'order_test',
-            $order->hasFailed()                               => 'order_failed',
             default                                           => 'order_done',
         };
     }
@@ -101,6 +100,6 @@ final class Positions
         $step = self::orderStep($order, $lots);
 
         return $step === $order->step ? $order : new BuildOrder($order->id, $order->label, $order->project, $order->count, $step, $order->box, $order->started,
-            $order->finished, $order->assemblies, $order->shortageReason, $order->due, $order->kit);
+            $order->finished, $order->assemblies, $order->shortageReason, $order->due, $order->kit, $order->note);
     }
 }

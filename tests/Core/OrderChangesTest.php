@@ -164,38 +164,40 @@ final class OrderChangesTest extends TestCase
         self::assertSame([['30' => '305']], array_values($list[1]['values']['23']));
     }
 
-    /** D-1464: only a «Fertig» order, only chosen assemblies, the finding added to the note; reopening clears the mark. */
-    public function testMarkFailedOnlyAfterDoneAndReopenClearsIt(): void
+    /** D-1464: «Fehlgeschlagen» is the whole order's — only from «Fertig», with a finding added to the order's note. */
+    public function testMarkFailedOnlyAfterDoneWithAFinding(): void
     {
         $raw                           = self::S;
         $raw['values']['order_failed'] = 46;
+        $raw['fields']['order_note']   = 27;
         $s       = Structure::fromArray($raw);
         $changes = new OrderChanges($s);
-        $done    = (new BuildOrders($s))->one(500, new Table([500 => [10 => ['A'], 20 => ['100'], 21 => ['1'], 22 => ['42'], 23 => ['600']]]), new Table([600 => [30 => ['305'], 33 => ['alt'], 38 => ['1']]]), new Table([]));
+        $done    = (new BuildOrders($s))->one(500, new Table([500 => [10 => ['A'], 20 => ['100'], 21 => ['1'], 22 => ['42'], 23 => ['600'], 27 => ['alt']]]), new Table([600 => [30 => ['305'], 38 => ['1']]]), new Table([]));
 
-        self::assertSame([['op' => 'set_values', 'record' => '600', 'values' => ['31' => '46', '33' => "alt\nKurzschluss"]]], $changes->markFailed($done, [600], ' Kurzschluss '));
+        self::assertSame([['op' => 'set_values', 'record' => '500', 'values' => ['22' => '46', '27' => "alt\nBauplan falsch"]]], $changes->markFailed($done, ' Bauplan falsch '));
 
         try {
-            $changes->markFailed($done, [], 'x');
-            self::fail('nothing chosen is refused');
+            $changes->markFailed($done, ' ');
+            self::fail('a failure without a finding is refused');
         } catch (ManufacturingError) {
         }
 
         $running = (new BuildOrders($s))->one(500, new Table([500 => [10 => ['A'], 20 => ['100'], 21 => ['1'], 22 => ['41'], 23 => ['600']]]), new Table([600 => [30 => ['305']]]), new Table([]));
         $this->expectException(ManufacturingError::class);
-        $changes->markFailed($running, [600], 'x');
+        $changes->markFailed($running, 'x');
     }
 
-    public function testReopenClearsTheFailedMark(): void
+    /** D-1464: the stored «Fehlgeschlagen» is read as the order's step, closes it, and «Wieder aufnehmen» takes it back. */
+    public function testAFailedOrderIsClosedAndReopenTakesItBack(): void
     {
         $raw                           = self::S;
         $raw['values']['order_failed'] = 46;
         $s      = Structure::fromArray($raw);
-        $failed = (new BuildOrders($s))->one(500, new Table([500 => [10 => ['A'], 20 => ['100'], 21 => ['1'], 22 => ['42'], 23 => ['600']]]), new Table([600 => [30 => ['305'], 31 => ['46'], 38 => ['1']]]), new Table([]));
+        $failed = (new BuildOrders($s))->one(500, new Table([500 => [10 => ['A'], 20 => ['100'], 21 => ['1'], 22 => ['46'], 23 => ['600']]]), new Table([600 => [30 => ['305'], 34 => ['800'], 38 => ['1']]]), new Table([800 => [35 => ['700'], 36 => ['1']]]));
 
-        self::assertTrue($failed->hasFailed());
-        $list = (new OrderChanges($s))->setStep($failed, 'reopen', '2026-11-18');
-        self::assertSame(['op' => 'set_values', 'record' => '600', 'values' => ['31' => '']], $list[1]);
+        self::assertSame('order_failed', $failed->step);
+        self::assertTrue($failed->isClosed());
+        self::assertSame([['op' => 'set_values', 'record' => '500', 'values' => ['22' => '41', '25' => '']]], (new OrderChanges($s))->setStep($failed, 'reopen', '2026-11-18'));
     }
 
     /** @param list<array{0: array<int, int>, 1: int}> $parts fitted (position → boards) and finished boards per assembly, ids from 600, fitted parts from 800 */

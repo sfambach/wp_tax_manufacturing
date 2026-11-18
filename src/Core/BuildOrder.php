@@ -22,6 +22,8 @@ final class BuildOrder
         public readonly ?string $due = null,
         /** D-1428: a kit — board and parts packed for sale, no fitting and no «Test» */
         public readonly bool $kit = false,
+        /** the order's note; «Fehlgeschlagen» adds its finding here (D-1464) */
+        public readonly string $note = '',
     ) {
     }
 
@@ -56,29 +58,6 @@ final class BuildOrder
     public function testsSettled(array $states): bool
     {
         return $this->isFinished() && $states !== [] && array_diff($states, ['passed', 'scrapped']) === [];
-    }
-
-    /** D-1464: the assemblies marked «Fehlgeschlagen». @return list<Assembly> */
-    public function failedAssemblies(): array
-    {
-        return array_values(array_filter($this->assemblies, static fn (Assembly $a): bool => $a->failed));
-    }
-
-    /**
-     * D-1464, the one place of the mixed case (INFERRED, open with him): the order failed when every assembly of it failed;
-     * one failed among several leaves it «Fertig».
-     */
-    public function hasFailed(): bool
-    {
-        return $this->assemblies !== [] && count($this->failedAssemblies()) === count($this->assemblies);
-    }
-
-    /** D-1463 with the same rule as {@see hasFailed()}: this revision failed in this order when every assembly of it did. */
-    public function failedFor(int $revision): bool
-    {
-        $own = array_filter($this->assemblies, static fn (Assembly $a): bool => $a->revision === $revision);
-
-        return $own !== [] && array_filter($own, static fn (Assembly $a): bool => ! $a->failed) === [];
     }
 
     public function isClosed(): bool
