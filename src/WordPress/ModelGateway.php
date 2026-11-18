@@ -38,10 +38,10 @@ final class ModelGateway
         return $this->tables[$node] ??= new Table($this->ask(fn (): array => $this->door->records($node)));
     }
 
-    /** @return array<int, string> child node id → name */
-    public function children(int $node): array
+    /** @return array<int, array{name: string, parent: int, class: string, hidden: bool}> every node under `$node`, itself included */
+    public function tree(int $node): array
     {
-        return $this->ask(fn (): array => $this->door->children($node));
+        return $this->ask(fn (): array => $this->door->tree($node));
     }
 
     /** @param list<int> $records */

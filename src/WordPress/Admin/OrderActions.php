@@ -288,7 +288,7 @@ final class OrderActions
         $systems = [];
 
         foreach ((array) wp_unslash($_POST['systems'] ?? []) as $assembly => $ticked) {
-            $systems[absint($assembly)] = array_values(array_filter(array_map('absint', (array) $ticked), static fn (int $id): bool => isset($offered[$id])));
+            $systems[absint($assembly)] = \TaxmodManufacturing\Core\Systems::kept(array_map('absint', (array) $ticked), $offered);
         }
 
         $done    = $this->service->finishBuild($order, absint($_POST['boards'] ?? 0), $today, $categories, is_numeric($minutes) ? (float) $minutes : null, $place > 0 ? $place : null, $systems);

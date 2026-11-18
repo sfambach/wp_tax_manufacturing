@@ -14,6 +14,7 @@ use TaxmodManufacturing\Core\OrderChanges;
 use TaxmodManufacturing\Core\Positions;
 use TaxmodManufacturing\Core\RevisionStatus;
 use TaxmodManufacturing\Core\Structure;
+use TaxmodManufacturing\Core\Systems;
 use TaxmodManufacturing\Core\Table;
 
 /**
@@ -928,10 +929,16 @@ final class ManufacturingService
         return $s->hasField('board_systems') && $s->hasField('hardware_systems') && $s->hasNode('systems');
     }
 
-    /** @return array<int, string> D-1460: the systems to choose from, value id → name */
+    /** @return array<int, string> D-1460: the systems to choose from at any depth (XT, AT under PC), value id → name */
     public function systemChoices(): array
     {
-        return $this->canCopySystems() ? $this->model->children($this->structure()->node('systems')) : [];
+        if (! $this->canCopySystems()) {
+            return [];
+        }
+
+        $root = $this->structure()->node('systems');
+
+        return array_map(static fn (array $row): string => $row['name'], array_filter($this->model->tree($root), static fn (array $row, int $id): bool => $id !== $root && ! $row['hidden'], ARRAY_FILTER_USE_BOTH));
     }
 
     /**
@@ -947,7 +954,7 @@ final class ManufacturingService
 
         $board = $this->boardsOfRevisions([$revision])[$revision] ?? 0;
 
-        return $board === 0 ? [] : array_map('intval', $this->model->records([$board])->all($board, $this->structure()->field('board_systems')));
+        return $board === 0 ? [] : Systems::kept(array_map('intval', $this->model->records([$board])->all($board, $this->structure()->field('board_systems'))), $this->systemChoices());
     }
 
     /** D-1464: «Fehlgeschlagen» is in the model (Teil 1b); before it the action is not offered. */
