@@ -13,7 +13,11 @@ use TaxmodManufacturing\Core\Table;
  */
 final class ModelGateway
 {
-    private readonly ModelDoor $door;
+    private ModelDoor $door;
+
+    /** @var array<int, Table> Review F2: node → its table, read once until the next write here or in the stock */
+    private array $tables = [];
+    private int $tablesAt = -1;
 
     public function __construct()
     {
@@ -22,13 +26,22 @@ final class ModelGateway
 
     public function table(int $node): Table
     {
-        return new Table($this->ask(fn (): array => $this->door->records($node)));
+        $stamp = self::stockWrites();
+
+        if ($stamp !== $this->tablesAt) {
+            // The door remembers what it read; after a booking in the stock a fresh one reads again.
+            $this->door     = $this->tablesAt === -1 ? $this->door : new ModelDoor();
+            $this->tables   = [];
+            $this->tablesAt = $stamp;
+        }
+
+        return $this->tables[$node] ??= new Table($this->ask(fn (): array => $this->door->records($node)));
     }
 
     /** @param list<int> $records */
     public function records(array $records): Table
     {
-        return new Table($this->door->valuesOf($records));
+        return new Table($records === [] ? [] : $this->ask(fn (): array => $this->door->valuesOf($records)));
     }
 
     /**
@@ -73,7 +86,17 @@ final class ModelGateway
      */
     public function write(array $changes): array
     {
+        $this->tables = [];
+
         return $this->ask(fn (): array => $this->door->write($changes));
+    }
+
+    /** The stock's write count: a booking there may change records this module reads (Review F1/F2). */
+    private static function stockWrites(): int
+    {
+        $gateway = \TaxmodStock\WordPress\ModelGateway::class;
+
+        return class_exists($gateway) && property_exists($gateway, 'writes') ? (int) $gateway::$writes : 0;
     }
 
     /**
