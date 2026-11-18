@@ -9,13 +9,13 @@ use TaxmodManufacturing\WordPress\ManufacturingService;
 
 /**
  * The step «Test» of an order: its completed boards as the stock holds them, ticked and judged through one bar — «Test
- * bestanden», «Test nicht bestanden …» with a note, «Verschrotten …» with a reason (D-1419, D-1403). The stock writes the test
+ * bestanden», «Nacharbeit …» with a note, «Verschrotten …» with a reason (D-1419, D-1403). The stock writes the test
  * report and the scrap booking (D-1420); this section only asks.
  *
  * ```mermaid
  * flowchart LR
  *   U["ungetestet"] -->|"bestanden"| P["funktioniert"]
- *   U -->|"nicht bestanden"| F["defekt · Reparatur"] -->|"neu testen"| P
+ *   U -->|"nicht bestanden"| F["Nacharbeit"] -->|"neu testen"| P
  *   F -->|"Verschrotten"| S["verschrottet"]
  * ```
  *
@@ -82,8 +82,8 @@ final class TestSection
         // blocks every action of the bar without a word (his report 17.11. 21:56). The handler asks for them instead.
         $note = static fn (string $name, string $label, bool $required): string => '<p><label>' . esc_html($label) . '<br><input type="text" class="regular-text" name="' . esc_attr($name) . '" form="' . esc_attr($form) . '"></label></p>';
         $bar  = ListPage::bulkBar($form, $this->nonce, [self::PASSED => __('Test bestanden', 'taxmod-manufacturing')], '', '', false, [
-            $form . '-failed' => [__('Test nicht bestanden …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-failed', __('Test nicht bestanden …', 'taxmod-manufacturing'), __('Test nicht bestanden', 'taxmod-manufacturing'),
-                $note('note', __('Was ist aufgefallen?', 'taxmod-manufacturing'), true) . '<p class="description">' . esc_html__('Die Platine wartet auf Reparatur; danach einfach neu testen.', 'taxmod-manufacturing') . '</p>', 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form)],
+            $form . '-failed' => [__('Nacharbeit …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-failed', __('Nacharbeit …', 'taxmod-manufacturing'), __('Nacharbeit', 'taxmod-manufacturing'),
+                $note('note', __('Was ist aufgefallen?', 'taxmod-manufacturing'), true) . '<p class="description">' . esc_html__('Die Platinen warten auf Nacharbeit; danach neu testen.', 'taxmod-manufacturing') . '</p>', 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form)],
             $form . '-scrap'  => [__('Verschrotten …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-scrap', __('Verschrotten …', 'taxmod-manufacturing'), __('Platinen verschrotten?', 'taxmod-manufacturing'),
                 $note('reason', __('Grund', 'taxmod-manufacturing'), true) . '<p class="description">' . esc_html__('Die Platinen gehen ganz als «Defekt/Ausschuss» aus dem Lager, mit diesem Auftrag als Bezug. Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing') . '</p>', 'action', self::SCRAP, __('Verschrotten', 'taxmod-manufacturing'), $form)],
         ]) . $this->hidden(['order' => (string) $order->id, 'tab' => $this->tab], $form);
@@ -133,22 +133,20 @@ final class TestSection
     }
 
     /**
-     * His words 17.11. 22:04: «warum kann ich bei einzellen test postionen nicht sagen getestet, nacharbeit», «befund ist da aber man
-     * kann ihn nirgendswo eingeben» — one board judged on its own: the result and its Befund, in a form of its own beside the bar.
+     * His words 17.11. 22:04 «bei einzelnen Testpositionen sagen getestet, Nacharbeit» and 18.11. «ein Button bestanden oder
+     * Nacharbeit» — one board judged on its own: «Bestanden» at once, «Nacharbeit …» with its Befund, in a form beside the bar.
      */
     private function judge(BuildOrder $order, int $lot, string $state, string $note): string
     {
-        $form    = 'taxmod-mf-judge-' . $lot;
-        $choice  = static fn (string $action, string $label, bool $checked): string => '<label style="display:block;margin:.2em 0"><input type="radio" name="action" value="' . esc_attr($action) . '" form="' . esc_attr($form) . '"' . ($checked ? ' checked' : '') . '> ' . esc_html($label) . '</label>';
-        $body    = '<div>' . $choice(self::PASSED, __('Test bestanden', 'taxmod-manufacturing'), $state !== 'failed')
-            . $choice(self::FAILED, __('Nicht bestanden · Nacharbeit', 'taxmod-manufacturing'), $state === 'failed')
-            . $choice(self::SCRAP, __('Verschrotten', 'taxmod-manufacturing'), false) . '</div>'
-            . '<div style="margin-top:.5em"><label>' . esc_html__('Befund', 'taxmod-manufacturing') . '<br><input type="text" class="regular-text" name="note" form="' . esc_attr($form) . '" value="' . esc_attr($note) . '"></label></div>'
-            . '<div class="description">' . esc_html__('Bei «Nicht bestanden» und «Verschrotten» bitte den Befund angeben. Verschrotten bucht die Platine als Ausschuss aus dem Lager.', 'taxmod-manufacturing') . '</div>';
+        $form   = 'taxmod-mf-judge-' . $lot;
+        $passed = $state === 'passed' ? '' : '<button type="submit" class="button button-small" name="action" value="' . esc_attr(self::PASSED) . '" form="' . esc_attr($form) . '">' . esc_html__('Bestanden', 'taxmod-manufacturing') . '</button> ';
+        $body   = '<p><label>' . esc_html__('Befund', 'taxmod-manufacturing') . '<br><input type="text" class="regular-text" name="note" form="' . esc_attr($form) . '" value="' . esc_attr($note) . '"></label></p>'
+            . '<p class="description">' . esc_html__('Die Platine wartet auf Nacharbeit; danach neu testen.', 'taxmod-manufacturing') . '</p>';
 
         return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field($this->nonce, '_wpnonce', true, false)
             . $this->hidden(['order' => (string) $order->id, 'tab' => $this->tab, 'selected[]' => (string) $lot], $form)
-            . ListPage::dialogAction($form . '-dialog', __('Ergebnis …', 'taxmod-manufacturing'), sprintf(__('Platine #%d', 'taxmod-manufacturing'), $lot), $body, 'row', (string) $lot, __('Eintragen', 'taxmod-manufacturing'), $form)
+            . $passed
+            . ListPage::dialogAction($form . '-dialog', __('Nacharbeit …', 'taxmod-manufacturing'), sprintf(__('Platine #%d: Nacharbeit', 'taxmod-manufacturing'), $lot), $body, 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form)
             . '</form>';
     }
 
@@ -156,7 +154,7 @@ final class TestSection
     {
         [$word, $class] = match ($state) {
             'passed'   => [__('bestanden', 'taxmod-manufacturing'), 'ok'],
-            'failed'   => [__('nicht bestanden · Reparatur', 'taxmod-manufacturing'), 'warn'],
+            'failed'   => [__('Nacharbeit', 'taxmod-manufacturing'), 'warn'],
             'scrapped' => [__('verschrottet', 'taxmod-manufacturing'), 'info'],
             default    => [__('ungetestet', 'taxmod-manufacturing'), 'info'],
         };

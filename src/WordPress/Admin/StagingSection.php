@@ -119,7 +119,7 @@ final class StagingSection
             }
         }
 
-        $num     = \Taxmod\Core\Renderer\GridMarkup::NUMBER;
+        $num     = \Taxmod\WordPress\Draw\GridMarkup::NUMBER;
         $columns = [
             [''],
             [__('Material / Lagerort', 'taxmod-manufacturing')],
