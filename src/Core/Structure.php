@@ -37,11 +37,13 @@ final class Structure
 
     // D-1143: the assembled board as a material of its own, one record per revision.
     // D-1261: the hardware branch, whose groups (Sparten) hold the assembled boards.
-    private const OPTIONAL_NODES = ['location', 'assembled', 'lager', 'hardware', 'check_step'];
+    private const OPTIONAL_NODES = ['location', 'assembled', 'lager', 'hardware', 'check_step', 'systems'];
 
     private const OPTIONAL_FIELDS = ['order_shortage_reason', 'order_box', 'order_started', 'order_finished', 'order_note', 'assembly_note', 'assembly_tested', 'assembly_done',
         // D-1464: the assembly's own status falls away with «Fehlgeschlagen» at the order (Teil 1b, A1 removes the field).
         'assembly_status',
+        // D-1460: «Systeme» at the plan (proposal) and at the hardware record (copied once at the first completion).
+        'board_systems', 'hardware_systems',
         // D-954: the column «Best.» of a parts list and the reference designators; D-1030: the project a box belongs to.
         'position_fitting', 'position_ref', 'location_project', 'assembled_revision',
         // D-1178: the pins a socket strip loses at each cut, on the material's stock record.

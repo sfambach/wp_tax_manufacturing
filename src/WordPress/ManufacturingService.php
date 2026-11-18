@@ -586,7 +586,7 @@ final class ManufacturingService
      * @param list<int>       $unused
      * @return 'booked'|'nothing'|'unbooked' unbooked: there was something to book, but the stock module offers no interface yet
      */
-    public function updateAssembly(int $order, int $assembly, array $pieces, array $unused, ?int $tested, ?int $done, ?string $note, string $today, ?int $sparte = null, ?float $minutes = null, ?int $place = null): string
+    public function updateAssembly(int $order, int $assembly, array $pieces, array $unused, ?int $tested, ?int $done, ?string $note, string $today, ?int $sparte = null, ?float $minutes = null, ?int $place = null, array $systems = []): string
     {
         $built = $this->order($order);
         $part  = $built->assembly($assembly) ?? throw ManufacturingError::assemblyNotOfOrder($assembly, $order);
@@ -639,7 +639,7 @@ final class ManufacturingService
 
         if ($made !== 0 && $this->canReceive()) {
             try {
-                $this->bookOutput($built, $part->revision, $made, $today, $sparte, $cost, $place);
+                $this->bookOutput($built, $part->revision, $made, $today, $sparte, $cost, $place, $systems);
             } catch (ManufacturingError $error) {
                 if ($booked === 'booked') {
                     // The consumption is already booked; give it back so the box shows what it did before. Review F12: a refused
@@ -692,7 +692,7 @@ final class ManufacturingService
      * @param array<int, int> $categories assembly → Material-Kategorie, for a revision whose board material does not exist yet
      * @return array{act: ?int, step: string}
      */
-    public function finishBuild(int $order, int $boards, string $today, array $categories, ?float $minutes = null, ?int $place = null): array
+    public function finishBuild(int $order, int $boards, string $today, array $categories, ?float $minutes = null, ?int $place = null, array $systems = []): array
     {
         if (! method_exists(\Taxmod\WordPress\ModelDoor::class, 'inAct')) {
             throw ManufacturingError::noActBracket();
@@ -720,9 +720,9 @@ final class ManufacturingService
             throw ManufacturingError::notConfigured('kit_place');
         }
 
-        $answer = \Taxmod\WordPress\ModelDoor::inAct(function () use ($built, $boards, $today, $categories, $minutes, $place): string {
+        $answer = \Taxmod\WordPress\ModelDoor::inAct(function () use ($built, $boards, $today, $categories, $minutes, $place, $systems): string {
             foreach ($built->assemblies as $part) {
-                $this->updateAssembly($built->id, $part->id, [], $part->unused, null, $part->done + $boards, null, $today, ($categories[$part->id] ?? 0) ?: null, $minutes, $built->kit ? $place : null);
+                $this->updateAssembly($built->id, $part->id, [], $part->unused, null, $part->done + $boards, null, $today, ($categories[$part->id] ?? 0) ?: null, $minutes, $built->kit ? $place : null, $systems[$part->id] ?? []);
             }
 
             $after = $this->order($built->id);
@@ -920,6 +920,36 @@ final class ManufacturingService
         return array_map(static fn (string $status): array => ['status' => $status, 'label' => (string) ($words[$status] ?? $status)], RevisionStatus::ofEach($revisions, $this->derived($this->orders())));
     }
 
+    /** D-1460: the plan's «Systeme» and the hardware's are both in the model. */
+    public function canCopySystems(): bool
+    {
+        $s = $this->structure();
+
+        return $s->hasField('board_systems') && $s->hasField('hardware_systems') && $s->hasNode('systems');
+    }
+
+    /** @return array<int, string> D-1460: the systems to choose from, value id → name */
+    public function systemChoices(): array
+    {
+        return $this->canCopySystems() ? $this->model->children($this->structure()->node('systems')) : [];
+    }
+
+    /**
+     * D-1460: what the plan of this revision names as its systems — the proposal of the first completion, never assumed.
+     *
+     * @return list<int>
+     */
+    public function planSystems(int $revision): array
+    {
+        if (! $this->canCopySystems()) {
+            return [];
+        }
+
+        $board = $this->boardsOfRevisions([$revision])[$revision] ?? 0;
+
+        return $board === 0 ? [] : array_map('intval', $this->model->records([$board])->all($board, $this->structure()->field('board_systems')));
+    }
+
     /** D-1464: «Fehlgeschlagen» is in the model (Teil 1b); before it the action is not offered. */
     public function canFail(): bool
     {
@@ -1097,8 +1127,9 @@ final class ManufacturingService
     /**
      * @param array<string, mixed>|null $cost D-1425: the breakdown per board, the stock freezes it at each new lot
      * @param int|null $kitPlace D-1428: where packed kits go, chosen in the dialog
+     * @param list<int> $systems D-1460: the systems confirmed in the dialog, written once into a new hardware record
      */
-    private function bookOutput(BuildOrder $order, int $revision, int $boards, string $today, ?int $sparte, ?array $cost = null, ?int $kitPlace = null): void
+    private function bookOutput(BuildOrder $order, int $revision, int $boards, string $today, ?int $sparte, ?array $cost = null, ?int $kitPlace = null, array $systems = []): void
     {
         $test  = $order->kit ? 0 : (has_filter(self::TEST_PLACE_FILTER) ? (int) apply_filters(self::TEST_PLACE_FILTER, null) : 0);
         $place = $order->kit ? $kitPlace : ($test > 0 ? $test : $order->box);
@@ -1107,7 +1138,7 @@ final class ManufacturingService
             throw ManufacturingError::stockRefused(__('Dem Auftrag ist kein Gebinde zugeordnet.', 'taxmod-manufacturing'));
         }
 
-        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $place, 'lines' => [$this->materialFor($revision, $sparte, $order->kit) => (float) $boards], 'title' => $order->label, 'date' => $today]
+        $answer = apply_filters(self::OUTPUT_FILTER, null, ['reference' => $order->id, 'place' => $place, 'lines' => [$this->materialFor($revision, $sparte, $order->kit, $systems) => (float) $boards], 'title' => $order->label, 'date' => $today]
             // D-1428: a kit is not tested — one lot, ready for sale.
             + ($order->kit ? ['tested' => true] : [])
             + ($cost === null ? [] : ['cost' => $cost]));
@@ -1120,8 +1151,10 @@ final class ManufacturingService
     /**
      * The material «assembled board» of a revision (D-1261): the hardware record whose «Revision» names it. Made at the first
      * finished board in the Sparte chosen then — the Sparte is where the record lies, nothing else stores it.
+     *
+     * @param list<int> $systems D-1460: copied once into the new record as he confirmed them; an existing record is left as it is
      */
-    public function materialFor(int $revision, ?int $sparte = null, bool $kit = false): int
+    public function materialFor(int $revision, ?int $sparte = null, bool $kit = false, array $systems = []): int
     {
         $existing = $this->existingMaterial($revision, $kit);
 
@@ -1145,6 +1178,11 @@ final class ManufacturingService
         }
 
         $values = [(string) $s->field('assembled_revision') => (string) $revision];
+
+        // D-1460: nothing inherited, nothing kept in step — what the dialog confirmed, once; empty stays empty.
+        if ($systems !== [] && $this->canCopySystems()) {
+            $values[(string) $s->field('hardware_systems')] = ['values' => array_map('strval', $systems)];
+        }
 
         // D-1428: the art tells kit and assembled board apart, never the name.
         if ($s->hasField('assembled_art') && $s->hasValue($kit ? 'art_kit' : 'art_fitting')) {

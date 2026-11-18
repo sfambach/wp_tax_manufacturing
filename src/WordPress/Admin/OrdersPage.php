@@ -858,12 +858,44 @@ final class OrdersPage
             . '<div class="taxmod-mf-field"><label>' . esc_html__('Stücke abschließen', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="boards" min="1" max="' . esc_attr((string) $max) . '" value="' . esc_attr((string) $max) . '" required></label></div>'
             . $this->minutesField($order)
             . ($categories === [] ? '' : '<div>' . esc_html__('Die Material-Kategorie des Stücks steht in den Stammdaten.', 'taxmod-manufacturing') . '</div>')
+            . $this->systemsFields($order, $categories, $labels)
             . '<div class="description">' . esc_html__('Bucht den Verbrauch ihrer Teile aus dem Gebinde und legt die Stücke ungeprüft auf den Platz «Test». Weniger als alle: der Rest bleibt in Bau, Gebinde und Reservierungen bleiben. Alle: der Auftrag geht in «Test». Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing') . '</div>';
 
         return '<form method="post" id="' . esc_attr(self::finishFormId($order)) . '" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => 'detail'])
             . ListPage::dialogAction('taxmod-mf-finish-' . $order->id, $label, sprintf(__('%1$s: %2$s', 'taxmod-manufacturing'), $order->kit ? __('Kits abschließen', 'taxmod-manufacturing') : __('Fertigung abschließen', 'taxmod-manufacturing'), $order->label), $body, 'do', 'finish', __('Abschließen', 'taxmod-manufacturing'))
             . '</form>';
+    }
+
+    /**
+     * D-1460: at the first completion of a revision its «Systeme», proposed from the plan, changeable here, written once into
+     * the new hardware record. An empty plan proposes nothing.
+     *
+     * @param array<int, Assembly> $first the assemblies whose hardware record this completion makes
+     * @param array<int, string>   $labels
+     */
+    private function systemsFields(BuildOrder $order, array $first, array $labels): string
+    {
+        $choices = $first === [] ? [] : $this->service->systemChoices();
+
+        if ($choices === []) {
+            return '';
+        }
+
+        $html = '';
+
+        foreach ($first as $assembly) {
+            $proposed = array_flip($this->service->planSystems($assembly->revision));
+            $boxes    = '';
+
+            foreach ($choices as $id => $name) {
+                $boxes .= '<label><input type="checkbox" name="systems[' . esc_attr((string) $assembly->id) . '][]" value="' . esc_attr((string) $id) . '"' . checked(isset($proposed[$id]), true, false) . '> ' . esc_html($name) . '</label> ';
+            }
+
+            $html .= '<fieldset class="taxmod-mf-field"><legend>' . esc_html(sprintf(__('Systeme: %s', 'taxmod-manufacturing'), $labels[$assembly->revision] ?? '#' . $assembly->revision)) . '</legend>' . $boxes . '</fieldset>';
+        }
+
+        return $html . '<div class="description">' . esc_html__('Vorschlag aus dem Bauplan. Wird einmal in das neue Material geschrieben; eine spätere Änderung am Bauplan wirkt nicht auf gebaute Stücke.', 'taxmod-manufacturing') . '</div>';
     }
 
     /**
