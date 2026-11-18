@@ -73,6 +73,14 @@ final class BuildOrder
         return $this->assemblies !== [] && count($this->failedAssemblies()) === count($this->assemblies);
     }
 
+    /** D-1463 with the same rule as {@see hasFailed()}: this revision failed in this order when every assembly of it did. */
+    public function failedFor(int $revision): bool
+    {
+        $own = array_filter($this->assemblies, static fn (Assembly $a): bool => $a->revision === $revision);
+
+        return $own !== [] && array_filter($own, static fn (Assembly $a): bool => ! $a->failed) === [];
+    }
+
     public function isClosed(): bool
     {
         return in_array($this->step, ['order_done', 'order_failed', 'order_cancelled'], true);

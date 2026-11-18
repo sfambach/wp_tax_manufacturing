@@ -57,7 +57,7 @@ final class RevisionStatus
 
                 $set[$assembly->revision] = true;
                 $out[$assembly->revision] = match (true) {
-                    $assembly->failed || $order->step === 'order_failed' => self::REJECTED,
+                    $order->step === 'order_failed' || ($order->step === 'order_done' && $order->failedFor($assembly->revision)) => self::REJECTED,
                     $order->step === 'order_done'                        => self::CONFIRMED,
                     default                                              => $order->step,
                 };

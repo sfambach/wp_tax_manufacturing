@@ -56,4 +56,12 @@ final class RevisionStatusTest extends TestCase
         self::assertSame([self::REVISION => RevisionStatus::REJECTED, 306 => RevisionStatus::CONFIRMED], RevisionStatus::ofEach([self::REVISION, 306], [$order]));
         self::assertFalse($order->hasFailed(), 'one of several failed leaves the order «Fertig» (INFERRED)');
     }
+
+    public function testTheMixedCaseOfOneRevisionFollowsTheOrdersRule(): void
+    {
+        // D-1463/D-1464: one of two boards of the same revision failed — the same rule as BuildOrder::hasFailed() (INFERRED).
+        $order = new BuildOrder(10, 'A', 100, 1, 'order_done', null, null, null, [new Assembly(11, self::REVISION, [], [], 0, 1, '', true), new Assembly(12, self::REVISION, [], [], 0, 1)]);
+
+        self::assertSame(RevisionStatus::CONFIRMED, RevisionStatus::of(self::REVISION, [$order]));
+    }
 }
