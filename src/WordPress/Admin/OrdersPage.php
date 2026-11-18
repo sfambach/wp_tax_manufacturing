@@ -707,9 +707,10 @@ final class OrdersPage
         $count  = static fn (float $n): string => ListPage::number($n, 2);
         $boxed  = $order->box !== null;
         $form   = self::headFormId($order);
-        $scrap  = $boxed && ! $order->isClosed() && $this->service->canScrap();
+        $scrap  = $boxed && $order->step === 'order_building' && $this->service->canScrap();
         $bulk   = 'taxmod-mf-fitbulk-' . $assembly->id;
-        $closed = $order->isClosed();
+        // The gate 18.11.: from «Test» on the fitting is done; it is shown, not entered.
+        $closed = $order->isClosed() || $order->step !== 'order_building';
         $a      = (string) $assembly->id;
         $grid   = [];
 

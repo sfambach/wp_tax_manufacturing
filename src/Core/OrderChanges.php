@@ -146,7 +146,16 @@ final class OrderChanges
             }
         }
 
-        $values = [(string) $s->field('assembly_unused') => ['values' => array_map('strval', $unused)]];
+        $values = [];
+        $before = array_values(array_unique(array_map('intval', $part->unused)));
+        sort($before);
+        $now    = $unused;
+        sort($now);
+
+        // Review F11: only a changed choice is written, so a save that changes nothing leaves no change behind.
+        if ($before !== $now) {
+            $values[(string) $s->field('assembly_unused')] = ['values' => array_map('strval', $unused)];
+        }
 
         if ($added !== []) {
             // A non-numeric key adds a new part (taxmod/apply, set_values); the parts already there stay.
@@ -159,7 +168,9 @@ final class OrderChanges
             }
         }
 
-        array_unshift($changes, ['op' => 'set_values', 'record' => (string) $assembly, 'values' => $values]);
+        if ($values !== []) {
+            array_unshift($changes, ['op' => 'set_values', 'record' => (string) $assembly, 'values' => $values]);
+        }
 
         if (in_array($order->step, ['order_planned', 'order_staging'], true) && array_filter($fitted) !== []) {
             $changes[] = ['op' => 'set_values', 'record' => (string) $order->id, 'values' => $this->stepValues('order_building', $order->started === null ? $today : null, null)];

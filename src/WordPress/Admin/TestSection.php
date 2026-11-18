@@ -154,10 +154,10 @@ final class TestSection
     private function state(string $state): string
     {
         [$word, $class] = match ($state) {
-            'passed'   => [__('bestanden', 'taxmod-manufacturing'), 'ok'],
+            'passed'   => [__('Bestanden', 'taxmod-manufacturing'), 'ok'],
             'failed'   => [__('Nacharbeit', 'taxmod-manufacturing'), 'warn'],
-            'scrapped' => [__('verschrottet', 'taxmod-manufacturing'), 'info'],
-            default    => [__('ungetestet', 'taxmod-manufacturing'), 'info'],
+            'scrapped' => [__('Verschrottet', 'taxmod-manufacturing'), 'info'],
+            default    => [__('Ungetestet', 'taxmod-manufacturing'), 'info'],
         };
 
         return '<span class="taxmod-mf-status taxmod-mf-status-' . esc_attr($class) . '">' . esc_html($word) . '</span>';

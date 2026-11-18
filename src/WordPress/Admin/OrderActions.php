@@ -475,6 +475,20 @@ final class OrderActions
         // A new revision has other positions: its options are chosen after it is saved, not with the old ones.
         $sameRevision = $revision === 0 || count($built->assemblies) !== 1 || $built->assemblies[0]->revision === $revision;
 
+        // Review F11, D-1410: one 💾 is one change, with one number to take it back.
+        $answer = \Taxmod\WordPress\ModelDoor::inAct(function () use ($order, $built, $revision, $sameRevision, $today): void {
+            $this->saveHead($order, $built, $revision, $sameRevision, $today);
+        });
+
+        if (($answer['act'] ?? null) !== null) {
+            $back['act'] = (int) $answer['act'];
+        }
+
+        return 'head';
+    }
+
+    private function saveHead(int $order, BuildOrder $built, int $revision, bool $sameRevision, string $today): void
+    {
         if (! $built->isClosed() && isset($_POST['count'])) {
             $due      = isset($_POST['due']) ? sanitize_text_field(wp_unslash((string) $_POST['due'])) : null;
             $this->service->setHead($order, sanitize_text_field(wp_unslash((string) $_POST['count'])), $revision > 0 ? $revision : null, $due);
@@ -496,8 +510,6 @@ final class OrderActions
         }
 
         $this->saveFittings($order, $today);
-
-        return 'head';
     }
 
     /**

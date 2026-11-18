@@ -73,7 +73,8 @@ final class OrderChangesTest extends TestCase
         $order   = $this->order('40', [[[], 0]]);
         $changes = (new OrderChanges($this->s()))->updateAssembly($order, 600, [700 => 2, 701 => 0], [], [700, 701], [], null, null, 'Spule erst durchmessen', '2026-11-04');
 
-        self::assertSame(['32' => ['values' => []], '34' => ['f700' => ['35' => '700', '36' => '2']], '33' => 'Spule erst durchmessen'], $changes[0]['values']);
+        // Review F11: the choice «nicht verwenden» is unchanged, so it is not written.
+        self::assertSame(['34' => ['f700' => ['35' => '700', '36' => '2']], '33' => 'Spule erst durchmessen'], $changes[0]['values']);
         self::assertSame(['22' => '41', '24' => '2026-11-04'], $changes[1]['values']);
     }
 
@@ -81,8 +82,15 @@ final class OrderChangesTest extends TestCase
     {
         $changes = (new OrderChanges($this->s()))->updateAssembly($this->order('41', [[[700 => 2], 0]]), 600, [700 => 1], [], [700], [], null, null, null, '2026-11-04');
 
-        self::assertSame(['op' => 'set_values', 'record' => '800', 'values' => ['36' => '1']], $changes[1]);
-        self::assertCount(2, $changes);
+        // Review F11: nothing else of the assembly changed, so the count is the only write.
+        self::assertSame([['op' => 'set_values', 'record' => '800', 'values' => ['36' => '1']]], $changes);
+    }
+
+    public function testASaveThatChangesNothingWritesNothing(): void
+    {
+        $changes = (new OrderChanges($this->s()))->updateAssembly($this->order('41', [[[], 0]]), 600, [], [], [700, 701], [], null, null, null, '2026-11-04');
+
+        self::assertSame([], $changes);
     }
 
     public function testCountsStayWithinThePieces(): void

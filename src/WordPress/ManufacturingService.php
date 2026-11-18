@@ -25,6 +25,9 @@ final class ManufacturingService
     public const STRUCTURE = 'taxmod_manufacturing_structure';
 
     private ?Structure $structure = null;
+    /** Review F1: the one stock service of this request, and the stock's write count it was made at. */
+    private static ?\TaxmodStock\WordPress\StockService $stock = null;
+    private static int $stockReadAt = -1;
 
     public function __construct(private readonly ModelGateway $model = new ModelGateway())
     {
@@ -117,7 +120,7 @@ final class ManufacturingService
         }
 
         try {
-            (new \TaxmodStock\WordPress\StockService())->reorder($lines, null, sprintf(__('Bedarf %s', 'taxmod-manufacturing'), $built->label));
+            $this->stock()->reorder($lines, null, sprintf(__('Bedarf %s', 'taxmod-manufacturing'), $built->label));
         } catch (\RuntimeException $error) {
             throw ManufacturingError::stockRefused($error->getMessage());
         }
@@ -637,8 +640,13 @@ final class ManufacturingService
                 $this->bookOutput($built, $part->revision, $made, $today, $sparte, $cost, $place);
             } catch (ManufacturingError $error) {
                 if ($booked === 'booked') {
-                    // The consumption is already booked; give it back so the box shows what it did before.
-                    apply_filters(self::BOOK_FILTER, null, ['reference' => $order, 'place' => $built->box, 'lines' => array_map(static fn (float $q): float => -$q, $use), 'title' => $built->label, 'date' => $today]);
+                    // The consumption is already booked; give it back so the box shows what it did before. Review F12: a refused
+                    // return is said, not swallowed — the box would show less than it holds.
+                    $returned = apply_filters(self::BOOK_FILTER, null, ['reference' => $order, 'place' => $built->box, 'lines' => array_map(static fn (float $q): float => -$q, $use), 'title' => $built->label, 'date' => $today]);
+
+                    if (is_wp_error($returned)) {
+                        throw ManufacturingError::stockRefused($error->detail . ' ' . sprintf(__('Der Verbrauch ist schon gebucht und ließ sich nicht zurückbuchen (%s); bitte das Gebinde im Lager prüfen oder die Änderung rückgängig machen.', 'taxmod-manufacturing'), $returned->get_error_message()));
+                    }
                 }
 
                 throw $error;
@@ -647,7 +655,9 @@ final class ManufacturingService
             $booked = $booked === 'unbooked' ? 'unbooked' : 'booked';
         }
 
-        $this->model->write($changes);
+        if ($changes !== []) {
+            $this->model->write($changes);
+        }
 
         return $booked;
     }
@@ -1063,6 +1073,23 @@ final class ManufacturingService
     }
 
     /**
+     * One stock service per request (review F1): its cache hangs on the object, so a new one per call never hits it. Like the
+     * stock's own reader it is renewed once the stock has written since.
+     */
+    private function stock(): \TaxmodStock\WordPress\StockService
+    {
+        $gateway = \TaxmodStock\WordPress\ModelGateway::class;
+        $writes  = class_exists($gateway) && property_exists($gateway, 'writes') ? (int) $gateway::$writes : 0;
+
+        if (self::$stock === null || self::$stockReadAt !== $writes) {
+            self::$stock       = new \TaxmodStock\WordPress\StockService();
+            self::$stockReadAt = $writes;
+        }
+
+        return self::$stock;
+    }
+
+    /**
      * What lies in a box and every place in it, as the stock module counts it (D-1139) — thing → pieces. Empty without
      * the stock module.
      *
@@ -1076,7 +1103,7 @@ final class ManufacturingService
             return [];
         }
 
-        return array_map('floatval', (new $stock())->presentIn($box));
+        return array_map('floatval', $this->stock()->presentIn($box));
     }
 
     /**
@@ -1095,7 +1122,7 @@ final class ManufacturingService
             return [];
         }
 
-        $service = new $stock();
+        $service = $this->stock();
 
         if (method_exists($service, 'presentInEach')) {
             return array_map(static fn (array $things): array => array_map('floatval', $things), (array) $service->presentInEach($boxes));
