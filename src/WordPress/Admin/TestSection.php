@@ -48,7 +48,7 @@ final class TestSection
     public function render(BuildOrder $order, array $labels, array $lots, array $counts): string
     {
         if (! $this->service->canTest()) {
-            return '<div class="notice notice-warning inline"><p>' . esc_html__('Das Lager bietet die Test-Schnittstelle noch nicht an (Lager ab 0.64.110 mit «taxmod_stock_test_lots»). Die abgeschlossenen Stück liegen ungeprüft auf «Test»; das Ergebnis lässt sich hier eintragen, sobald das Lager aktualisiert ist.', 'taxmod-manufacturing') . '</p></div>';
+            return '<div class="notice notice-warning inline"><p>' . esc_html__('Das Lager bietet die Test-Schnittstelle noch nicht an (Lager ab 0.64.110 mit «taxmod_stock_test_lots»). Die abgeschlossenen Stücke liegen ungeprüft auf «Test»; das Ergebnis lässt sich hier eintragen, sobald das Lager aktualisiert ist.', 'taxmod-manufacturing') . '</p></div>';
         }
 
         $bar = $this->statusBar($order, $counts);
@@ -86,14 +86,14 @@ final class TestSection
         // blocks every action of the bar without a word (his report 17.11. 21:56). The handler asks for them instead.
         $note    = static fn (string $name, string $label): string => '<p><label>' . esc_html($label) . '<br><input type="text" class="regular-text" name="' . esc_attr($name) . '" form="' . esc_attr($form) . '"></label></p>';
         $dialogs = [
-            $form . '-failed' => [__('Nacharbeit …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-failed', __('Nacharbeit …', 'taxmod-manufacturing'), __('Nacharbeit: ausgewählte Stück', 'taxmod-manufacturing'),
-                $note('note', __('Was ist aufgefallen?', 'taxmod-manufacturing')) . '<p class="description">' . esc_html__('Die Stück warten auf Nacharbeit; danach zurück in den Test.', 'taxmod-manufacturing') . '</p>', 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form)],
+            $form . '-failed' => [__('Nacharbeit …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-failed', __('Nacharbeit …', 'taxmod-manufacturing'), __('Nacharbeit: ausgewählte Stücke', 'taxmod-manufacturing'),
+                $note('note', __('Was ist aufgefallen?', 'taxmod-manufacturing')) . '<p class="description">' . esc_html__('Die Stücke warten auf Nacharbeit; danach zurück in den Test.', 'taxmod-manufacturing') . '</p>', 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form)],
         ];
 
-        $dialogs[$form . '-retest'] = [__('Zurück in Test …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-retest', __('Zurück in Test …', 'taxmod-manufacturing'), __('Zurück in Test: ausgewählte Stück', 'taxmod-manufacturing'),
-                $note('retest_note', __('Was wurde nachgearbeitet? (optional)', 'taxmod-manufacturing')) . '<p class="description">' . esc_html__('Die Stück kommen ungetestet zurück in den Test.', 'taxmod-manufacturing') . '</p>', 'action', self::RETEST, __('Zurück in Test', 'taxmod-manufacturing'), $form)];
-        $dialogs[$form . '-scrap'] = [__('Verschrotten …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-scrap', __('Verschrotten …', 'taxmod-manufacturing'), __('Verschrotten: ausgewählte Stück', 'taxmod-manufacturing'),
-            $note('reason', __('Grund', 'taxmod-manufacturing')) . '<p class="description">' . esc_html__('Die Stück gehen ganz als «Defekt/Ausschuss» aus dem Lager, mit diesem Auftrag als Bezug. Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing') . '</p>', 'action', self::SCRAP, __('Verschrotten', 'taxmod-manufacturing'), $form)];
+        $dialogs[$form . '-retest'] = [__('Zurück in Test …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-retest', __('Zurück in Test …', 'taxmod-manufacturing'), __('Zurück in Test: ausgewählte Stücke', 'taxmod-manufacturing'),
+                $note('retest_note', __('Was wurde nachgearbeitet? (optional)', 'taxmod-manufacturing')) . '<p class="description">' . esc_html__('Die Stücke kommen ungetestet zurück in den Test.', 'taxmod-manufacturing') . '</p>', 'action', self::RETEST, __('Zurück in Test', 'taxmod-manufacturing'), $form)];
+        $dialogs[$form . '-scrap'] = [__('Verschrotten …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-scrap', __('Verschrotten …', 'taxmod-manufacturing'), __('Verschrotten: ausgewählte Stücke', 'taxmod-manufacturing'),
+            $note('reason', __('Grund', 'taxmod-manufacturing')) . '<p class="description">' . esc_html__('Die Stücke gehen ganz als «Defekt/Ausschuss» aus dem Lager, mit diesem Auftrag als Bezug. Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing') . '</p>', 'action', self::SCRAP, __('Verschrotten', 'taxmod-manufacturing'), $form)];
 
         $actions = ListPage::bulkBar($form, $this->nonce, [self::PASSED => __('Bestanden', 'taxmod-manufacturing')], '', '', false, $dialogs)
             . $this->hidden(['order' => (string) $order->id, 'tab' => $this->tab], $form);
