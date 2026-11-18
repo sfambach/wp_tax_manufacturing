@@ -25,3 +25,5 @@
 	.taxmod-mf-noprint { display: none; }
 }
 .taxmod-mf-judge { display: flex; gap: 4px; flex-wrap: nowrap; }
+.taxmod-mf-judge > form { display: contents; }
+.taxmod-mf-positions { margin: .5em 0 1em; }

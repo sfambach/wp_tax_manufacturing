@@ -11,6 +11,7 @@ use TaxmodManufacturing\Core\Costing;
 use TaxmodManufacturing\Core\Demand;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\OrderChanges;
+use TaxmodManufacturing\Core\Positions;
 use TaxmodManufacturing\Core\Structure;
 use TaxmodManufacturing\Core\Table;
 
@@ -698,7 +699,8 @@ final class ManufacturingService
 
         $built = $this->order($order);
 
-        if ($built->step !== 'order_building') {
+        // D-1433: an order whose boards are partly in «Test» still finishes its remaining ones.
+        if (! in_array($built->step, ['order_building', 'order_test'], true)) {
             throw ManufacturingError::unknownStatus('finish');
         }
 
@@ -723,6 +725,11 @@ final class ManufacturingService
             }
 
             $after = $this->order($built->id);
+
+            // D-1433 A: from «In Fertigung» on the step is what the boards say; it is written only for a stock that cannot say it.
+            if ($this->canPositions()) {
+                return $this->derived([$after])[0]->step;
+            }
 
             // D-1428: a kit has no «Test»; once all are packed it is done.
             if ($after->kit && $after->isFinished()) {
@@ -855,10 +862,150 @@ final class ManufacturingService
     }
 
     /**
+     * The completed boards of many orders in one read of the stock (CD-7) — order → lot → its row. Empty for a stock that
+     * cannot answer for several orders at once; the orders then keep their stored step.
+     *
+     * @param list<int> $orders
+     * @return array<int, array<int, array{state: string}>>
+     */
+    public function testLotsOf(array $orders): array
+    {
+        $orders = array_values(array_unique(array_filter($orders)));
+
+        if ($orders === [] || ! has_filter(self::TEST_LOTS_FILTER) || ! $this->canPositions()) {
+            return [];
+        }
+
+        $answer = apply_filters(self::TEST_LOTS_FILTER, null, ['references' => $orders]);
+
+        if (is_wp_error($answer) || ! is_array($answer)) {
+            return [];
+        }
+
+        $out = [];
+
+        foreach ($orders as $order) {
+            foreach (is_array($answer[$order] ?? null) ? $answer[$order] : [] as $lot => $row) {
+                $out[$order][(int) $lot] = ['state' => (string) ((is_array($row) ? $row : [])['state'] ?? 'untested')];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * D-1433 A: the orders with the step their boards give them, from «In Fertigung» on; the stored step is not rewritten.
+     *
+     * @param list<BuildOrder> $orders
+     * @return list<BuildOrder>
+     */
+    public function derived(array $orders): array
+    {
+        $started = array_values(array_filter($orders, static fn (BuildOrder $o): bool => in_array($o->step, ['order_building', 'order_test', 'order_done'], true)));
+
+        if ($started === [] || ! $this->canPositions()) {
+            return $orders;
+        }
+
+        $lots = count($started) === 1 ? [$started[0]->id => $this->testLots($started[0]->id)] : $this->testLotsOf(array_map(static fn (BuildOrder $o): int => $o->id, $started));
+
+        return array_map(static fn (BuildOrder $o): BuildOrder => Positions::derive($o, $lots[$o->id] ?? []), $orders);
+    }
+
+    public const MOVE_LOTS_FILTER = 'taxmod_stock_move_lots';
+    public const LOT_LABEL_FILTER = 'taxmod_stock_lot_label_button';
+
+    /** D-1433: the stock moves whole lots with their test result in one act (Lager 0.64.119). */
+    public function canPositions(): bool
+    {
+        return $this->canTest() && has_filter(self::MOVE_LOTS_FILTER);
+    }
+
+    /**
+     * D-1433 C/D: boards passed — «Fertiggestellt» — and moved from «Test» to «Wareneingang Produktion», one act.
+     *
+     * @param list<int> $lots
+     */
+    public function passBoards(int $order, array $lots, string $today): int
+    {
+        $inbound = has_filter('taxmod_stock_production_inbound') ? (int) apply_filters('taxmod_stock_production_inbound', null) : 0;
+
+        if ($inbound <= 0) {
+            throw ManufacturingError::notConfigured('production_inbound');
+        }
+
+        return $this->moveLots($order, $this->ownLots($order, $lots), $inbound, 'passed', '', $today);
+    }
+
+    /**
+     * D-1433 D: «Fertigstellen» — every open board (in test or in rework) passed and moved, one act.
+     */
+    public function finishAll(int $order, string $today): int
+    {
+        $open = array_keys(array_filter($this->testLots($order), static fn (array $lot): bool => in_array(Positions::ofLot($lot['state']), [Positions::TEST, Positions::REWORK], true)));
+
+        if ($open === []) {
+            throw ManufacturingError::nothingSelected();
+        }
+
+        return $this->passBoards($order, $open, $today);
+    }
+
+    /**
+     * D-1433 D, architecture 18.11.: «Zurück in Fertigung» takes the finished boards back onto «Test», untested; before the
+     * completion only the undo goes (D-1410).
+     */
+    public function backToTest(int $order, string $today): int
+    {
+        $place = has_filter(self::TEST_PLACE_FILTER) ? (int) apply_filters(self::TEST_PLACE_FILTER, null) : 0;
+        $done  = array_keys(array_filter($this->testLots($order), static fn (array $lot): bool => Positions::ofLot($lot['state']) === Positions::DONE));
+
+        if ($place <= 0) {
+            throw ManufacturingError::notConfigured('test_place');
+        }
+
+        if ($done === []) {
+            throw ManufacturingError::nothingSelected();
+        }
+
+        return $this->moveLots($order, $done, $place, 'untested', __('Auftrag zurück in Fertigung', 'taxmod-manufacturing'), $today);
+    }
+
+    /**
+     * D-1433 B: rework done, the boards back in «Test» — untested again, the note as Befund.
+     *
+     * @param list<int> $lots
+     */
+    public function retest(int $order, array $lots, string $note, string $today): int
+    {
+        return $this->recordTest($order, $lots, 'untested', $note, $today);
+    }
+
+    /** @param list<int> $lots */
+    private function moveLots(int $order, array $lots, int $place, string $result, string $note, string $today): int
+    {
+        $answer = apply_filters(self::MOVE_LOTS_FILTER, null, ['lots' => $lots, 'place' => $place, 'date' => $today, 'title' => $this->order($order)->label, 'reference' => $order, 'result' => $result, 'note' => $note]);
+
+        if (is_wp_error($answer) || ! is_int($answer)) {
+            throw ManufacturingError::stockRefused(is_wp_error($answer) ? $answer->get_error_message() : __('Das Lager hat nicht geantwortet.', 'taxmod-manufacturing'));
+        }
+
+        return $answer;
+    }
+
+    /** D-1433 E: the stock's own label button of a board, printed only when pressed (his rule 15.11.); '' without it. */
+    public function lotLabelButton(int $lot): string
+    {
+        $button = has_filter(self::LOT_LABEL_FILTER) ? apply_filters(self::LOT_LABEL_FILTER, '', ['lot' => $lot]) : '';
+
+        return is_string($button) ? $button : '';
+    }
+
+    /**
      * D-1419 «Test bestanden» / «Test nicht bestanden …» on the ticked boards; the stock writes the test report, one act.
      *
      * @param list<int> $lots
-     * @param 'passed'|'failed' $result
+     * @param 'passed'|'failed'|'untested' $result
      */
     public function recordTest(int $order, array $lots, string $result, string $note, string $today): int
     {

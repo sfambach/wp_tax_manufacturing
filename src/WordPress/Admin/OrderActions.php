@@ -113,6 +113,8 @@ final class OrderActions
                     'building' => $this->toBuilding($order, $today, $back),
                     'finish'   => $this->finish($order, $today, $back),
                     'done'     => $this->step($order, 'order_done', $today, $back),
+                    'finish_all' => $this->positions($order, $back, fn (): int => $this->service->finishAll($order, $today), 'finished_all'),
+                    'back_test'  => $this->positions($order, $back, fn (): int => $this->service->backToTest($order, $today), 'back_to_test'),
                     'cancel'   => $this->step($order, 'order_cancelled', $today, $back),
                     'reopen'   => $this->step($order, 'reopen', $today, $back),
                     default    => throw ManufacturingError::unknownStatus($do),
@@ -126,7 +128,7 @@ final class OrderActions
         // An order's page marks the menu point of its step, not of the list it was opened from (his report 16.11.).
         if (isset($back['auftrag'])) {
             try {
-                $step         = $this->service->order((int) $back['auftrag'])->step;
+                $step         = $this->service->derived([$this->service->order((int) $back['auftrag'])])[0]->step;
                 $back['tab']  = $step === 'order_cancelled' ? 'cancelled' : $step;
             } catch (ManufacturingError) {
                 // The order is gone; the list it came from stays.
@@ -212,22 +214,55 @@ final class OrderActions
         $lots            = array_values(array_filter(array_map('absint', (array) ($_POST['selected'] ?? []))));
 
         // The bar's scrap dialog names it «reason»; a row's dialog has one box «Befund» for every result.
-        $text = sanitize_text_field(wp_unslash((string) ($_POST[$action === TestSection::SCRAP && ($_POST['reason'] ?? '') !== '' ? 'reason' : 'note'] ?? '')));
+        $field = match (true) {
+            $action === TestSection::SCRAP && ($_POST['reason'] ?? '') !== '' => 'reason',
+            $action === TestSection::RETEST                                    => 'retest_note',
+            default                                                            => 'note',
+        };
+        $text  = sanitize_text_field(wp_unslash((string) ($_POST[$field] ?? '')));
 
-        if ($action !== TestSection::PASSED && trim($text) === '') {
+        if (in_array($action, [TestSection::FAILED, TestSection::SCRAP], true) && trim($text) === '') {
             throw ManufacturingError::textNeeded($action === TestSection::SCRAP ? 'reason' : 'note');
         }
 
         if ($action === TestSection::SCRAP) {
-            $this->service->scrapBoards($order, $lots, $text, $today);
+            $back['act'] = $this->service->scrapBoards($order, $lots, $text, $today);
 
             return 'scrapped';
+        }
+
+        // D-1433 B: rework done, back into «Test».
+        if ($action === TestSection::RETEST) {
+            $back['act'] = $this->service->retest($order, $lots, $text, $today);
+
+            return 'retested';
+        }
+
+        // D-1433 C: «Bestanden» finishes the board and moves it to «Wareneingang Produktion», one act.
+        if ($action === TestSection::PASSED && $this->service->canPositions()) {
+            $back['act'] = $this->service->passBoards($order, $lots, $today);
+
+            return 'passed_moved';
         }
 
         $passed      = $action === TestSection::PASSED;
         $back['act'] = $this->service->recordTest($order, $lots, $passed ? 'passed' : 'failed', $passed ? '' : $text, $today);
 
         return $passed ? 'test_passed' : 'test_failed';
+    }
+
+    /**
+     * D-1433 D: an act on all boards of the order at once; its change number goes back with the message.
+     *
+     * @param array<string, string|int> $back
+     * @param callable(): int $act
+     */
+    private function positions(int $order, array &$back, callable $act, string $message): string
+    {
+        $back['auftrag'] = $order;
+        $back['act']     = $act();
+
+        return $message;
     }
 
     /**

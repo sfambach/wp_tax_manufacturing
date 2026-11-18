@@ -11,6 +11,7 @@ use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\Demand;
 use TaxmodManufacturing\Core\Staging;
 use TaxmodManufacturing\Core\ManufacturingError;
+use TaxmodManufacturing\Core\Positions;
 use TaxmodManufacturing\WordPress\ManufacturingService;
 
 /**
@@ -138,6 +139,9 @@ final class OrdersPage
             return $html . $this->detail($orders, $detail);
         }
 
+        // D-1433 A: the steps from «In Fertigung» on are what the boards say, read for all orders at once.
+        $orders = $this->service->derived($orders);
+
         $tab   = $this->tab();
         $in    = static fn (string $step): int => count(array_filter($orders, static fn (BuildOrder $o): bool => $o->step === $step));
         // D-1300, D-1197, D-1325: the process as arrow tiles with their counts, starting at the project boxes an order grows
@@ -229,7 +233,20 @@ final class OrdersPage
             return '<div class="notice notice-error"><p>' . esc_html__('Die Auftragsansicht braucht den Taxonomy Modeller ab 0.2.101.', 'taxmod-manufacturing') . '</p></div>';
         }
 
-        $order   = $found[0];
+        // D-1433: the boards of the order, read once — their statuses, the order's step derived from them, the positions' list.
+        $lots    = [];
+
+        if (in_array($found[0]->step, ['order_building', 'order_test', 'order_done'], true) && $this->service->canTest()) {
+            try {
+                $lots = $this->service->testLots($found[0]->id);
+            } catch (ManufacturingError) {
+                $lots = [];
+            }
+        }
+
+        $positions = $this->service->canPositions();
+        $order     = $positions ? Positions::derive($found[0], $lots) : $found[0];
+        $counts    = Positions::counts($order, $lots);
         [$plain, $labels] = $this->context([$order]);
         $assigned = $this->service->assignments([$order->id])[$order->id] ?? [];
         $lists    = $this->service->assignedLists($order, $plain, $assigned);
@@ -260,6 +277,9 @@ final class OrdersPage
         // His word 16.11. «wenn was reserviert ist kann ich das nicht mehr ändern, selbst wenn ich es zurück in angelegt schiebe»:
         // back to «Angelegt» gives the order's reservations free (D-1384: picking belongs to «Bereitstellung»); the box keeps its parts.
         $back = match (true) {
+            // D-1433 D, architecture 18.11.: the finished boards go back onto «Test», untested; before the completion only the undo.
+            $positions && $counts[Positions::DONE] > 0 && in_array($order->step, ['order_test', 'order_done'], true) => $this->dialogForm('back_test', $order, '← ' . __('Zurück in Fertigung', 'taxmod-manufacturing'), __('Auftrag zurück in Fertigung?', 'taxmod-manufacturing'),
+                esc_html(sprintf(_n('%d fertiggestellte Platine geht zurück auf «Test», ungetestet. Ein Vorgang, zurücknehmen über die Änderungsnummer.', '%d fertiggestellte Platinen gehen zurück auf «Test», ungetestet. Ein Vorgang, zurücknehmen über die Änderungsnummer.', $counts[Positions::DONE], 'taxmod-manufacturing'), $counts[Positions::DONE]))),
             // His report 18.11.: «Zurück» led to the list, so it says so.
             $previous === ''                                       => ListPage::stepButton(__('Übersicht', 'taxmod-manufacturing'), false, $list),
             $previous === 'order_planned' && $held !== []          => $this->dialogForm('back', $order, '← ' . $name[$previous], sprintf(__('Zurück nach «%s»?', 'taxmod-manufacturing'), $name[$previous]),
@@ -277,6 +297,9 @@ final class OrdersPage
             // D-1419: «Fertigung abschließen» for the fully fitted boards; once all are completed the order is in «Test».
             $order->step === 'order_building' && ! $order->isFinished() && $this->service->structure()->hasField('assembly_done') => $this->finishDialog($order, $labels),
             $order->step === 'order_building' && $order->isFinished() && ! $this->service->structure()->hasValue('order_test') => ListPage::stepButton($name['order_done'], true, '', 'do', 'done', $form),
+            // D-1433 D: «Fertigstellen» passes every open board and moves it to «Wareneingang Produktion».
+            $positions && $order->step === 'order_test' => $this->dialogForm('finish_all', $order, __('Fertigstellen', 'taxmod-manufacturing') . ' →', __('Alle offenen Platinen fertigstellen?', 'taxmod-manufacturing'),
+                esc_html(sprintf(_n('%d offene Platine gilt als bestanden und geht auf «Wareneingang Produktion». Ein Vorgang, zurücknehmen über die Änderungsnummer.', '%d offene Platinen gelten als bestanden und gehen auf «Wareneingang Produktion». Ein Vorgang, zurücknehmen über die Änderungsnummer.', $counts[Positions::TEST] + $counts[Positions::REWORK], 'taxmod-manufacturing'), $counts[Positions::TEST] + $counts[Positions::REWORK]))),
             $order->step === 'order_test' => $this->testsSettled($order)
                 ? ListPage::stepButton($name['order_done'], true, '', 'do', 'done', $form)
                 : '<span class="description">' . esc_html__('«Fertiggestellt», wenn jede Platine bestanden hat oder verschrottet ist.', 'taxmod-manufacturing') . '</span>',
@@ -331,9 +354,9 @@ final class OrdersPage
             $sections[] = ['title' => __('Bestückung', 'taxmod-manufacturing'), 'html' => $fitting, 'open' => $order->step === 'order_building'];
         }
 
-        // D-1419: the completed boards are tested from the first partial completion on, not only in «Test».
-        if (! $order->kit && in_array($order->step, ['order_building', 'order_test', 'order_done'], true) && array_filter(array_map(static fn (Assembly $a): int => $a->done, $order->assemblies)) !== []) {
-            $sections[] = ['title' => __('Test', 'taxmod-manufacturing'), 'html' => (new TestSection($this->service, self::NONCE, $this->tab()))->render($order, $labels), 'open' => $order->step === 'order_test'];
+        // D-1419, D-1433: the boards with their statuses from the first completion on; a kit's too, for its labels.
+        if (in_array($order->step, ['order_building', 'order_test', 'order_done'], true) && $order->doneBoards() > 0) {
+            $sections[] = ['title' => __('Positionen', 'taxmod-manufacturing'), 'html' => (new TestSection($this->service, self::NONCE, $this->tab()))->render($order, $labels, $lots, $counts), 'open' => $order->step !== 'order_building'];
         }
 
         return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
@@ -1086,6 +1109,10 @@ final class OrdersPage
             'test_passed'   => __('Test bestanden eingetragen.', 'taxmod-manufacturing'),
             'test_failed'   => __('Nacharbeit eingetragen; die Platine wartet auf Nacharbeit und neuen Test.', 'taxmod-manufacturing'),
             'scrapped'      => __('Verschrottet (Defekt/Ausschuss im Lager).', 'taxmod-manufacturing'),
+            'passed_moved'  => __('Bestanden: fertiggestellt und auf «Wareneingang Produktion» umgebucht.', 'taxmod-manufacturing'),
+            'retested'      => __('Nacharbeit erledigt: die Platine ist wieder im Test, ungetestet.', 'taxmod-manufacturing'),
+            'finished_all'  => __('Fertiggestellt: alle offenen Platinen bestanden und auf «Wareneingang Produktion» umgebucht.', 'taxmod-manufacturing'),
+            'back_to_test'  => __('Zurück in Fertigung: die fertiggestellten Platinen liegen wieder ungetestet auf «Test».', 'taxmod-manufacturing'),
         ][sanitize_key((string) ($_GET['msg'] ?? ''))] ?? '';
         $act  = absint($_GET['act'] ?? 0);
 
