@@ -25,6 +25,9 @@ final class Plugin
 
     public const STOCK_VERSION = '0.64.120';
 
+    /** D-1463: `apply_filters(REVISION_STATUS_FILTER, [], $revisions)` → revision → ['status' => key, 'label' => words]. */
+    public const REVISION_STATUS_FILTER = 'taxmod_manufacturing_revision_status';
+
     public function bootWhenModellerIsThere(): void
     {
         // The one door into the model (D-1186), its bracket for one act over several bookings (D-1419, 0.2.127) and ListPage::number (D-1423, 0.2.130).
@@ -47,14 +50,22 @@ final class Plugin
             $pages  = is_array($pages) ? $pages : [];
             // His word 2026-11-14: one menu point per arrow of the process bar, in its order, named like the arrow.
             $labels = OrdersPage::viewLabels();
+            $fails  = (new ManufacturingService())->canFail();
 
             foreach (OrdersPage::VIEWS as $view => $slug) {
+                if ($view === 'order_failed' && ! $fails) {
+                    continue;
+                }
+
                 // The area head «Fertigung» opens the first point instead of an overview of tiles (stock 0.64.78; an older stock ignores it).
                 $pages[] = ['slug' => $slug, 'label' => $labels[$view], 'area' => 'production', 'opens_area' => $view === 'boxes', 'render' => static fn (): string => (new OrdersPage())->render()];
             }
 
             return $pages;
         });
+
+        // D-1463: a revision's status, derived from its orders when asked — for the post blocks (D-1466) and other modules.
+        add_filter(self::REVISION_STATUS_FILTER, static fn (mixed $given, mixed $revisions): array => (new ManufacturingService())->revisionStatuses(array_values(array_filter(array_map('intval', (array) $revisions)))), 10, 2);
 
         // ⚠️ *Only where admin-post.php answers: `OrdersPage::ACTIONS` alone compiled the orders page on every page view (D-1187).*
         if (self::handlesAdminActions()) {

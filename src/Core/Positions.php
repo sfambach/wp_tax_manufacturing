@@ -100,6 +100,6 @@ final class Positions
         $step = self::orderStep($order, $lots);
 
         return $step === $order->step ? $order : new BuildOrder($order->id, $order->label, $order->project, $order->count, $step, $order->box, $order->started,
-            $order->finished, $order->assemblies, $order->shortageReason, $order->due, $order->kit);
+            $order->finished, $order->assemblies, $order->shortageReason, $order->due, $order->kit, $order->note);
     }
 }

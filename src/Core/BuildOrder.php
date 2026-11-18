@@ -22,6 +22,8 @@ final class BuildOrder
         public readonly ?string $due = null,
         /** D-1428: a kit — board and parts packed for sale, no fitting and no «Test» */
         public readonly bool $kit = false,
+        /** the order's note; «Fehlgeschlagen» adds its finding here (D-1464) */
+        public readonly string $note = '',
     ) {
     }
 
@@ -60,6 +62,6 @@ final class BuildOrder
 
     public function isClosed(): bool
     {
-        return in_array($this->step, ['order_done', 'order_cancelled'], true);
+        return in_array($this->step, ['order_done', 'order_failed', 'order_cancelled'], true);
     }
 }

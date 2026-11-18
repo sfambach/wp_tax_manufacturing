@@ -40,4 +40,9 @@ final class PositionsTest extends TestCase
         self::assertSame('order_done', Positions::orderStep($this->order('order_done', 2, 2), []));
         self::assertSame('order_test', Positions::orderStep($this->order('order_test', 2, 2), []));
     }
+
+    public function testAStoredFailedOrderStandsAsStored(): void
+    {
+        self::assertSame('order_failed', Positions::orderStep($this->order('order_failed', 1, 1), [1 => ['state' => 'passed']]));
+    }
 }

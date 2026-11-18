@@ -115,6 +115,7 @@ final class OrderActions
                     'done'     => $this->step($order, 'order_done', $today, $back),
                     'finish_all' => $this->positions($order, $back, fn (): int => $this->service->finishAll($order, $today), 'finished_all'),
                     'back_test'  => $this->positions($order, $back, fn (): int => $this->service->backToTest($order, $today), 'back_to_test'),
+                    'failed'   => $this->markFailed($order, $back),
                     'cancel'   => $this->step($order, 'order_cancelled', $today, $back),
                     'reopen'   => $this->step($order, 'reopen', $today, $back),
                     default    => throw ManufacturingError::unknownStatus($do),
@@ -497,6 +498,19 @@ final class OrderActions
         $back['auftrag'] = $order;
 
         return 'box';
+    }
+
+    /**
+     * D-1464: «Fehlgeschlagen …» on a «Fertig» order, with the finding.
+     *
+     * @param array<string, string|int> $back
+     */
+    private function markFailed(int $order, array &$back): string
+    {
+        $this->service->markFailed($order, sanitize_textarea_field(wp_unslash((string) ($_POST['finding'] ?? ''))));
+        $back['auftrag'] = $order;
+
+        return 'failed';
     }
 
     /** @param array<string, string|int> $back */

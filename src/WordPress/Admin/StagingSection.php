@@ -142,7 +142,7 @@ final class StagingSection
             . '<div class="taxmod-mf-noprint">' . $this->bar($order, $lines, $labels, $canPick) . '</div>'
             . ($canPick ? '' : '<p class="description">' . esc_html__('Das Lager liefert die Lagerorte und das Umbuchen noch nicht; die Liste zeigt nur, was fehlt.', 'taxmod-manufacturing') . '</p>')
             . ListPage::grid($columns, $rows, '', 'taxmod-mf-staging')
-            . '<p class="description taxmod-mf-noprint">' . esc_html__('Je Material: Bedarf = Stück × Menge je Platine, noch nicht verbaut. Fehlt = Bedarf − im Gebinde − reserviert. Darunter die Lagerorte: Zeilen anhaken, Aktion wählen, ausführen. «Menge» ist, was die Aktion nimmt; bei «Reservierung ändern» die neue Menge (0 hebt auf).', 'taxmod-manufacturing') . '</p>'
+            . '<p class="description taxmod-mf-noprint">' . esc_html__('Je Material: Bedarf = Stück × Menge je Stück, noch nicht verbaut. Fehlt = Bedarf − im Gebinde − reserviert. Darunter die Lagerorte: Zeilen anhaken, Aktion wählen, ausführen. «Menge» ist, was die Aktion nimmt; bei «Reservierung ändern» die neue Menge (0 hebt auf).', 'taxmod-manufacturing') . '</p>'
             . '</div>';
     }
 

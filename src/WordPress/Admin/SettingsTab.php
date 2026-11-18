@@ -103,17 +103,17 @@ final class SettingsTab
 
             $rows[] = ['label' => __('Standard-Produktionsetikett', 'taxmod-manufacturing'), 'for' => 'taxmod-production-label',
                 'control' => '<select name="taxmod_production_label" id="taxmod-production-label">' . $options . '</select>',
-                'hint' => __('Gilt für fertige Platinen, wenn weder Material noch Sparte ein Etikett nennen.', 'taxmod-manufacturing')];
+                'hint' => __('Gilt für fertige Stücke, wenn weder Material noch Sparte ein Etikett nennen.', 'taxmod-manufacturing')];
         }
 
         // D-1425: the price of a completed board.
         $money  = static fn (float $n): string => ListPage::number($n, 2);
         $rows[] = ['label' => __('Stundenlohn', 'taxmod-manufacturing'), 'for' => 'taxmod-production-wage',
             'control' => '<input type="text" inputmode="decimal" class="small-text" name="taxmod_production_wage" id="taxmod-production-wage" value="' . esc_attr($money(self::settings()->wage)) . '"> ' . esc_html__('€ je Stunde', 'taxmod-manufacturing'),
-            'hint' => __('Arbeitslohn für den Fertigungspreis: Produktionszeit je Platine und Bereitstellung mal diesen Lohn. Gilt ab dem nächsten Abschluss; abgeschlossene Platinen behalten ihren Preis.', 'taxmod-manufacturing')];
+            'hint' => __('Arbeitslohn für den Fertigungspreis: Produktionszeit je Stück und Bereitstellung mal diesen Lohn. Gilt ab dem nächsten Abschluss; abgeschlossene Stücke behalten ihren Preis.', 'taxmod-manufacturing')];
         $rows[] = ['label' => __('Bereitstellung', 'taxmod-manufacturing'), 'for' => 'taxmod-production-setup',
             'control' => '<input type="text" inputmode="decimal" class="small-text" name="taxmod_production_setup" id="taxmod-production-setup" value="' . esc_attr($money(self::settings()->setupHours)) . '"> ' . esc_html__('Stunden je Auftrag', 'taxmod-manufacturing'),
-            'hint' => __('Wird auf die Platinen des Auftrags verteilt und als eigene Zeile im Preis ausgewiesen.', 'taxmod-manufacturing')];
+            'hint' => __('Wird auf die Stücke des Auftrags verteilt und als eigene Zeile im Preis ausgewiesen.', 'taxmod-manufacturing')];
 
         $stock = class_exists(\TaxmodStock\WordPress\Admin\SettingsPage::class) && method_exists(\TaxmodStock\WordPress\Admin\SettingsPage::class, 'url')
             ? ' <a href="' . esc_url(\TaxmodStock\WordPress\Admin\SettingsPage::url()) . '">' . esc_html__('Zu den Grundeinstellungen des Lagers', 'taxmod-manufacturing') . '</a>'

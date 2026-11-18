@@ -68,10 +68,12 @@ final class OrderChanges
         $parts = [];
 
         foreach ($revisions as $i => $revision) {
-            $parts['b' . ($i + 1)] = [
-                (string) $s->field('assembly_revision') => (string) $revision,
-                (string) $s->field('assembly_status')   => (string) $s->value('build_open'),
-            ];
+            $parts['b' . ($i + 1)] = [(string) $s->field('assembly_revision') => (string) $revision];
+
+            // D-1464: with «Fehlgeschlagen» in the model the assembly has no status of its own; before it, the old «offen».
+            if (! $s->hasValue('order_failed') && $s->hasField('assembly_status')) {
+                $parts['b' . ($i + 1)][(string) $s->field('assembly_status')] = (string) $s->value('build_open');
+            }
         }
 
         $values = [
@@ -190,6 +192,33 @@ final class OrderChanges
     }
 
     /**
+     * D-1464: the plan does not work — a «Fertig» order becomes «Fehlgeschlagen», the finding added to its note. A single
+     * board that does not work is scrap, not this (his words 18.11. 22:52). «Wieder aufnehmen» takes it back (D-1410 too).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function markFailed(BuildOrder $order, string $finding): array
+    {
+        $s = $this->s;
+
+        if (! $s->hasValue('order_failed') || $order->step !== 'order_done') {
+            throw ManufacturingError::unknownStatus('order_failed');
+        }
+
+        if (trim($finding) === '') {
+            throw ManufacturingError::textNeeded('finding');
+        }
+
+        $values = $this->stepValues('order_failed', null, null);
+
+        if ($s->hasField('order_note')) {
+            $values[(string) $s->field('order_note')] = $order->note === '' ? trim($finding) : $order->note . "\n" . trim($finding);
+        }
+
+        return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $values]];
+    }
+
+    /**
      * Closing, cancelling or taking up again. «fertig» needs every assembly done; taking up goes back to «in Bau», or to
      * «geplant» while no assembly has left «offen».
      *
@@ -253,7 +282,6 @@ final class OrderChanges
 
         if ($to === 'reopen') {
             $started = array_filter($order->assemblies, static fn (Assembly $a): bool => array_filter(array_column($a->fitted, 'boards')) !== []) !== [];
-
             return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $this->stepValues($started ? 'order_building' : 'order_planned', null, '')]];
         }
 
