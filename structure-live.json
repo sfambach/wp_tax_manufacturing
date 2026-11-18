@@ -71,6 +71,7 @@
     "order_staging": 149000110439,
     "order_test": 149000110491,
     "art_fitting": 149000110499,
-    "art_kit": 149000110500
+    "art_kit": 149000110500,
+    "order_failed": 149000110526
   }
 }
