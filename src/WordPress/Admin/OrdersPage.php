@@ -10,6 +10,7 @@ use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\Demand;
 use TaxmodManufacturing\Core\Staging;
+use TaxmodManufacturing\Core\Stopwatch;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\Positions;
 use TaxmodManufacturing\WordPress\ManufacturingService;
@@ -314,6 +315,11 @@ final class OrdersPage
         if ($order->box !== null && $order->isClosed() && has_filter(ManufacturingService::RETURN_FILTER) && $this->service->presentIn($order->box) !== []) {
             $actions[] = $this->dialogForm('clear', $order, __('Gebinde leer räumen', 'taxmod-manufacturing'), __('Gebinde leer räumen', 'taxmod-manufacturing'),
                 esc_html__('Alles im Gebinde geht zurück an den Platz, von dem es kam. Ein Vorgang, rückgängig über Storno.', 'taxmod-manufacturing'));
+        }
+
+        // D-1475: the stopwatch while the parts are staged and the boards built, one icon square in the toolbar.
+        if (in_array($order->step, Stopwatch::STEPS, true) && $this->service->canTime()) {
+            $actions[] = $this->timerControl($order, $form);
         }
 
         // D-1464: the plan does not work — only from «Fertig», only for a built order.
@@ -928,8 +934,24 @@ final class OrdersPage
 
         $settings = SettingsTab::settings();
         $money    = static fn (float $n): string => ListPage::number(number_format($n, 2, '.', ''));
+        // D-1475: the stopwatch's time, the running stretch included, comes in as the time of all boards of this completion.
+        $timed    = $this->service->canTime();
+        $recorded = $timed ? Stopwatch::minutes($order, ManufacturingService::now()) : 0.0;
+        $forAll   = $recorded > 0.0;
+        $value    = $forAll ? round($recorded, 2) : $last;
+        $label    = match (true) {
+            $timed      => $order->kit ? __('Packzeit', 'taxmod-manufacturing') : __('Produktionszeit', 'taxmod-manufacturing'),
+            $order->kit => __('Packzeit je Kit', 'taxmod-manufacturing'),
+            default     => __('Produktionszeit je Stück', 'taxmod-manufacturing'),
+        };
+        $scope    = $timed ? '<div class="taxmod-mf-field"><label>' . esc_html__('Zeit gilt für', 'taxmod-manufacturing') . ' <select name="time_for">'
+            . '<option value="all"' . selected($forAll, true, false) . '>' . esc_html($order->kit ? __('alle Kits dieses Abschlusses (wird geteilt)', 'taxmod-manufacturing') : __('alle Stücke dieses Abschlusses (wird geteilt)', 'taxmod-manufacturing')) . '</option>'
+            . '<option value="one"' . selected($forAll, false, false) . '>' . esc_html($order->kit ? __('ein Kit', 'taxmod-manufacturing') : __('ein Stück', 'taxmod-manufacturing')) . '</option>'
+            . '</select></label></div>'
+            . ($forAll ? '<div>' . esc_html(sprintf(__('Erfasst mit der Zeitmessung: %s h. Wird mit dem Abschluss auf 0 gesetzt.', 'taxmod-manufacturing'), Stopwatch::clock($recorded))) . '</div>' : '') : '';
 
-        return '<div class="taxmod-mf-field"><label>' . esc_html($order->kit ? __('Packzeit je Kit', 'taxmod-manufacturing') : __('Produktionszeit je Stück', 'taxmod-manufacturing')) . ' <input type="text" inputmode="decimal" class="small-text" name="minutes" pattern="[0-9]+([,.][0-9]+)?" value="' . esc_attr($last === null ? '' : ListPage::number($last, 2)) . '" required> ' . esc_html__('Minuten', 'taxmod-manufacturing') . '</label></div>'
+        return '<div class="taxmod-mf-field"><label>' . esc_html($label) . ' <input type="text" inputmode="decimal" class="small-text" name="minutes" pattern="[0-9]+([,.][0-9]+)?" value="' . esc_attr($value === null ? '' : ListPage::number($value, 2)) . '" required> ' . esc_html__('Minuten', 'taxmod-manufacturing') . '</label></div>'
+            . $scope
             /* translators: 1: wage per hour, 2: set-up hours per order */
             . '<div class="description">' . esc_html(sprintf($order->kit
                 /* translators: 1: wage per hour, 2: set-up hours per order */
@@ -1079,6 +1101,21 @@ final class OrdersPage
         return $boxes;
     }
 
+    /**
+     * D-1475: start or stop, and the time recorded. The server counts; the page only lets the shown time run on.
+     */
+    private function timerControl(BuildOrder $order, string $form): string
+    {
+        $runs    = Stopwatch::runs($order);
+        $minutes = Stopwatch::minutes($order, ManufacturingService::now());
+        $button  = ControlMarkup::button($runs
+            ? new Control('do', 'timer_stop', __('Zeit anhalten', 'taxmod-manufacturing'), __('Zeit anhalten', 'taxmod-manufacturing'), true, false, 'controls-pause', $form)
+            : new Control('do', 'timer_start', __('Zeit starten', 'taxmod-manufacturing'), __('Zeit starten', 'taxmod-manufacturing'), true, false, 'controls-play', $form));
+
+        return $button . ' <span class="taxmod-mf-timer" data-taxmod-mf-timer="' . esc_attr($runs ? (string) round($minutes * 60) : '') . '" title="' . esc_attr__('Erfasste Zeit (Stunden:Minuten)', 'taxmod-manufacturing') . '">'
+            . esc_html(Stopwatch::clock($minutes)) . ' h</span>';
+    }
+
     /** D-1464 «Fehlgeschlagen …»: the plan does not work — the whole order, with what was found. */
     private function failDialog(BuildOrder $order): string
     {
@@ -1152,6 +1189,8 @@ final class OrdersPage
             'retested'      => __('Nacharbeit erledigt: das Stück ist wieder in Test, ungetestet.', 'taxmod-manufacturing'),
             'finished_all'  => __('Fertig: alle offenen Stücke bestanden und auf «Wareneingang Produktion» umgebucht.', 'taxmod-manufacturing'),
             'back_to_test'  => __('Zurück in Bau: die fertigen Stücke liegen wieder ungetestet auf «Test».', 'taxmod-manufacturing'),
+            'timer_started' => __('Zeitmessung läuft.', 'taxmod-manufacturing'),
+            'timer_stopped' => __('Zeitmessung angehalten, Zeit summiert.', 'taxmod-manufacturing'),
         ][sanitize_key((string) ($_GET['msg'] ?? ''))] ?? '';
         $act  = absint($_GET['act'] ?? 0);
 

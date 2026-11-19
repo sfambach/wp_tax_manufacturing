@@ -84,6 +84,8 @@ final class BuildOrders
             ($due = substr((string) ($optional('order_due') ?? ''), 0, 10)) === '' ? null : $due,
             $s->hasValue('art_kit') && (int) ($optional('order_art') ?? 0) === $s->value('art_kit'),
             (string) ($optional('order_note') ?? ''),
+            (float) ($optional('order_worked') ?? 0),
+            ($since = substr((string) ($optional('order_running') ?? ''), 0, 19)) === '' ? null : $since,
         );
     }
 }

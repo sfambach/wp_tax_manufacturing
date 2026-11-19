@@ -7,6 +7,7 @@ use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\Demand;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\Staging;
+use TaxmodManufacturing\Core\Stopwatch;
 use TaxmodManufacturing\WordPress\ManufacturingService;
 
 /**
@@ -116,6 +117,8 @@ final class OrderActions
                     'finish_all' => $this->positions($order, $back, fn (): int => $this->service->finishAll($order, $today), 'finished_all'),
                     'back_test'  => $this->positions($order, $back, fn (): int => $this->service->backToTest($order, $today), 'back_to_test'),
                     'failed'   => $this->markFailed($order, $back),
+                    'timer_start' => $this->timer($order, true, $back),
+                    'timer_stop'  => $this->timer($order, false, $back),
                     'cancel'   => $this->step($order, 'order_cancelled', $today, $back),
                     'reopen'   => $this->step($order, 'reopen', $today, $back),
                     default    => throw ManufacturingError::unknownStatus($do),
@@ -283,7 +286,10 @@ final class OrderActions
         // D-1425: minutes per board, a decimal with comma or point; empty when the stock does not price yet.
         $minutes = str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($_POST['minutes'] ?? ''))));
         $place   = absint($_POST['place'] ?? 0);
-        $done    = $this->service->finishBuild($order, absint($_POST['boards'] ?? 0), $today, $categories, is_numeric($minutes) ? (float) $minutes : null, $place > 0 ? $place : null);
+        $boards  = absint($_POST['boards'] ?? 0);
+        // D-1475: the time given was that of all boards of this completion — divided by them — or of one.
+        $minutes = is_numeric($minutes) ? Stopwatch::perBoard((float) $minutes, sanitize_key((string) ($_POST['time_for'] ?? '')) === 'all', $boards) : null;
+        $done    = $this->service->finishBuild($order, $boards, $today, $categories, $minutes, $place > 0 ? $place : null);
 
         if ($done['act'] !== null) {
             $back['act'] = $done['act'];
@@ -511,6 +517,19 @@ final class OrderActions
      *
      * @param array<string, string|int> $back
      */
+    /** @param array<string, string|int> $back */
+    private function timer(int $order, bool $start, array &$back): string
+    {
+        $back['auftrag'] = $order;
+        $act             = $this->service->timer($order, $start);
+
+        if ($act !== null) {
+            $back['act'] = $act;
+        }
+
+        return $start ? 'timer_started' : 'timer_stopped';
+    }
+
     private function markFailed(int $order, array &$back): string
     {
         $this->service->markFailed($order, sanitize_textarea_field(wp_unslash((string) ($_POST['finding'] ?? ''))));

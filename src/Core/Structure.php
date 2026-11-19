@@ -53,7 +53,9 @@ final class Structure
         // D-1393/D-1398: the pins of one piece at a BOM line (a unit value) and the amount field of a unit value.
         'position_poles', 'unit_amount',
         // D-1428: the art of an order and of its result material — «Bestücken» or «Kit».
-        'order_art', 'assembled_art'];
+        'order_art', 'assembled_art',
+        // D-1475: the order's stopwatch — the minutes summed and since when it runs.
+        'order_worked', 'order_running'];
 
     /** D-954: the «Best.» values that matter here — «optional» may be left out, «nein» is never needed. */
     private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no', 'fitting_external', 'order_staging', 'order_test', 'art_fitting', 'art_kit', 'order_failed'];

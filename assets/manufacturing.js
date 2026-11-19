@@ -48,3 +48,26 @@
 
     document.addEventListener('taxmod:replaced', heads);
 })();
+
+/* D-1475: the stopwatch's time runs on while the page is open. Only shown — the server counts at «Zeit anhalten». */
+(function () {
+    var loaded = Date.now();
+
+    function tick() {
+        document.querySelectorAll('[data-taxmod-mf-timer]').forEach(function (shown) {
+            var base = shown.getAttribute('data-taxmod-mf-timer');
+
+            if (base === '') {
+                return;
+            }
+
+            var minutes = Math.floor((Number(base) + (Date.now() - loaded) / 1000) / 60);
+            shown.textContent = Math.floor(minutes / 60) + ':' + String(minutes % 60).padStart(2, '0') + ' h';
+        });
+    }
+
+    setInterval(tick, 15000);
+    document.addEventListener('taxmod:replaced', function () {
+        loaded = Date.now();
+    });
+})();

@@ -24,6 +24,10 @@ final class BuildOrder
         public readonly bool $kit = false,
         /** the order's note; «Fehlgeschlagen» adds its finding here (D-1464) */
         public readonly string $note = '',
+        /** D-1475: minutes of the stopwatch's finished stretches */
+        public readonly float $worked = 0.0,
+        /** D-1475: «Y-m-d H:i:s» UTC since when the stopwatch runs; null when it stands */
+        public readonly ?string $runningSince = null,
     ) {
     }
 
