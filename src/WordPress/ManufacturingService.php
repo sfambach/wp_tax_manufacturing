@@ -13,6 +13,7 @@ use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\OrderChanges;
 use TaxmodManufacturing\Core\Positions;
 use TaxmodManufacturing\Core\RevisionStatus;
+use TaxmodManufacturing\Core\Stopwatch;
 use TaxmodManufacturing\Core\Structure;
 use TaxmodManufacturing\Core\Systems;
 use TaxmodManufacturing\Core\Table;
@@ -728,6 +729,13 @@ final class ManufacturingService
                 $this->updateAssembly($built->id, $part->id, [], $part->unused, null, $part->done + $boards, null, $today, ($categories[$part->id] ?? 0) ?: null, $minutes, $built->kit ? $place : null);
             }
 
+            // D-1475: the stopwatch's time is booked onto these boards — back to nothing, in this act.
+            $reset = (new Stopwatch($this->structure()))->reset($built);
+
+            if ($reset !== []) {
+                $this->model->write($reset);
+            }
+
             $after = $this->order($built->id);
 
             // D-1433 A: from «In Fertigung» on the step is what the boards say; nothing is written for it.
@@ -900,6 +908,32 @@ final class ManufacturingService
     }
 
     /** D-1464: the plan does not work — the «Fertig» order becomes «Fehlgeschlagen», with the finding. */
+    /** D-1475: the order's stopwatch exists once the model has its two fields. */
+    public function canTime(): bool
+    {
+        return (new Stopwatch($this->structure()))->exists();
+    }
+
+    /** D-1475: «Y-m-d H:i:s» in UTC — the stopwatch counts on the server, never in the browser. */
+    public static function now(): string
+    {
+        return gmdate('Y-m-d H:i:s');
+    }
+
+    /**
+     * D-1475: start or stop the stopwatch of an order; each is one change, taken back by its number.
+     *
+     * @return ?int the change number
+     */
+    public function timer(int $order, bool $start): ?int
+    {
+        $built = $this->derived([$this->order($order)])[0];
+        $watch = new Stopwatch($this->structure());
+        $done  = $this->model->write($start ? $watch->start($built, self::now()) : $watch->stop($built, self::now()));
+
+        return isset($done['act']) ? (int) $done['act'] : null;
+    }
+
     public function markFailed(int $order, string $finding): void
     {
         $this->model->write((new OrderChanges($this->structure()))->markFailed($this->derived([$this->order($order)])[0], $finding));
