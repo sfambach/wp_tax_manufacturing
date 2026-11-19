@@ -860,7 +860,7 @@ final class OrdersPage
     {
         $categories = array_filter($order->assemblies, fn (Assembly $assembly): bool => $this->categoryChooser($order, $assembly) !== '');
 
-        $body = $order->kit ? $this->kitBody($order, $max, $done, $categories !== []) : '<div>' . esc_html(sprintf(__('Voll bestückt und offen: %1$d. Abgeschlossen sind %2$d von %3$d.', 'taxmod-manufacturing'), $max, $done, $order->count)) . '</div>'
+        $body = $order->kit ? $this->kitBody($order, $max, $done, $categories, $labels) : '<div>' . esc_html(sprintf(__('Voll bestückt und offen: %1$d. Abgeschlossen sind %2$d von %3$d.', 'taxmod-manufacturing'), $max, $done, $order->count)) . '</div>'
             . '<div class="taxmod-mf-field"><label>' . esc_html__('Stücke abschließen', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="boards" min="1" max="' . esc_attr((string) $max) . '" value="' . esc_attr((string) $max) . '" required></label></div>'
             . $this->minutesField($order)
             . ($categories === [] ? '' : '<div>' . esc_html__('Die Material-Kategorie des Stücks steht in den Stammdaten.', 'taxmod-manufacturing') . '</div>')
@@ -899,7 +899,11 @@ final class OrdersPage
      * D-1428: n of N kits packed — board and parts used up from the box, the kits into stock at the place chosen here (INF-134:
      * the place is his to decide; until then he picks it in the dialog), priced like a board with the packing time (D-1425).
      */
-    private function kitBody(BuildOrder $order, int $max, int $done, bool $category): string
+    /**
+     * @param array<int, Assembly> $categories the assemblies whose material this completion makes
+     * @param array<int, string>   $labels
+     */
+    private function kitBody(BuildOrder $order, int $max, int $done, array $categories, array $labels): string
     {
         $places  = $this->service->kitPlaces($order);
         $options = '';
@@ -912,7 +916,9 @@ final class OrdersPage
             . '<div class="taxmod-mf-field"><label>' . esc_html__('Kits abschließen', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="boards" min="1" max="' . esc_attr((string) $max) . '" value="' . esc_attr((string) $max) . '" required></label></div>'
             . '<div class="taxmod-mf-field"><label>' . esc_html__('Lagerplatz der Kits', 'taxmod-manufacturing') . ' <select name="place" required>' . $options . '</select></label></div>'
             . $this->minutesField($order)
-            . ($category ? '<div>' . esc_html__('Die Material-Kategorie des Kits steht in den Stammdaten.', 'taxmod-manufacturing') . '</div>' : '')
+            . ($categories !== [] ? '<div>' . esc_html__('Die Material-Kategorie des Kits steht in den Stammdaten.', 'taxmod-manufacturing') . '</div>' : '')
+            // D-1460 for kits too (his word 19.11. 07:01).
+            . $this->systemsLines($categories, $labels)
             . '<div class="description">' . esc_html__('Bucht den Verbrauch von Platine und Teilen aus dem Gebinde und legt die Kits auf den gewählten Platz. Weniger als alle: der Rest bleibt in Bau. Alle: der Auftrag ist fertiggestellt. Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing') . '</div>';
     }
 

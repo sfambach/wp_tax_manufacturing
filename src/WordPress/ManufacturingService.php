@@ -1226,14 +1226,15 @@ final class ManufacturingService
 
         $values = [(string) $s->field('assembled_revision') => (string) $revision];
 
-        // D-1460: nothing inherited, nothing kept in step — the plan's value, once; empty stays empty.
-        $systems = $kit ? [] : $this->planSystems($revision);
+        // D-1460: nothing inherited, nothing kept in step — the plan's value, once; empty stays empty. A kit the same: it is
+        // the same putting together, in a bag instead of soldered (his word 19.11. 07:01).
+        $systems = $this->planSystems($revision);
 
         if ($systems !== []) {
             $values[(string) $s->field('hardware_systems')] = ['values' => array_map('strval', $systems)];
         }
 
-        if (! $kit && $this->canCopySystems()) {
+        if ($this->canCopySystems()) {
             $this->made[$answer] = $systems;
         }
 
