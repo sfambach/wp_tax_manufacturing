@@ -858,7 +858,7 @@ final class OrdersPage
             . '<div class="taxmod-mf-field"><label>' . esc_html__('Stücke abschließen', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="boards" min="1" max="' . esc_attr((string) $max) . '" value="' . esc_attr((string) $max) . '" required></label></div>'
             . $this->minutesField($order)
             . ($categories === [] ? '' : '<div>' . esc_html__('Die Material-Kategorie des Stücks steht in den Stammdaten.', 'taxmod-manufacturing') . '</div>')
-            . $this->systemsFields($order, $categories, $labels)
+            . $this->systemsLines($categories, $labels)
             . '<div class="description">' . esc_html__('Bucht den Verbrauch ihrer Teile aus dem Gebinde und legt die Stücke ungeprüft auf den Platz «Test». Weniger als alle: der Rest bleibt in Bau, Gebinde und Reservierungen bleiben. Alle: der Auftrag geht in «Test». Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing') . '</div>';
 
         return '<form method="post" id="' . esc_attr(self::finishFormId($order)) . '" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
@@ -868,34 +868,25 @@ final class OrdersPage
     }
 
     /**
-     * D-1460: at the first completion of a revision its «Systeme», proposed from the plan, changeable here, written once into
-     * the new hardware record. An empty plan proposes nothing.
+     * D-1460: at the first completion of a revision its plan's «Systeme» are taken over once into the new material — said here
+     * beforehand in one line, changed afterwards in the material (the modeller has no choice of several for modules yet).
      *
-     * @param array<int, Assembly> $first the assemblies whose hardware record this completion makes
+     * @param array<int, Assembly> $first the assemblies whose material this completion makes
      * @param array<int, string>   $labels
      */
-    private function systemsFields(BuildOrder $order, array $first, array $labels): string
+    private function systemsLines(array $first, array $labels): string
     {
         $choices = $first === [] ? [] : $this->service->systemChoices();
+        $html    = '';
 
-        if ($choices === []) {
-            return '';
+        foreach ($choices === [] ? [] : $first as $assembly) {
+            $names = array_values(array_intersect_key($choices, array_flip($this->service->planSystems($assembly->revision))));
+            $html .= '<div>' . esc_html(($labels[$assembly->revision] ?? '#' . $assembly->revision) . ': ' . ($names === []
+                ? __('Systeme: keine im Bauplan', 'taxmod-manufacturing')
+                : sprintf(__('Systeme vom Bauplan: %s — werden einmal ins neue Material übernommen; ändern im Material.', 'taxmod-manufacturing'), implode(', ', $names)))) . '</div>';
         }
 
-        $html = '';
-
-        foreach ($first as $assembly) {
-            $proposed = array_flip($this->service->planSystems($assembly->revision));
-            $boxes    = '';
-
-            foreach ($choices as $id => $name) {
-                $boxes .= '<label><input type="checkbox" name="systems[' . esc_attr((string) $assembly->id) . '][]" value="' . esc_attr((string) $id) . '"' . checked(isset($proposed[$id]), true, false) . '> ' . esc_html($name) . '</label> ';
-            }
-
-            $html .= '<fieldset class="taxmod-mf-field"><legend>' . esc_html(sprintf(__('Systeme: %s', 'taxmod-manufacturing'), $labels[$assembly->revision] ?? '#' . $assembly->revision)) . '</legend>' . $boxes . '</fieldset>';
-        }
-
-        return $html . '<div class="description">' . esc_html__('Vorschlag aus dem Bauplan. Wird einmal in das neue Material geschrieben; eine spätere Änderung am Bauplan wirkt nicht auf gebaute Stücke.', 'taxmod-manufacturing') . '</div>';
+        return $html;
     }
 
     /**
@@ -1169,7 +1160,18 @@ final class OrdersPage
             $text .= ' ' . sprintf(__('Änderung Nr. %d, zurücknehmen unter Taxonomy Modeller › Änderungen.', 'taxmod-manufacturing'), $act);
         }
 
-        return $text === '' ? '' : '<div class="notice notice-success"><p>' . esc_html($text) . '</p></div>';
+        // D-1460: the new material named with the systems taken over, linked where they are changed.
+        $made = absint($_GET['made'] ?? 0);
+        $tail = '';
+
+        if ($text !== '' && $made > 0) {
+            $names = array_values(array_intersect_key($this->service->systemChoices(), array_flip(array_map('absint', explode(',', (string) ($_GET['systems'] ?? ''))))));
+            $url   = $this->service->stockUrl($made);
+            $tail  = ' ' . esc_html($names === [] ? __('Systeme: keine im Bauplan.', 'taxmod-manufacturing') : sprintf(__('Systeme übernommen: %s.', 'taxmod-manufacturing'), implode(', ', $names)))
+                . ($url === null ? '' : ' <a href="' . esc_url($url) . '">' . esc_html__('Neues Material öffnen', 'taxmod-manufacturing') . '</a>');
+        }
+
+        return $text === '' ? '' : '<div class="notice notice-success"><p>' . esc_html($text) . $tail . '</p></div>';
     }
 
     public function message(ManufacturingError $error): string

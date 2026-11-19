@@ -283,18 +283,16 @@ final class OrderActions
         // D-1425: minutes per board, a decimal with comma or point; empty when the stock does not price yet.
         $minutes = str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($_POST['minutes'] ?? ''))));
         $place   = absint($_POST['place'] ?? 0);
-        // D-1460: only systems the model offers; nothing ticked stays empty.
-        $offered = $this->service->systemChoices();
-        $systems = [];
-
-        foreach ((array) wp_unslash($_POST['systems'] ?? []) as $assembly => $ticked) {
-            $systems[absint($assembly)] = array_values(array_filter(array_map('absint', (array) $ticked), static fn (int $id): bool => isset($offered[$id])));
-        }
-
-        $done    = $this->service->finishBuild($order, absint($_POST['boards'] ?? 0), $today, $categories, is_numeric($minutes) ? (float) $minutes : null, $place > 0 ? $place : null, $systems);
+        $done    = $this->service->finishBuild($order, absint($_POST['boards'] ?? 0), $today, $categories, is_numeric($minutes) ? (float) $minutes : null, $place > 0 ? $place : null);
 
         if ($done['act'] !== null) {
             $back['act'] = $done['act'];
+        }
+
+        // D-1460: the material this completion made, with the systems it took over from the plan.
+        foreach ($this->service->madeMaterials() as $material => $systems) {
+            $back['made']    = $material;
+            $back['systems'] = implode(',', $systems);
         }
 
         return match ($done['step']) {

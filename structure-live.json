@@ -53,7 +53,8 @@
     "unit_amount": 4234,
     "order_art": 149000110506,
     "assembled_art": 149000110507,
-    "hardware_systems": 149000110510
+    "hardware_systems": 149000110510,
+    "board_systems": 149000110512
   },
   "values": {
     "order_planned": 149000110324,
