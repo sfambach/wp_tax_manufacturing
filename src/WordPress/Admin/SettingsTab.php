@@ -2,7 +2,9 @@
 
 namespace TaxmodManufacturing\WordPress\Admin;
 
+use Taxmod\Core\Description\InputKind;
 use Taxmod\WordPress\Admin\ListPage;
+use Taxmod\WordPress\Draw\SelectMarkup;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\ProductionSettings;
 
@@ -85,7 +87,7 @@ final class SettingsTab
             $rows[] = [
                 'label'   => $channel === null ? __('Neuer Kanal', 'taxmod-manufacturing') : (string) $channel,
                 'for'     => $id,
-                'control' => '<input type="text" class="regular-text" name="taxmod_production_channel[]" id="' . esc_attr($id) . '" value="' . esc_attr((string) $channel) . '" placeholder="' . esc_attr__('Verkaufskanal', 'taxmod-manufacturing') . '"> '
+                'control' => ListPage::field(InputKind::Line, 'taxmod_production_channel[]', (string) $channel, ['id' => $id, 'size' => 30, 'placeholder' => __('Verkaufskanal', 'taxmod-manufacturing')]) . ' '
                     . '<input type="number" class="small-text" min="0" step="1" name="taxmod_production_days[]" value="' . esc_attr((string) $days) . '" aria-label="' . esc_attr__('Tage', 'taxmod-manufacturing') . '"> ' . esc_html__('Tage', 'taxmod-manufacturing'),
                 'hint'    => __('Frist der Kundenfertigung: Termin = Verkaufsdatum + diese Tage. Eine Bearbeitungszeit am Verkauf selbst geht vor. Kanal leeren löscht die Zeile.', 'taxmod-manufacturing'),
             ];
@@ -95,24 +97,19 @@ final class SettingsTab
 
         if ($templates !== []) {
             $current = self::settings()->label;
-            $options = '<option value="0"' . selected($current, 0, false) . '>' . esc_html__('— keins —', 'taxmod-manufacturing') . '</option>';
-
-            foreach ($templates as $template => $name) {
-                $options .= '<option value="' . esc_attr((string) $template) . '"' . selected($current, $template, false) . '>' . esc_html($name) . '</option>';
-            }
+            $options = [0 => __('— keins —', 'taxmod-manufacturing')] + $templates;
 
             $rows[] = ['label' => __('Standard-Produktionsetikett', 'taxmod-manufacturing'), 'for' => 'taxmod-production-label',
-                'control' => '<select name="taxmod_production_label" id="taxmod-production-label">' . $options . '</select>',
+                'control' => SelectMarkup::of('taxmod_production_label', $options, (string) $current, false, '', ['id' => 'taxmod-production-label']),
                 'hint' => __('Gilt für fertige Stücke, wenn weder Material noch Sparte ein Etikett nennen.', 'taxmod-manufacturing')];
         }
 
         // D-1425: the price of a completed board.
-        $money  = static fn (float $n): string => ListPage::number($n, 2);
         $rows[] = ['label' => __('Stundenlohn', 'taxmod-manufacturing'), 'for' => 'taxmod-production-wage',
-            'control' => '<input type="text" inputmode="decimal" class="small-text" name="taxmod_production_wage" id="taxmod-production-wage" value="' . esc_attr($money(self::settings()->wage)) . '"> ' . esc_html__('€ je Stunde', 'taxmod-manufacturing'),
+            'control' => ListPage::field(InputKind::Decimal, 'taxmod_production_wage', (string) round(self::settings()->wage, 2), ['id' => 'taxmod-production-wage', 'size' => 6]) . ' ' . esc_html__('€ je Stunde', 'taxmod-manufacturing'),
             'hint' => __('Arbeitslohn für den Fertigungspreis: Produktionszeit je Stück und Bereitstellung mal diesen Lohn. Gilt ab dem nächsten Abschluss; abgeschlossene Stücke behalten ihren Preis.', 'taxmod-manufacturing')];
         $rows[] = ['label' => __('Bereitstellung', 'taxmod-manufacturing'), 'for' => 'taxmod-production-setup',
-            'control' => '<input type="text" inputmode="decimal" class="small-text" name="taxmod_production_setup" id="taxmod-production-setup" value="' . esc_attr($money(self::settings()->setupHours)) . '"> ' . esc_html__('Stunden je Auftrag', 'taxmod-manufacturing'),
+            'control' => ListPage::field(InputKind::Decimal, 'taxmod_production_setup', (string) round(self::settings()->setupHours, 2), ['id' => 'taxmod-production-setup', 'size' => 6]) . ' ' . esc_html__('Stunden je Auftrag', 'taxmod-manufacturing'),
             'hint' => __('Wird auf die Stücke des Auftrags verteilt und als eigene Zeile im Preis ausgewiesen.', 'taxmod-manufacturing')];
 
         $stock = class_exists(\TaxmodStock\WordPress\Admin\SettingsPage::class) && method_exists(\TaxmodStock\WordPress\Admin\SettingsPage::class, 'url')
