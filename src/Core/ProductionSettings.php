@@ -2,8 +2,6 @@
 
 namespace TaxmodManufacturing\Core;
 
-use Taxmod\Core\Renderer\DecimalText;
-
 /**
  * The settings of «Produktion» (D-1305): how many days a build for a customer may take, per sales channel; the hourly wage and
  * the set-up time per order of the price (D-1425).
@@ -80,18 +78,17 @@ final class ProductionSettings
     /** A decimal with comma or point, from 0; empty keeps the default. */
     private static function amount(string $name, string $value, float $default): float
     {
-        if (trim($value) === '') {
+        $value = str_replace(',', '.', trim($value));
+
+        if ($value === '') {
             return $default;
         }
 
-        // D-1501: the number format lives in one place.
-        $typed = DecimalText::typed($value);
-
-        if ($typed === null || (float) $typed < 0) {
+        if (preg_match('/^\d+(\.\d+)?$/', $value) !== 1) {
             throw ManufacturingError::notAnAmount($name, $value);
         }
 
-        return (float) $typed;
+        return (float) $value;
     }
 
     /**
