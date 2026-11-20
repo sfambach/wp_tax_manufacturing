@@ -86,14 +86,13 @@ final class Staging
             $at      = array_filter($places[$thing] ?? [], static fn (float $q): bool => $q > 0.0);
             arsort($at);
 
-            foreach ($at as $place => $there) {
-                if ($left <= 1e-9) {
-                    break;
-                }
+            // Stefan 20.11. 20:56 «du hast immer nur einen Bestand»: every place with free pieces is listed, so any of them can be
+            // taken; each offers what is missing, as far as it holds. Nothing missing, nothing offered. What none of them covers stays «an keinem Lagerort».
+            $offer = $left;
 
-                $take      = min($left, $there);
-                $left     -= $take;
-                $sources[] = ['kind' => 'free', 'thing' => $thing, 'place' => (int) $place, 'there' => $there, 'quantity' => $take, 'line' => 0, 'position' => 0];
+            foreach ($offer > 1e-9 ? $at : [] as $place => $there) {
+                $left     -= min(max($left, 0.0), $there);
+                $sources[] = ['kind' => 'free', 'thing' => $thing, 'place' => (int) $place, 'there' => $there, 'quantity' => min($offer, $there), 'line' => 0, 'position' => 0];
             }
 
             if ($left > 1e-9) {

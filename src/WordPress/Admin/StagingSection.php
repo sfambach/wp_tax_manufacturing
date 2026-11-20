@@ -97,7 +97,8 @@ final class StagingSection
         [$refs, $first, $piece, $base] = $this->positions($demand, $plain);
         $rows      = [];
 
-        foreach ($lines as $line) {
+        foreach ($lines as $band => $line) {
+            $from   = count($rows);
             $rows[] = $this->materialRow($order, $line, $labels, $refs[$line['thing']] ?? [], $first[$line['thing']] ?? 0, $base);
 
             foreach ($line['sources'] as $source) {
@@ -116,6 +117,12 @@ final class StagingSection
                     $this->status('free', __('ablängen', 'taxmod-manufacturing')),
                     $this->rowAction(self::PICK, 'cut:' . $key, ListPage::ICON_TRANSFER, __('Ablängen und ins Gebinde umbuchen', 'taxmod-manufacturing')),
                 ];
+            }
+
+            // Stefan 20.11. 20:57 «die Bestandszeilen immer in der gleichen Farbe wie die Position»: the stripes go per material
+            // with its places, not per row; every other group carries the band mark the stylesheet colours.
+            for ($i = $from; $band % 2 === 1 && $i < count($rows); $i++) {
+                $rows[$i][0] = '<span class="taxmod-mf-band" hidden></span>' . $rows[$i][0];
             }
         }
 
