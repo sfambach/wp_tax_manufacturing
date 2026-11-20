@@ -2,6 +2,7 @@
 
 namespace TaxmodManufacturing\WordPress\Admin;
 
+use Taxmod\Core\Description\InputKind;
 use Taxmod\WordPress\Admin\ListPage;
 use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\Staging;
@@ -122,12 +123,12 @@ final class StagingSection
             foreach ($cuts[$line['thing']] ?? [] as $source) {
                 $key    = $line['thing'] . ':' . $source['lot'];
                 $rows[] = [
-                    '<input type="checkbox" name="selected[]" value="' . esc_attr('cut:' . $key) . '" form="' . self::FORM . '">',
+                    ListPage::field(InputKind::Tick, 'selected[]', 'cut:' . $key, ['form' => self::FORM]),
                     '<span class="taxmod-mf-source">' . esc_html(sprintf(__('ablängen aus %s', 'taxmod-manufacturing'), $labels[$source['thing']] ?? '#' . $source['thing'])) . '</span>',
                     esc_html($labels[$source['place']] ?? '#' . $source['place']),
                     '', '', '', '',
                     esc_html($this->count($source['left'])),
-                    '<input type="number" class="small-text" form="' . self::FORM . '" name="cutqty[' . esc_attr($key) . ']" min="0" step="1" value="' . esc_attr($this->count($needs[$line['thing']] ?? 0.0)) . '">',
+                    ListPage::field(InputKind::Number, 'cutqty[' . $key . ']', $this->stored($needs[$line['thing']] ?? 0.0), ['form' => self::FORM, 'min' => '0', 'step' => '1']),
                     $this->status('free', __('ablängen', 'taxmod-manufacturing')),
                     $this->rowAction(self::PICK, 'cut:' . $key, ListPage::ICON_TRANSFER, __('Ablängen und ins Gebinde umbuchen', 'taxmod-manufacturing')),
                 ];
@@ -275,15 +276,15 @@ final class StagingSection
         $key = $source['kind'] === 'free'
             ? $source['thing'] . ':' . (int) $source['place']
             : 'res:' . $source['line'] . ':' . $source['thing'] . ':' . (int) $source['place'];
-        $max = $source['kind'] === 'free' ? ' max="' . esc_attr($this->count($source['there'])) . '"' : '';
+        $max = $source['kind'] === 'free' ? $this->stored($source['there']) : '';
 
         return [
-            '<input type="checkbox" name="selected[]" value="' . esc_attr($key) . '" form="' . self::FORM . '">',
+            ListPage::field(InputKind::Tick, 'selected[]', $key, ['form' => self::FORM]),
             $name === '' ? '' : '<span class="taxmod-mf-source">' . $name . '</span>',
             $place,
             '', '', '', '',
             esc_html($this->count($source['there'])),
-            '<input type="number" class="small-text" form="' . self::FORM . '" name="qty[' . esc_attr($key) . ']" min="0"' . $max . ' step="any" value="' . esc_attr($this->count($source['quantity'])) . '">'
+            ListPage::field(InputKind::Decimal, 'qty[' . $key . ']', $this->stored($source['quantity']), ['form' => self::FORM, 'min' => '0', 'max' => $max, 'step' => 'any'])
                 . ($piece > 0 ? '<input type="hidden" form="' . self::FORM . '" name="piece[' . esc_attr($key) . ']" value="' . esc_attr((string) $piece) . '">' : '')
                 . ($cuts !== [] && $source['kind'] === 'free' ? '<input type="hidden" form="' . self::FORM . '" name="cuts[' . esc_attr($key) . ']" value="' . esc_attr(self::cutsText($cuts)) . '">' : '')
                 . ($source['position'] > 0 ? '<input type="hidden" form="' . self::FORM . '" name="position[' . esc_attr($key) . ']" value="' . esc_attr((string) $source['position']) . '">' : ''),
@@ -322,7 +323,7 @@ final class StagingSection
             $where,
             '', '', '', '',
             esc_html($this->count($there)),
-            '<input type="number" class="small-text" form="' . self::FORM . '" name="qty[' . esc_attr($key) . ']" min="0" max="' . esc_attr($this->count($there)) . '" step="any" value="' . esc_attr($this->count(min($missing, $there))) . '">'
+            ListPage::field(InputKind::Decimal, 'qty[' . $key . ']', $this->stored(min($missing, $there)), ['form' => self::FORM, 'min' => '0', 'max' => $this->stored($there), 'step' => 'any'])
                 . ($position > 0 ? '<input type="hidden" form="' . self::FORM . '" name="position[' . esc_attr($key) . ']" value="' . esc_attr((string) $position) . '">' : ''),
             $this->status('info', __('Ersatz möglich', 'taxmod-manufacturing')),
             $this->rowAction(self::RESERVE, $key, 'paperclip', __('Als Ersatz zuweisen', 'taxmod-manufacturing')),
@@ -581,6 +582,12 @@ final class StagingSection
         $here = remove_query_arg(['taxmod_from', 'taxmod_from_label', 'taxmod_nav'], wp_unslash((string) ($_SERVER['REQUEST_URI'] ?? '')));
 
         return '<a href="' . esc_url(add_query_arg(['taxmod_from' => rawurlencode($here), 'taxmod_from_label' => rawurlencode($order->label)], $url)) . '">' . $name . '</a>';
+    }
+
+    /** A quantity as a field holds it: a point, no thousands sign (the field shows the site's decimal sign itself). */
+    private function stored(float $n): string
+    {
+        return \Taxmod\Core\Renderer\DecimalText::stored($n, 2);
     }
 
     private function count(float $n): string
