@@ -79,16 +79,18 @@ final class TestSection
                 esc_html($row['tested_on']),
                 esc_html($row['note']),
                 ...($priced ? [isset($costs[$lot]) ? $this->cost($costs[$lot], $names) : '—'] : []),
-                $this->rowActions($order, $lot, $status, $row['note'], $names[$row['thing']] ?? '#' . $row['thing']),
+                $this->rowActions($order, $lot, $status, $row['note'], $names[$row['thing']] ?? '#' . $row['thing'], 'taxmod-mf-findings-' . $order->id),
             ];
         }
 
         // Not «required»: the boxes belong to the bar's form even while their dialog is shut, and an empty required box there
         // blocks every action of the bar without a word (his report 17.11. 21:56). The handler asks for them instead.
-        $note    = static fn (string $name, string $label): string => '<p><label>' . esc_html($label) . '<br>' . ListPage::field(InputKind::Line, $name, '', ['form' => $form, 'size' => 40]) . '</label></p>';
+        // Stefan 20.11. 19:02: the latest findings to choose from, typing stays free (Prüftor: a datalist at the field).
+        $findings = 'taxmod-mf-findings-' . $order->id;
+        $note    = static fn (string $name, string $label, string $list = ''): string => '<p><label>' . esc_html($label) . '<br>' . ListPage::field(InputKind::Line, $name, '', ['form' => $form, 'size' => 40, 'list' => $list]) . '</label></p>';
         $dialogs = [
             $form . '-failed' => [__('Nacharbeit …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-failed', __('Nacharbeit …', 'taxmod-manufacturing'), __('Nacharbeit: ausgewählte Stücke', 'taxmod-manufacturing'),
-                $note('note', __('Was ist aufgefallen?', 'taxmod-manufacturing')) . '<p class="description">' . esc_html__('Die Stücke warten auf Nacharbeit; danach zurück in den Test.', 'taxmod-manufacturing') . '</p>', 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form)],
+                $note('note', __('Was ist aufgefallen?', 'taxmod-manufacturing'), $findings) . '<p class="description">' . esc_html__('Die Stücke warten auf Nacharbeit; danach zurück in den Test.', 'taxmod-manufacturing') . '</p>', 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form)],
         ];
 
         $dialogs[$form . '-retest'] = [__('Zurück in Test …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-retest', __('Zurück in Test …', 'taxmod-manufacturing'), __('Zurück in Test: ausgewählte Stücke', 'taxmod-manufacturing'),
@@ -100,7 +102,13 @@ final class TestSection
             . $this->hidden(['order' => (string) $order->id, 'tab' => $this->tab], $form);
 
         // The lines of a form, not a list: no filter, grouping or actions column (his report 17.11. «button chaos»).
-        return $bar . $actions . ListPage::grid([
+        $offered = '';
+
+        foreach ($this->service->recentFindings() as $finding) {
+            $offered .= '<option value="' . esc_attr($finding) . '"></option>';
+        }
+
+        return $bar . $actions . '<datalist id="' . esc_attr($findings) . '">' . $offered . '</datalist>' . ListPage::grid([
             [__('Alle wählen', 'taxmod-manufacturing')], [__('Posten', 'taxmod-manufacturing')], [__('Bauplan', 'taxmod-manufacturing')], [__('Lagerort', 'taxmod-manufacturing')],
             [__('Status', 'taxmod-manufacturing')], [__('Getestet am', 'taxmod-manufacturing')], [__('Befund', 'taxmod-manufacturing')],
             ...($priced ? [[__('Preis je Stück', 'taxmod-manufacturing')]] : []),
@@ -130,16 +138,16 @@ final class TestSection
      * Nacharbeit» and D-1433: what a board can do next from its status, in a form beside the bar — and its label, printed only
      * when pressed (D-1433 E).
      */
-    private function rowActions(BuildOrder $order, int $lot, string $status, string $note, string $board): string
+    private function rowActions(BuildOrder $order, int $lot, string $status, string $note, string $board, string $findings = ''): string
     {
         $form   = 'taxmod-mf-judge-' . $lot;
         $button = static fn (string $action, string $label): string => ListPage::button($label, '', false, 'action', $action, $form);
-        $text   = static fn (string $name, string $label, string $value, string $hint): string => '<p><label>' . esc_html($label) . '<br>' . ListPage::field(InputKind::Line, $name, $value, ['form' => $form, 'size' => 40]) . '</label></p>'
+        $text   = static fn (string $name, string $label, string $value, string $hint, string $list = ''): string => '<p><label>' . esc_html($label) . '<br>' . ListPage::field(InputKind::Line, $name, $value, ['form' => $form, 'size' => 40, 'list' => $list]) . '</label></p>'
             . '<p class="description">' . esc_html($hint) . '</p>';
         $inner  = match ($status) {
             Positions::TEST => $button(self::PASSED, __('Bestanden', 'taxmod-manufacturing'))
                 . ListPage::dialogAction($form . '-failed', __('Nacharbeit …', 'taxmod-manufacturing'), sprintf(__('Nacharbeit: Posten #%1$d, %2$s', 'taxmod-manufacturing'), $lot, $board),
-                    $text('note', __('Befund', 'taxmod-manufacturing'), $note, __('Das Stück wartet auf Nacharbeit; danach zurück in den Test.', 'taxmod-manufacturing')), 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form),
+                    $text('note', __('Befund', 'taxmod-manufacturing'), $note, __('Das Stück wartet auf Nacharbeit; danach zurück in den Test.', 'taxmod-manufacturing'), $findings), 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form),
             Positions::REWORK => ListPage::dialogAction($form . '-retest', __('Zurück in Test …', 'taxmod-manufacturing'), sprintf(__('Zurück in Test: Posten #%1$d, %2$s', 'taxmod-manufacturing'), $lot, $board),
                     $text('retest_note', __('Was wurde nachgearbeitet? (optional)', 'taxmod-manufacturing'), '', __('Das Stück kommt ungetestet zurück in den Test.', 'taxmod-manufacturing')), 'action', self::RETEST, __('Zurück in Test', 'taxmod-manufacturing'), $form)
                 . ListPage::dialogAction($form . '-scrap', __('Verschrotten …', 'taxmod-manufacturing'), sprintf(__('Verschrotten: Posten #%1$d, %2$s', 'taxmod-manufacturing'), $lot, $board),

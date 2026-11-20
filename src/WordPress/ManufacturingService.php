@@ -9,6 +9,7 @@ use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\BuildOrders;
 use TaxmodManufacturing\Core\Costing;
 use TaxmodManufacturing\Core\Demand;
+use TaxmodManufacturing\Core\Findings;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\OrderChanges;
 use TaxmodManufacturing\Core\Positions;
@@ -888,6 +889,40 @@ final class ManufacturingService
         return $out;
     }
 
+    /** @var array<int, bool> order → a board of it is in «Nacharbeit», as the last {@see derived()} read it */
+    private array $rework = [];
+
+    /** Prüftor 20.11. (3b): a board of the order is in «Nacharbeit»; known for the orders the last {@see derived()} read. */
+    public function inRework(int $order): bool
+    {
+        return $this->rework[$order] ?? false;
+    }
+
+    /**
+     * Stefan 20.11. 19:02 «nicht immer eintippen … die letzten 3 oder so»: the latest findings of the boards of every order,
+     * each once, newest first — read from the stock's test lots when the page is drawn, kept nowhere else.
+     *
+     * @return list<string>
+     */
+    public function recentFindings(int $count = 5): array
+    {
+        if (! has_filter(self::TEST_LOTS_FILTER)) {
+            return [];
+        }
+
+        $ids    = array_map(static fn (BuildOrder $o): int => $o->id, $this->orders());
+        $answer = $ids === [] ? [] : apply_filters(self::TEST_LOTS_FILTER, null, ['references' => $ids]);
+        $rows   = [];
+
+        foreach (is_array($answer) ? $answer : [] as $lots) {
+            foreach (is_array($lots) ? $lots : [] as $row) {
+                $rows[] = ['note' => (string) (((array) $row)['note'] ?? ''), 'tested_on' => (string) (((array) $row)['tested_on'] ?? '')];
+            }
+        }
+
+        return Findings::recent($rows, $count);
+    }
+
     /**
      * D-1433 A: the orders with the step their boards give them, from «In Fertigung» on; the stored step is not rewritten.
      *
@@ -904,10 +939,14 @@ final class ManufacturingService
 
         $lots = count($started) === 1 ? [$started[0]->id => $this->testLots($started[0]->id)] : $this->testLotsOf(array_map(static fn (BuildOrder $o): int => $o->id, $started));
 
+        // Prüftor 20.11. (3b): which orders have a board in «Nacharbeit», from the same read — a view, not a status.
+        foreach ($lots as $order => $rows) {
+            $this->rework[(int) $order] = array_filter($rows, static fn (array $row): bool => Positions::ofLot($row['state']) === Positions::REWORK) !== [];
+        }
+
         return array_map(static fn (BuildOrder $o): BuildOrder => Positions::derive($o, $lots[$o->id] ?? []), $orders);
     }
 
-    /** D-1464: the plan does not work — the «Fertig» order becomes «Fehlgeschlagen», with the finding. */
     /** D-1475: the order's stopwatch exists once the model has its two fields. */
     public function canTime(): bool
     {
@@ -934,6 +973,7 @@ final class ManufacturingService
         return isset($done['act']) ? (int) $done['act'] : null;
     }
 
+    /** D-1464: the plan does not work — the «Fertig» order becomes «Fehlgeschlagen», with the finding. */
     public function markFailed(int $order, string $finding): void
     {
         $this->model->write((new OrderChanges($this->structure()))->markFailed($this->derived([$this->order($order)])[0], $finding));
