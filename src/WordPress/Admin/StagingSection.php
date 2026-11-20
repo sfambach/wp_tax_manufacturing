@@ -346,7 +346,9 @@ final class StagingSection
 
         return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-noprint taxmod-mf-assign">' . wp_nonce_field($this->nonce, '_wpnonce', true, false)
             . $this->hidden(['action' => $this->action, 'order' => (string) $order->id, 'position' => (string) $position, 'tab' => $this->tab])
-            . ListPage::dialogAction($key . '-dialog', __('Aus Bestand wählen', 'taxmod-manufacturing'), sprintf(__('Aus Bestand wählen: %s', 'taxmod-manufacturing'), $labels[$wanted] ?? '#' . $wanted), $picker, 'do', 'assign', __('Zuweisen', 'taxmod-manufacturing'))
+            . ListPage::dialogAction($key . '-dialog', __('Aus Bestand wählen', 'taxmod-manufacturing'), sprintf(__('Aus Bestand wählen: %s', 'taxmod-manufacturing'), $labels[$wanted] ?? '#' . $wanted), $picker, 'do', 'assign', __('Zuweisen', 'taxmod-manufacturing'),
+                // D-1539, Stefan 20.11. 21:23 «der Dialog ist zu klein»: the modeller's wide dialog, from 0.2.192 on.
+                ...(version_compare(\Taxmod\WordPress\Plugin::VERSION, '0.2.192', '>=') ? ['wide' => true] : []))
             . '</form>';
     }
 
