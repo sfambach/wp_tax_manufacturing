@@ -375,6 +375,24 @@ final class OrderActions
         return 'reordered';
     }
 
+    /**
+     * Pin-Aufbereitung P1: «5:2,2:3» → pins per piece → pieces; anything else is left out.
+     *
+     * @return array<int, int>
+     */
+    private static function cutsOf(string $text): array
+    {
+        $out = [];
+
+        foreach (explode(',', $text) as $pair) {
+            if (preg_match('/^(\d+):(\d+)$/', trim($pair), $m) === 1 && (int) $m[1] > 0 && (int) $m[2] > 0) {
+                $out[(int) $m[1]] = (int) $m[2];
+            }
+        }
+
+        return $out;
+    }
+
     /** @param array<string, string|int> $back */
     private function pick(int $order, string $today, array &$back, bool $reserve): string
     {
@@ -391,10 +409,14 @@ final class OrderActions
             $qty = (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($quantities[$key] ?? '0'))));
 
             $piece = absint(((array) ($_POST['piece'] ?? []))[$key] ?? 0);
+            $cuts  = self::cutsOf(sanitize_text_field(wp_unslash((string) (((array) ($_POST['cuts'] ?? []))[$key] ?? ''))));
 
             if ($qty > 0.0) {
                 // D-1398: pieces of a strip counted in pins — the stock cuts them whole from its strips at `from`.
+                // Pin-Aufbereitung P1: all lengths of the material in one plan, while the quantity is the whole need.
+                $all     = array_sum(array_map(static fn (int $pins, int $count): int => $pins * $count, array_keys($cuts), $cuts));
                 $lines[] = ['thing' => (int) $match[1], 'from' => (int) $match[2], 'qty' => $qty]
+                    + ($cuts !== [] && $qty + 0.000001 >= $all ? ['cuts' => $cuts] : [])
                     + ($piece > 0 ? ['piece' => $piece, 'pieces' => (int) ceil($qty / $piece)] : []);
             }
         }

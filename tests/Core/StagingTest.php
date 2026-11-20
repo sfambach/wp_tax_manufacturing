@@ -63,4 +63,17 @@ final class StagingTest extends TestCase
 
         self::assertSame([['none', null, 2.0]], array_map(static fn (array $s): array => [$s['kind'], $s['place'], $s['quantity']], $lines[0]['sources']));
     }
+
+    public function testTheMissingPiecesOfAStripAreCountedByLengthLongestFirst(): void
+    {
+        // Pin-Aufbereitung P1: P1/P2 1×5 (10 pins missing), J1 1×6 (6), J2–J4 1×2 (6) — all from one 1×40 material 51307.
+        $demand = [7 => [
+            ['position' => 1, 'thing' => 51307, 'missing' => 10.0],
+            ['position' => 2, 'thing' => 51307, 'missing' => 6.0],
+            ['position' => 3, 'thing' => 51307, 'missing' => 6.0],
+            ['position' => 4, 'thing' => 900, 'missing' => 3.0],
+        ]];
+
+        self::assertSame([51307 => [6 => 1, 5 => 2, 2 => 3]], Staging::pieces($demand, [1 => 5, 2 => 6, 3 => 2]));
+    }
 }
