@@ -379,7 +379,10 @@ final class OrderActions
     private function pick(int $order, string $today, array &$back, bool $reserve): string
     {
         $quantities = (array) ($_POST['qty'] ?? []);
-        $selected   = array_map(static fn ($key): string => sanitize_text_field(wp_unslash((string) $key)), (array) ($_POST['selected'] ?? []));
+        $row        = sanitize_text_field(wp_unslash((string) ($_GET['row'] ?? '')));
+        // A row's own button (Stefan 20.11. 20:39) acts on that row alone, ticked or not.
+        $selected   = $row !== '' ? [$row] : array_map(static fn ($key): string => sanitize_text_field(wp_unslash((string) $key)), (array) ($_POST['selected'] ?? []));
+        $positions  = (array) ($_POST['position'] ?? []);
         $lines      = [];
 
         foreach ($selected as $key) {
@@ -394,8 +397,11 @@ final class OrderActions
 
             if ($qty > 0.0) {
                 // D-1398: pieces of a strip counted in pins — the stock cuts them whole from its strips at `from`.
-                $lines[] = ['thing' => (int) $match[1], 'from' => (int) $match[2], 'qty' => $qty]
-                    + ($piece > 0 ? ['piece' => $piece, 'pieces' => (int) ceil($qty / $piece)] : []);
+                $position = absint($positions[$key] ?? 0);
+                $lines[]  = ['thing' => (int) $match[1], 'from' => (int) $match[2], 'qty' => $qty]
+                    + ($piece > 0 ? ['piece' => $piece, 'pieces' => (int) ceil($qty / $piece)] : [])
+                    // D-1387: a reservation keeps its position; the move into the box carries none.
+                    + ($reserve && $position > 0 ? ['position' => $position] : []);
             }
         }
 

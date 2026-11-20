@@ -310,7 +310,8 @@ final class OrdersPage
             default => '',
         };
 
-        $actions = [];
+        // Stefan 20.11. 20:39: «der Speichern-Knopf auch in die Leiste» — the master data's 💾 joins its form from the one toolbar.
+        $actions = $order->isClosed() || $order->step === 'order_test' ? [] : [$this->saveButton(self::headFormId($order))];
 
         // His word 17.11. 22:04 «warum ist der button gebinde leer räumen überall in fertigung zu sehen»: what is left goes back
         // once the order has ended, and only when something is left.
@@ -374,9 +375,14 @@ final class OrdersPage
             $sections[] = ['title' => __('Positionen', 'taxmod-manufacturing'), 'html' => (new TestSection($this->service, self::NONCE, $this->tab()))->render($order, $labels, $lots, $counts), 'open' => $order->step !== 'order_building'];
         }
 
+        $headed = method_exists(ListPage::class, 'recordHead');
+
         return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => 'detail']) . '</form>'
-            . ListPage::record(sprintf(__('Fertigungsauftrag · %s', 'taxmod-manufacturing'), $order->label), $steps,
+            // Stefan 20.11. 20:39 «oben wieder Fertigung, Aufträge und da kommt dann der Name hin»: the standard head (D-1526) with
+            // the way back; the record's own title stays empty, so the name stands once.
+            . ($headed ? ListPage::recordHead(__('Auftrag', 'taxmod-manufacturing'), $order->label, $list, __('Aufträge', 'taxmod-manufacturing')) : '')
+            . ListPage::record($headed ? '' : sprintf(__('Fertigungsauftrag · %s', 'taxmod-manufacturing'), $order->label), $steps,
                 // «Nacharbeit» lights when every open board waits for it; with boards still in test «In Test» does.
                 $order->step === 'order_test' && $counts[Positions::TEST] === 0 && $counts[Positions::REWORK] > 0 ? 'order_rework' : $order->step, $back, $forward, $actions, $this->headForm($order, $labels, $missing, $demand), $sections);
     }
@@ -567,7 +573,7 @@ final class OrdersPage
 
         return '<form method="post" id="' . esc_attr(self::headFormId($order)) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'do' => 'head', 'order' => (string) $order->id, 'tab' => $this->tab()])
-            . ListPage::form($rows, $locked ? '' : $this->saveButton())
+            . ListPage::form($rows)
             // Once, whatever the number of boards: an id stands once on a page.
             . '<datalist id="taxmod-mf-scrap-reasons"><option value="' . esc_attr__('heruntergefallen', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('defekt', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('falsch bestückt', 'taxmod-manufacturing') . '"></datalist>'
             . '</form>';
