@@ -174,11 +174,11 @@ final class OrdersPage
         $beside  = $stacked ? [] : array_slice($ends, 1);
         $shown = array_values(array_filter($orders, fn (BuildOrder $o): bool => $this->inTab($o, $tab)));
 
+        // D-1526 (his word 20.11. 18:21 «eine Toolbar»): the bar, then the one row — bulk actions, «Neuer Auftrag», the count.
         $html .= $this->chooseBoards()
-            . ListPage::toolbar([$this->createAction()])
             . ListPage::steps($steps, $tab, fn (string $slug): string => $this->url(['tab' => $slug]), $beside, ['all', __('Alle', 'taxmod-manufacturing'), count($orders)])
             . ListPage::bulkBar(self::FORM, self::NONCE, [self::BULK_CANCEL => __('Abbrechen', 'taxmod-manufacturing'), self::BULK_REOPEN => __('Wieder aufnehmen', 'taxmod-manufacturing')],
-                sprintf(_n('%d Auftrag', '%d Aufträge', count($shown), 'taxmod-manufacturing'), count($shown)));
+                sprintf(_n('%d Auftrag', '%d Aufträge', count($shown), 'taxmod-manufacturing'), count($shown)), '<div class="alignleft actions taxmod-list-buttons">' . $this->createAction() . '</div>');
 
         if ($tab === 'boxes') {
             return $html . $this->boxList($orders, $boxes);
@@ -674,7 +674,9 @@ final class OrdersPage
                 . ($order->box !== null && Demand::missingRows([$rows]) > 0 ? ' · <strong class="taxmod-mf-status taxmod-mf-status-warn">' . esc_html(sprintf(__('%d Positionen fehlen', 'taxmod-manufacturing'), Demand::missingRows([$rows]))) . '</strong>' : '') . '</li>';
         }
 
-        $details = '<ul class="taxmod-mf-details">' . $details . '</ul><p>' . ListPage::iconButton('visibility', __('Öffnen', 'taxmod-manufacturing'), $this->url(['auftrag' => $order->id, 'tab' => $this->tab()])) . '</p>';
+        $details = '<ul class="taxmod-mf-details">' . $details . '</ul><p>' . (method_exists(ListPage::class, 'openButton')
+            ? ListPage::openButton($this->url(['auftrag' => $order->id, 'tab' => $this->tab()]), __('Öffnen', 'taxmod-manufacturing'))
+            : ListPage::iconButton('visibility', __('Öffnen', 'taxmod-manufacturing'), $this->url(['auftrag' => $order->id, 'tab' => $this->tab()]))) . '</p>';
 
         return ListPage::row(self::FORM, (string) $order->id, $cells, $this->rowButtons($order, $order->box === null ? 0 : Demand::missingRows($demand)), $details);
     }
