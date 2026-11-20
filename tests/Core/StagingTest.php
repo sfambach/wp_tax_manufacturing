@@ -41,6 +41,16 @@ final class StagingTest extends TestCase
         self::assertSame([['free', self::PLATINEN, 15.0, 3.0]], array_map(static fn (array $s): array => [$s['kind'], $s['place'], $s['there'], $s['quantity']], $lines[0]['sources']));
     }
 
+    /** Stefan 20.11. 20:56: every place with free pieces stands, each offering what is missing as far as it holds. */
+    public function testEveryPlaceIsOffered(): void
+    {
+        $assembly = new Assembly(1, self::BOARD, [], []);
+        $demand   = Demand::of([$assembly], [], 1, Staging::available([], [], self::BOX));
+        $lines    = Staging::lines($demand, [], [], [self::BOARD => [self::PLATINEN => 90.0, 85749 => 15.0]], self::BOX);
+
+        self::assertSame([['free', self::PLATINEN, 1.0], ['free', 85749, 1.0]], array_map(static fn (array $s): array => [$s['kind'], $s['place'], $s['quantity']], $lines[0]['sources']));
+    }
+
     /** A reservation whose lot lies in the box is counted once, as in the box. */
     public function testReservationInTheBoxIsNotCountedTwice(): void
     {
