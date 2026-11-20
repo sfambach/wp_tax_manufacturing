@@ -160,4 +160,39 @@ final class Staging
 
         return $out;
     }
+
+    /**
+     * D-1539: what in the box could stand in for a missing material — another material of the same catalog node that the order
+     * does not need itself. INFERRED (Prüftor 20.11.): Stefan said «Ersatzprodukte wählen»; «same node» is the reading.
+     *
+     * @param array<int, float> $missing thing → pieces still missing
+     * @param array<int, int>   $nodes   record → its catalog node
+     * @param array<int, float> $box     thing → pieces in the box
+     * @param list<int>         $needed  the materials the order needs itself; they are never offered as another's stand-in
+     * @return array<int, array<int, float>> missing thing → stand-in → pieces in the box, most first
+     */
+    public static function substitutes(array $missing, array $nodes, array $box, array $needed): array
+    {
+        $out = [];
+
+        foreach ($missing as $thing => $pieces) {
+            $node = $nodes[$thing] ?? 0;
+
+            if ($pieces <= 1e-9 || $node === 0) {
+                continue;
+            }
+
+            foreach ($box as $other => $there) {
+                if ($other !== $thing && $there > 1e-9 && ($nodes[$other] ?? 0) === $node && ! in_array($other, $needed, true)) {
+                    $out[$thing][$other] = $there;
+                }
+            }
+
+            if (isset($out[$thing])) {
+                arsort($out[$thing]);
+            }
+        }
+
+        return $out;
+    }
 }

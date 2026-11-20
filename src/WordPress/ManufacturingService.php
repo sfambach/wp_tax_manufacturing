@@ -14,6 +14,7 @@ use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\OrderChanges;
 use TaxmodManufacturing\Core\Positions;
 use TaxmodManufacturing\Core\RevisionStatus;
+use TaxmodManufacturing\Core\Staging;
 use TaxmodManufacturing\Core\Stopwatch;
 use TaxmodManufacturing\Core\Structure;
 use TaxmodManufacturing\Core\Systems;
@@ -149,6 +150,27 @@ final class ManufacturingService
     public function canPick(): bool
     {
         return has_filter(self::PLACES_FILTER) && has_filter(self::PICK_FILTER);
+    }
+
+    /**
+     * D-1539: stand-ins in the order's box for the missing materials — one read of the box, one of the catalog nodes (CD-7).
+     *
+     * @param array<int, float> $missing thing → pieces still missing
+     * @param list<int>         $needed  the order's own materials
+     * @return array<int, array<int, float>> missing thing → stand-in → pieces in the box
+     */
+    public function substitutesInBox(array $missing, array $needed, ?int $box): array
+    {
+        $missing = array_filter($missing, static fn (float $q): bool => $q > 1e-9);
+        $content = $missing === [] ? [] : $this->presentIn($box);
+
+        if ($content === []) {
+            return [];
+        }
+
+        $nodes = $this->model->nodesOf(array_values(array_unique([...array_keys($missing), ...array_keys($content)])));
+
+        return Staging::substitutes($missing, array_map('intval', $nodes), $content, $needed);
     }
 
     /**
