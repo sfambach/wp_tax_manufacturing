@@ -948,7 +948,7 @@ final class OrdersPage
             ], $forAll ? 'all' : 'one', false) . '</label></div>'
             . ($forAll ? '<div>' . esc_html(sprintf(__('Erfasst mit der Zeitmessung: %s h. Wird mit dem Abschluss auf 0 gesetzt.', 'taxmod-manufacturing'), Stopwatch::clock($recorded))) . '</div>' : '') : '';
 
-        return '<div class="taxmod-mf-field"><label>' . esc_html($label) . ' ' . ListPage::field(InputKind::Decimal, 'minutes', $value === null ? '' : number_format($value, 2, '.', ''), ['required' => true, 'size' => 6]) . ' ' . esc_html__('Minuten', 'taxmod-manufacturing') . '</label></div>'
+        return '<div class="taxmod-mf-field"><label>' . esc_html($label) . ' ' . ListPage::field(InputKind::Decimal, 'minutes', $value === null ? '' : (string) round($value, 2), ['required' => true, 'size' => 6]) . ' ' . esc_html__('Minuten', 'taxmod-manufacturing') . '</label></div>'
             . $scope
             /* translators: 1: wage per hour, 2: set-up hours per order */
             . '<div class="description">' . esc_html(sprintf($order->kit
