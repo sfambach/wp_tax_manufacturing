@@ -114,7 +114,7 @@ final class StagingSection
                     esc_html($this->count($source['left'])),
                     '<input type="number" class="small-text" form="' . self::FORM . '" name="cutqty[' . esc_attr($key) . ']" min="0" step="1" value="' . esc_attr($this->count($needs[$line['thing']] ?? 0.0)) . '">',
                     $this->status('free', __('ablängen', 'taxmod-manufacturing')),
-                    '',
+                    $this->rowAction(self::PICK, 'cut:' . $key, ListPage::ICON_TRANSFER, __('Ablängen und ins Gebinde umbuchen', 'taxmod-manufacturing')),
                 ];
             }
         }
@@ -257,8 +257,26 @@ final class StagingSection
                 'reserved_box' => $this->status('ok', __('reserviert, im Gebinde', 'taxmod-manufacturing')),
                 default        => $this->status('info', __('frei', 'taxmod-manufacturing')),
             },
-            '',
+            // Stefan 20.11. 20:39: «da ist dann kein Button, was man machen könnte» — per found place: take it for the order
+            // (a reservation, it stays where it lies) or take it and book it into the box; the bulk choice keeps doing both for many.
+            match ($source['kind']) {
+                'free'     => ($this->service->canReserve() ? $this->rowAction(self::RESERVE, $key, 'paperclip', __('Zuweisen (bleibt am Lagerort)', 'taxmod-manufacturing')) . ' ' : '')
+                    . $this->rowAction(self::PICK, $key, ListPage::ICON_TRANSFER, __('Zuweisen und ins Gebinde umbuchen', 'taxmod-manufacturing')),
+                'reserved' => $this->rowAction(self::PICK, $key, ListPage::ICON_TRANSFER, __('Ins Gebinde umbuchen', 'taxmod-manufacturing')),
+                default    => '',
+            },
         ];
+    }
+
+    /**
+     * One row's act as an icon square (D-1500): it submits the bulk form with its own choice and names its row in the address,
+     * so the row counts whether it is ticked or not and its «Menge» is what is taken.
+     */
+    private function rowAction(string $action, string $key, string $icon, string $label): string
+    {
+        $button = ListPage::iconButton($icon, $label, '', 'action', $action, self::FORM);
+
+        return preg_replace('/^<button /', '<button formaction="' . esc_url(add_query_arg('row', rawurlencode($key), admin_url('admin-post.php'))) . '" ', $button, 1) ?? $button;
     }
 
     /**

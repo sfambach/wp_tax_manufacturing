@@ -397,7 +397,10 @@ final class OrderActions
     private function pick(int $order, string $today, array &$back, bool $reserve): string
     {
         $quantities = (array) ($_POST['qty'] ?? []);
-        $selected   = array_map(static fn ($key): string => sanitize_text_field(wp_unslash((string) $key)), (array) ($_POST['selected'] ?? []));
+        $row        = sanitize_text_field(wp_unslash((string) ($_GET['row'] ?? '')));
+        // A row's own button (Stefan 20.11. 20:39) acts on that row alone, ticked or not.
+        $selected   = $row !== '' ? [$row] : array_map(static fn ($key): string => sanitize_text_field(wp_unslash((string) $key)), (array) ($_POST['selected'] ?? []));
+        $positions  = (array) ($_POST['position'] ?? []);
         $lines      = [];
 
         foreach ($selected as $key) {
@@ -409,15 +412,18 @@ final class OrderActions
             $qty = (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($quantities[$key] ?? '0'))));
 
             $piece = absint(((array) ($_POST['piece'] ?? []))[$key] ?? 0);
-            $cuts  = self::cutsOf(sanitize_text_field(wp_unslash((string) (((array) ($_POST['cuts'] ?? []))[$key] ?? ''))));
+            $lengths = self::cutsOf(sanitize_text_field(wp_unslash((string) (((array) ($_POST['cuts'] ?? []))[$key] ?? ''))));
 
             if ($qty > 0.0) {
                 // D-1398: pieces of a strip counted in pins — the stock cuts them whole from its strips at `from`.
                 // D-1535 (P1): all lengths of the material in one plan, while the quantity is the whole need.
-                $all     = array_sum(array_map(static fn (int $pins, int $count): int => $pins * $count, array_keys($cuts), $cuts));
-                $lines[] = ['thing' => (int) $match[1], 'from' => (int) $match[2], 'qty' => $qty]
-                    + ($cuts !== [] && $qty + 0.000001 >= $all ? ['cuts' => $cuts] : [])
-                    + ($piece > 0 ? ['piece' => $piece, 'pieces' => (int) ceil($qty / $piece)] : []);
+                $all      = array_sum(array_map(static fn (int $pins, int $count): int => $pins * $count, array_keys($lengths), $lengths));
+                $position = absint($positions[$key] ?? 0);
+                $lines[]  = ['thing' => (int) $match[1], 'from' => (int) $match[2], 'qty' => $qty]
+                    + ($lengths !== [] && $qty + 0.000001 >= $all ? ['cuts' => $lengths] : [])
+                    + ($piece > 0 ? ['piece' => $piece, 'pieces' => (int) ceil($qty / $piece)] : [])
+                    // D-1387: a reservation keeps its position; the move into the box carries none.
+                    + ($reserve && $position > 0 ? ['position' => $position] : []);
             }
         }
 
