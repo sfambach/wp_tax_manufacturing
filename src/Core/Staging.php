@@ -195,4 +195,37 @@ final class Staging
 
         return $out;
     }
+
+    /**
+     * D-1539, Stefan 20.11. 22:29 «wo die artikel die passen liegen»: stand-ins outside the box — other materials of the same
+     * catalog node with free pieces in the stock, the most first, at most `$limit` per missing material (the rest is found in
+     * «Aus Bestand wählen»; a node like resistors would otherwise list hundreds).
+     *
+     * @param array<int, float>             $missing thing → pieces still missing
+     * @param array<int, int>               $nodes   record → its catalog node
+     * @param array<int, array<int, float>> $free    node → thing → free pieces outside the box
+     * @param list<int>                     $needed  the order's own materials
+     * @return array<int, list<int>> missing thing → stand-ins, most first
+     */
+    public static function standIns(array $missing, array $nodes, array $free, array $needed, int $limit = 5): array
+    {
+        $out = [];
+
+        foreach ($missing as $thing => $pieces) {
+            $node = $nodes[$thing] ?? 0;
+
+            if ($pieces <= 1e-9 || $node === 0) {
+                continue;
+            }
+
+            $there = array_filter($free[$node] ?? [], static fn (float $q, int $other): bool => $q > 1e-9 && $other !== $thing && ! in_array($other, $needed, true), ARRAY_FILTER_USE_BOTH);
+            arsort($there);
+
+            if ($there !== []) {
+                $out[$thing] = array_slice(array_keys($there), 0, $limit);
+            }
+        }
+
+        return $out;
+    }
 }

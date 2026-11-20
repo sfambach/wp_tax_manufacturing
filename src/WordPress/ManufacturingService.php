@@ -173,6 +173,47 @@ final class ManufacturingService
         return Staging::substitutes($missing, array_map('intval', $nodes), $content, $needed);
     }
 
+    public const THINGS_IN_STOCK_FILTER = 'taxmod_stock_things_in_stock';
+
+    /**
+     * D-1539: stand-ins in the rest of the stock, with the places they lie at — one nodesOf, one stock read per catalog node
+     * of the missing materials, one placesOf for all stand-ins.
+     *
+     * @param array<int, float> $missing thing → pieces still missing
+     * @param list<int>         $needed  the order's own materials
+     * @return array<int, array<int, array<int, float>>> missing thing → stand-in → place → free pieces
+     */
+    public function substitutesInStock(array $missing, array $needed, ?int $box): array
+    {
+        $missing = array_filter($missing, static fn (float $q): bool => $q > 1e-9);
+
+        if ($missing === [] || ! has_filter(self::THINGS_IN_STOCK_FILTER)) {
+            return [];
+        }
+
+        $nodes = array_map('intval', $this->model->nodesOf(array_keys($missing)));
+        $free  = [];
+
+        foreach (array_unique(array_filter(array_values($nodes))) as $node) {
+            $answer      = apply_filters(self::THINGS_IN_STOCK_FILTER, null, ['node' => $node, 'except' => (int) $box]);
+            $free[$node] = is_array($answer) ? array_map('floatval', array_filter($answer, 'is_numeric')) : [];
+        }
+
+        $standIns = Staging::standIns($missing, $nodes, $free, $needed);
+        $places   = $standIns === [] ? [] : $this->placesOf(array_values(array_unique(array_merge(...array_values($standIns)))), (int) $box);
+        $out      = [];
+
+        foreach ($standIns as $thing => $others) {
+            foreach ($others as $other) {
+                if (($places[$other] ?? []) !== []) {
+                    $out[$thing][$other] = $places[$other];
+                }
+            }
+        }
+
+        return $out;
+    }
+
     /**
      * Where these parts lie, outside the box: the stock module answers (D-1155).
      *
