@@ -132,7 +132,7 @@ final class TestSection
     private function rowActions(BuildOrder $order, int $lot, string $status, string $note, string $board): string
     {
         $form   = 'taxmod-mf-judge-' . $lot;
-        $button = static fn (string $action, string $label): string => '<button type="submit" class="button" name="action" value="' . esc_attr($action) . '" form="' . esc_attr($form) . '">' . esc_html($label) . '</button>';
+        $button = static fn (string $action, string $label): string => ListPage::button($label, '', false, 'action', $action, $form);
         $text   = static fn (string $name, string $label, string $value, string $hint): string => '<p><label>' . esc_html($label) . '<br><input type="text" class="regular-text" name="' . esc_attr($name) . '" form="' . esc_attr($form) . '" value="' . esc_attr($value) . '"></label></p>'
             . '<p class="description">' . esc_html($hint) . '</p>';
         $inner  = match ($status) {
@@ -165,7 +165,8 @@ final class TestSection
      */
     private function cost(array $cost, array $names): string
     {
-        $money  = static fn (float|int|string|null $n): string => ListPage::number(number_format((float) $n, 2, '.', '')) . ' €';
+        // D-1500: an amount through the one money block (D-1425 reckons in euro).
+        $money  = static fn (float|int|string|null $n): string => ListPage::money((float) $n, 'EUR');
         $number = static fn (float|int|string|null $n): string => ListPage::number((float) $n);
         $lines  = '';
 

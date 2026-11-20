@@ -53,12 +53,6 @@ final class OrderActions
     {
         $back = $this->page->url(['tab' => sanitize_key((string) ($_POST['tab'] ?? ''))]);
 
-        if (! method_exists(ListPage::class, 'act')) {
-            $this->act($action);
-
-            return;
-        }
-
         ListPage::act(function () use ($action): string {
             $this->act($action);
 
@@ -72,11 +66,7 @@ final class OrderActions
             $this->page->refuse(__('Keine Berechtigung.', 'taxmod-manufacturing'));
         }
 
-        if (method_exists(ListPage::class, 'nonce')) {
-            ListPage::nonce(OrdersPage::NONCE);
-        } elseif (! wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['_wpnonce'] ?? '')), OrdersPage::NONCE)) {
-            $this->page->refuse(__('Das Formular ist abgelaufen. Bitte noch einmal.', 'taxmod-manufacturing'));
-        }
+        ListPage::nonce(OrdersPage::NONCE);
 
         $today = current_time('Y-m-d');
         $tab   = sanitize_key((string) ($_POST['tab'] ?? ''));

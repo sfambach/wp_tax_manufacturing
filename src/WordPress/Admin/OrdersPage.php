@@ -235,10 +235,6 @@ final class OrdersPage
                 . ' <a href="' . esc_url($list) . '">' . esc_html__('Zur Liste', 'taxmod-manufacturing') . '</a></p></div>';
         }
 
-        if (! method_exists(ListPage::class, 'record')) {
-            return '<div class="notice notice-error"><p>' . esc_html__('Die Auftragsansicht braucht den Taxonomy Modeller ab 0.2.101.', 'taxmod-manufacturing') . '</p></div>';
-        }
-
         // D-1433: the boards of the order, read once — their statuses, the order's step derived from them, the positions' list.
         $lots    = [];
 
@@ -432,8 +428,7 @@ final class OrdersPage
                 }
 
                 $items .= '<li>' . esc_html($labels[$row['thing']] ?? '#' . $row['thing']) . ($used ? '' : ' '
-                    . '<button type="submit" class="button button-small" form="taxmod-mf-step-' . esc_attr((string) $order->id) . '" name="readd" value="' . esc_attr($assembly->id . ':' . $row['position']) . '">'
-                    . esc_html__('wieder hinzufügen', 'taxmod-manufacturing') . '</button>') . '</li>';
+                    . ListPage::iconButton('undo', __('wieder hinzufügen', 'taxmod-manufacturing'), '', 'readd', $assembly->id . ':' . $row['position'], 'taxmod-mf-step-' . $order->id)) . '</li>';
             }
         }
 
@@ -671,7 +666,7 @@ final class OrdersPage
                 . ($order->box !== null && Demand::missingRows([$rows]) > 0 ? ' · <strong class="taxmod-mf-status taxmod-mf-status-warn">' . esc_html(sprintf(__('%d Positionen fehlen', 'taxmod-manufacturing'), Demand::missingRows([$rows]))) . '</strong>' : '') . '</li>';
         }
 
-        $details = '<ul class="taxmod-mf-details">' . $details . '</ul><p><a class="button" href="' . esc_url($this->url(['auftrag' => $order->id, 'tab' => $this->tab()])) . '">' . esc_html__('Öffnen', 'taxmod-manufacturing') . '</a></p>';
+        $details = '<ul class="taxmod-mf-details">' . $details . '</ul><p>' . ListPage::iconButton('visibility', __('Öffnen', 'taxmod-manufacturing'), $this->url(['auftrag' => $order->id, 'tab' => $this->tab()])) . '</p>';
 
         return ListPage::row(self::FORM, (string) $order->id, $cells, $this->rowButtons($order, $order->box === null ? 0 : Demand::missingRows($demand)), $details);
     }
@@ -849,7 +844,7 @@ final class OrdersPage
         $label = ($order->kit ? __('Kits abschließen', 'taxmod-manufacturing') : __('Fertigung abschließen', 'taxmod-manufacturing')) . ' →';
 
         if ($max < 1) {
-            return '<button type="button" class="button button-primary" disabled title="' . esc_attr__('Erst wenn ein Stück voll bestückt ist.', 'taxmod-manufacturing') . '">' . esc_html($label) . '</button>';
+            return ListPage::button($label, '', true, attributes: ['type' => 'button', 'disabled' => 'disabled', 'title' => __('Erst wenn ein Stück voll bestückt ist.', 'taxmod-manufacturing')]);
         }
 
         return $this->finishForm($order, $labels, $max, $done, $label);
@@ -939,7 +934,7 @@ final class OrdersPage
         }
 
         $settings = SettingsTab::settings();
-        $money    = static fn (float $n): string => ListPage::number(number_format($n, 2, '.', ''));
+        $money    = static fn (float $n): string => ListPage::money($n, 'EUR');
         // D-1475: the stopwatch's time, the running stretch included, comes in as the time of all boards of this completion.
         $timed    = $this->service->canTime();
         $recorded = $timed ? Stopwatch::minutes($order, ManufacturingService::now()) : 0.0;
@@ -962,7 +957,7 @@ final class OrdersPage
             . '<div class="description">' . esc_html(sprintf($order->kit
                 /* translators: 1: wage per hour, 2: set-up hours per order */
                 ? __('Preis je Kit = Platine und Teile (Kaufpreise der verbrauchten Posten) + Bereitstellung (%2$s h je Auftrag, verteilt) + Packzeit × %1$s € je Stunde. Einstellbar unter Produktion.', 'taxmod-manufacturing')
-                : __('Preis je Stück = Teile (Kaufpreise der verbrauchten Posten) + Bereitstellung (%2$s h je Auftrag, verteilt) + Zeit × %1$s € je Stunde. Einstellbar unter Produktion.', 'taxmod-manufacturing'), $money($settings->wage), ListPage::number($settings->setupHours, 2))) . '</div>';
+                : __('Preis je Stück = Teile (Kaufpreise der verbrauchten Posten) + Bereitstellung (%2$s h je Auftrag, verteilt) + Zeit × %1$s je Stunde. Einstellbar unter Produktion.', 'taxmod-manufacturing'), $money($settings->wage), ListPage::number($settings->setupHours, 2))) . '</div>';
     }
 
     /**
@@ -1039,16 +1034,12 @@ final class OrdersPage
                 . '<label><input type="radio" name="art" value="kit"> ' . esc_html__('Kit (Platine + Teile zum Verkauf)', 'taxmod-manufacturing') . '</label></div>';
         }
 
-        if (method_exists(ListPage::class, 'shownBy')) {
-            // D-1311: the boards of the chosen project show in the dialog itself; the server still takes only that project's.
-            foreach (array_intersect_key($this->boards, $projects) as $project => $boards) {
-                $body .= ListPage::shownBy('project', (string) $project, '<fieldset><legend>' . esc_html__('Baupläne', 'taxmod-manufacturing') . '</legend>' . $this->boardBoxes($boards) . '</fieldset>');
-            }
-
-            $body .= $this->hidden(['choosing' => '1']);
-        } else {
-            $body .= '<p>' . esc_html__('Im nächsten Schritt wählst du, welche Baupläne des Projekts gebaut werden.', 'taxmod-manufacturing') . '</p>';
+        // D-1311: the boards of the chosen project show in the dialog itself; the server still takes only that project's.
+        foreach (array_intersect_key($this->boards, $projects) as $project => $boards) {
+            $body .= ListPage::shownBy('project', (string) $project, '<fieldset><legend>' . esc_html__('Baupläne', 'taxmod-manufacturing') . '</legend>' . $this->boardBoxes($boards) . '</fieldset>');
         }
+
+        $body .= $this->hidden(['choosing' => '1']);
 
         return '<form method="post" id="' . esc_attr($formId) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'tab' => $this->tab()] + ($box > 0 ? ['box' => (string) $box] : []))
@@ -1078,8 +1069,8 @@ final class OrdersPage
             . $this->hidden(['action' => self::ACTION, 'tab' => $this->tab(), 'do' => 'create', 'choosing' => '1', 'project' => (string) $project, 'count' => sanitize_text_field(wp_unslash((string) ($_GET['count'] ?? '1')))])
             . '<p><strong>' . esc_html(sprintf(__('Welche Baupläne von «%s» sollen gebaut werden?', 'taxmod-manufacturing'), $name)) . '</strong></p>'
             . ListPage::toolbar([
-                '<button type="submit" class="button button-primary">' . esc_html__('Anlegen', 'taxmod-manufacturing') . '</button>',
-                '<a class="button" href="' . esc_url($this->url(['tab' => $this->tab()])) . '">' . esc_html__('Abbrechen', 'taxmod-manufacturing') . '</a>',
+                ListPage::button(__('Anlegen', 'taxmod-manufacturing'), '', true),
+                ListPage::button(__('Abbrechen', 'taxmod-manufacturing'), $this->url(['tab' => $this->tab()])),
             ])
             . $boxes
             . '</form></div>';
@@ -1302,11 +1293,7 @@ final class OrdersPage
     /** A refusal (capability, nonce) as a message on the page instead of a bare error page (D-1254). */
     public function refuse(string $message): never
     {
-        if (method_exists(ListPage::class, 'fail')) {
-            ListPage::fail($message, $this->url(['tab' => sanitize_key((string) ($_POST['tab'] ?? ''))]));
-        }
-
-        wp_die(esc_html($message), '', ['response' => 403, 'back_link' => true]);
+        ListPage::fail($message, $this->url(['tab' => sanitize_key((string) ($_POST['tab'] ?? ''))]));
     }
 
     /** @param array<string, string|int> $args */

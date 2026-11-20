@@ -155,7 +155,7 @@ final class StagingSection
      */
     private function bar(BuildOrder $order, array $lines, array $labels, bool $canPick): string
     {
-        $print = '<button type="button" class="button" data-taxmod-mf-print>' . esc_html__('Drucken', 'taxmod-manufacturing') . '</button>';
+        $print = ListPage::button(__('Drucken', 'taxmod-manufacturing'), attributes: ['type' => 'button', 'data-taxmod-mf-print' => '']);
 
         if (! $canPick) {
             return ListPage::toolbar([$print]);
