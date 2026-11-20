@@ -191,12 +191,22 @@ final class ManufacturingService
             return [];
         }
 
-        $nodes = array_map('intval', $this->model->nodesOf(array_keys($missing)));
-        $free  = [];
+        $nodes  = array_map('intval', $this->model->nodesOf(array_keys($missing)));
+        $wanted = array_values(array_unique(array_filter(array_values($nodes))));
+        $free   = [];
 
-        foreach (array_unique(array_filter(array_values($nodes))) as $node) {
-            $answer      = apply_filters(self::THINGS_IN_STOCK_FILTER, null, ['node' => $node, 'except' => (int) $box]);
-            $free[$node] = is_array($answer) ? array_map('floatval', array_filter($answer, 'is_numeric')) : [];
+        // CD-7, Prüftor 20.11.: one read for all nodes from the stock 0.64.180 on; an older stock is asked once per node.
+        if (defined('TAXMOD_STOCK_VERSION') && version_compare((string) TAXMOD_STOCK_VERSION, '0.64.180', '>=')) {
+            $answer = apply_filters(self::THINGS_IN_STOCK_FILTER, null, ['nodes' => $wanted, 'except' => (int) $box]);
+
+            foreach ($wanted as $node) {
+                $free[$node] = is_array($answer) && is_array($answer[$node] ?? null) ? array_map('floatval', array_filter($answer[$node], 'is_numeric')) : [];
+            }
+        } else {
+            foreach ($wanted as $node) {
+                $answer      = apply_filters(self::THINGS_IN_STOCK_FILTER, null, ['node' => $node, 'except' => (int) $box]);
+                $free[$node] = is_array($answer) ? array_map('floatval', array_filter($answer, 'is_numeric')) : [];
+            }
         }
 
         $standIns = Staging::standIns($missing, $nodes, $free, $needed);
