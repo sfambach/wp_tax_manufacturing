@@ -3,6 +3,7 @@
 namespace TaxmodManufacturing\WordPress\Admin;
 
 use Taxmod\Core\Description\InputKind;
+use Taxmod\Core\Renderer\DecimalText;
 use Taxmod\WordPress\Admin\ListPage;
 use Taxmod\WordPress\Draw\SelectMarkup;
 use TaxmodManufacturing\Core\ManufacturingError;
@@ -131,9 +132,17 @@ final class SettingsTab
         $channels = array_map(static fn ($v): string => sanitize_text_field((string) $v), (array) $post['taxmod_production_channel']);
         $days     = array_map(static fn ($v): string => sanitize_text_field((string) $v), (array) ($post['taxmod_production_days'] ?? []));
 
+        // D-1501: the number format is read at the boundary, in one place; the core gets the stored form. What is no number goes on
+        // as typed, so the core names it in its refusal.
+        $amount = static function (string $typed): string {
+            $typed = sanitize_text_field($typed);
+
+            return DecimalText::typed($typed) ?? $typed;
+        };
+
         try {
             update_option(self::OPTION, ProductionSettings::fromRows(array_values($channels), array_values($days), absint($post['taxmod_production_label'] ?? 0),
-                sanitize_text_field((string) ($post['taxmod_production_wage'] ?? '')), sanitize_text_field((string) ($post['taxmod_production_setup'] ?? '')))->toArray(), false);
+                $amount((string) ($post['taxmod_production_wage'] ?? '')), $amount((string) ($post['taxmod_production_setup'] ?? '')))->toArray(), false);
         } catch (ManufacturingError $e) {
             $message = $e->reason === 'not_an_amount'
                 /* translators: %s: the setting and the value given */
