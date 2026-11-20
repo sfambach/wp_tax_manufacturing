@@ -69,7 +69,7 @@ final class TestSection
 
         foreach ($lots as $lot => $row) {
             $status = Positions::ofLot($row['state']);
-            $tick   = in_array($status, Positions::OPEN, true) ? '<input type="checkbox" name="selected[]" form="' . esc_attr($form) . '" value="' . esc_attr((string) $lot) . '" aria-label="' . esc_attr__('Auswählen', 'taxmod-manufacturing') . '">' : '';
+            $tick   = in_array($status, Positions::OPEN, true) ? ListPage::field(InputKind::Tick, 'selected[]', (string) $lot, ['form' => $form, 'label' => __('Auswählen', 'taxmod-manufacturing')]) : '';
             $grid[] = [
                 $tick,
                 $this->lot($lot, $row['thing']),
