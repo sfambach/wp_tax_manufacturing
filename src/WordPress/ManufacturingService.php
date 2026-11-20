@@ -100,6 +100,8 @@ final class ManufacturingService
     /** D9 (D-1320): longer strips of the same kind a missing strip can be cut from, and the booking of the cut. */
     public const CUT_SOURCES_FILTER = 'taxmod_stock_cut_sources';
     public const CUT_FILTER         = 'taxmod_stock_book_cut';
+    /** D-1535 (P1): the stock's one cut plan of all pieces of a strip counted in pins, per place. */
+    public const PIN_CUT_PLANS_FILTER = 'taxmod_stock_pin_cut_plans';
 
     /** Whether the stock module's purchasing takes a demand from here (D-1156). */
     public function canReorder(): bool
@@ -551,6 +553,42 @@ final class ManufacturingService
         if ($answer === null) {
             throw ManufacturingError::stockRefused(__('Das Lager hat nicht geantwortet.', 'taxmod-manufacturing'));
         }
+    }
+
+    /**
+     * D-1535 (P1): how the stock would cut these pieces at each place — read only; the plan is the stock's
+     * (D-1398), this module only shows it. Empty without the stock's filter.
+     *
+     * @param list<int>       $places
+     * @param array<int, int> $cuts pins per piece → pieces
+     * @return array<int, array{opened: int, strips: list<array{pins: int, whole: bool, cuts: array<int, int>, rest: int, scrap: int}>}>
+     */
+    public function pinCutPlans(int $thing, array $places, array $cuts): array
+    {
+        if ($places === [] || $cuts === [] || ! has_filter(self::PIN_CUT_PLANS_FILTER)) {
+            return [];
+        }
+
+        $answer = apply_filters(self::PIN_CUT_PLANS_FILTER, null, ['thing' => $thing, 'places' => $places, 'cuts' => $cuts]);
+        $out    = [];
+
+        foreach (is_array($answer) ? $answer : [] as $place => $plan) {
+            if (! is_array($plan) || ! is_array($plan['strips'] ?? null)) {
+                continue;
+            }
+
+            $strips = [];
+
+            foreach ($plan['strips'] as $strip) {
+                if (is_array($strip)) {
+                    $strips[] = ['pins' => (int) ($strip['pins'] ?? 0), 'whole' => (bool) ($strip['whole'] ?? false), 'cuts' => array_map('intval', is_array($strip['cuts'] ?? null) ? $strip['cuts'] : []), 'rest' => (int) ($strip['rest'] ?? 0), 'scrap' => (int) ($strip['scrap'] ?? 0)];
+                }
+            }
+
+            $out[(int) $place] = ['opened' => (int) ($plan['opened'] ?? 0), 'strips' => $strips];
+        }
+
+        return $out;
     }
 
     /**

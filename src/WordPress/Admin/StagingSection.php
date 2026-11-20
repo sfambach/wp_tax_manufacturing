@@ -94,7 +94,7 @@ final class StagingSection
 
         $missingIds = array_values(array_diff(array_unique(array_filter([...$ids, ...array_column($cutList, 'thing'), ...array_column($cutList, 'place')])), array_keys($labels)));
         $labels    += $missingIds === [] ? [] : $this->service->labelsOf($missingIds);
-        [$refs, $first, $piece, $base] = $this->positions($demand, $plain);
+        [$refs, $first, $piece, $base, $pieces] = $this->positions($demand, $plain);
         $rows      = [];
 
         foreach ($lines as $band => $line) {
@@ -102,7 +102,7 @@ final class StagingSection
             $rows[] = $this->materialRow($order, $line, $labels, $refs[$line['thing']] ?? [], $first[$line['thing']] ?? 0, $base);
 
             foreach ($line['sources'] as $source) {
-                $rows[] = $this->sourceRow($order, $source, $labels, $piece[$line['thing']] ?? 0, $line['thing']);
+                $rows[] = $this->sourceRow($order, $source, $labels, $piece[$line['thing']] ?? 0, $line['thing'], $pieces[$line['thing']] ?? []);
             }
 
             // D9: a strip found nowhere can be cut from a longer one of the same kind; the stock module books the cut.
@@ -149,6 +149,7 @@ final class StagingSection
             . '<div class="taxmod-mf-noprint">' . $this->bar($order, $lines, $labels, $canPick) . '</div>'
             . ($canPick ? '' : '<p class="description">' . esc_html__('Das Lager liefert die Lagerorte und das Umbuchen noch nicht; die Liste zeigt nur, was fehlt.', 'taxmod-manufacturing') . '</p>')
             . ListPage::grid($columns, $rows, '', 'taxmod-mf-staging')
+            . ($canPick ? $this->cutting($lines, $pieces, $labels) : '')
             . '<p class="description taxmod-mf-noprint">' . esc_html__('Je Material: Bedarf = Stück × Menge je Stück, noch nicht verbaut. Fehlt = Bedarf − im Gebinde − reserviert. Darunter die Lagerorte: Zeilen anhaken, Aktion wählen, ausführen. «Menge» ist, was die Aktion nimmt; bei «Reservierung ändern» die neue Menge (0 hebt auf).', 'taxmod-manufacturing') . '</p>'
             . '</div>';
     }
@@ -231,9 +232,10 @@ final class StagingSection
     /**
      * @param array{kind: string, thing: int, place: ?int, there: float, quantity: float, line: int, position: int} $source
      * @param array<int, string> $labels
+     * @param array<int, int> $cuts D-1535 (P1): pins per piece → pieces of all this material's lengths
      * @return list<string>
      */
-    private function sourceRow(BuildOrder $order, array $source, array $labels, int $piece, int $material): array
+    private function sourceRow(BuildOrder $order, array $source, array $labels, int $piece, int $material, array $cuts = []): array
     {
         $place = $source['place'] === null ? '—' : esc_html($labels[$source['place']] ?? '#' . $source['place']);
         $name  = $source['thing'] !== $material ? ' · ' . $this->part($source['thing'], $labels, $order) . ' ' . esc_html__('(Ersatz)', 'taxmod-manufacturing') : '';
@@ -255,6 +257,7 @@ final class StagingSection
             esc_html($this->count($source['there'])),
             '<input type="number" class="small-text" form="' . self::FORM . '" name="qty[' . esc_attr($key) . ']" min="0"' . $max . ' step="any" value="' . esc_attr($this->count($source['quantity'])) . '">'
                 . ($piece > 0 ? '<input type="hidden" form="' . self::FORM . '" name="piece[' . esc_attr($key) . ']" value="' . esc_attr((string) $piece) . '">' : '')
+                . ($cuts !== [] && $source['kind'] === 'free' ? '<input type="hidden" form="' . self::FORM . '" name="cuts[' . esc_attr($key) . ']" value="' . esc_attr(self::cutsText($cuts)) . '">' : '')
                 . ($source['position'] > 0 ? '<input type="hidden" form="' . self::FORM . '" name="position[' . esc_attr($key) . ']" value="' . esc_attr((string) $source['position']) . '">' : ''),
             match ($source['kind']) {
                 'reserved'     => $this->status('ok', __('reserviert', 'taxmod-manufacturing')),
@@ -319,7 +322,7 @@ final class StagingSection
      *
      * @param array<int, list<array{position: int, thing: int}>> $demand
      * @param array<int, list<array<string, mixed>>> $plain
-     * @return array{0: array<int, list<string>>, 1: array<int, int>, 2: array<int, int>, 3: array<int, int>}
+     * @return array{0: array<int, list<string>>, 1: array<int, int>, 2: array<int, int>, 3: array<int, int>, 4: array<int, array<int, int>>}
      */
     private function positions(array $demand, array $plain): array
     {
@@ -334,6 +337,7 @@ final class StagingSection
         $refs  = [];
         $first = [];
         $piece = [];
+        $pins  = [];
         $base  = [];
 
         foreach ($byId as $id => $position) {
@@ -351,11 +355,101 @@ final class StagingSection
 
                 if ($at !== null && (int) ($at['piece'] ?? 0) > 0) {
                     $piece[$row['thing']] ??= (int) $at['piece'];
+                    $pins[$row['position']] = (int) $at['piece'];
                 }
             }
         }
 
-        return [$refs, $first, $piece, $base];
+        return [$refs, $first, $piece, $base, Staging::pieces($demand, $pins)];
+    }
+
+    /**
+     * D-1535 (P1) «Leisten zuschneiden»: per strip counted in pins, the stock's one plan for all its missing pieces
+     * at the first free place they fit — which strip (rest or whole) gives which pieces, what goes back, what is scrap.
+     * He looks into the box of rests first anyway; the plan only says what to cut when nothing there fits.
+     *
+     * @param list<array{thing: int, sources: list<array{kind: string, place: ?int}>}> $lines
+     * @param array<int, array<int, int>> $pieces material → pins per piece → pieces
+     * @param array<int, string> $labels
+     */
+    private function cutting(array $lines, array $pieces, array $labels): string
+    {
+        $items = [];
+
+        foreach ($lines as $line) {
+            $cuts = $pieces[$line['thing']] ?? [];
+
+            if ($cuts === []) {
+                continue;
+            }
+
+            $places = [];
+
+            foreach ($line['sources'] as $source) {
+                if ($source['kind'] === 'free' && $source['place'] !== null) {
+                    $places[] = (int) $source['place'];
+                }
+            }
+
+            $plans = $this->service->pinCutPlans($line['thing'], array_values(array_unique($places)), $cuts);
+            $want  = esc_html(sprintf(__('%1$s: %2$s', 'taxmod-manufacturing'), $labels[$line['thing']] ?? '#' . $line['thing'], self::shapes($cuts)));
+
+            if ($plans === []) {
+                $items[] = '<li>' . $want . ' · ' . $this->status('warn', __('an keinem Lagerort genug am Stück', 'taxmod-manufacturing')) . '</li>';
+                continue;
+            }
+
+            $place = (int) array_key_first($plans);
+            $plan  = $plans[$place];
+            $steps = [];
+
+            foreach ($plan['strips'] as $strip) {
+                $steps[] = '<li>' . esc_html(sprintf(
+                    $strip['whole'] ? __('ganze Leiste %1$d polig → %2$s', 'taxmod-manufacturing') : __('Rest %1$d polig → %2$s', 'taxmod-manufacturing'),
+                    $strip['pins'],
+                    self::shapes($strip['cuts']),
+                ))
+                    . ($strip['rest'] > 0 ? ' · ' . esc_html(sprintf(__('Rest %d polig zurück', 'taxmod-manufacturing'), $strip['rest'])) : '')
+                    . ($strip['scrap'] > 0 ? ' · ' . $this->status('warn', sprintf(__('%d Pin Ausschuss', 'taxmod-manufacturing'), $strip['scrap'])) : '')
+                    . '</li>';
+            }
+
+            $items[] = '<li>' . $want . ' · ' . esc_html(sprintf(__('aus %1$s, %2$d ganze Leiste(n) öffnen', 'taxmod-manufacturing'), $labels[$place] ?? '#' . $place, $plan['opened'])) . '<ul>' . implode('', $steps) . '</ul></li>';
+        }
+
+        if ($items === []) {
+            return '';
+        }
+
+        return '<div class="taxmod-mf-cutting">'
+            . '<h3>' . esc_html__('Leisten zuschneiden', 'taxmod-manufacturing') . '</h3>'
+            . '<p class="description">' . esc_html__('Erst in der Schachtel mit Resten nach passenden Stücken sehen. Sonst so schneiden: längste Stücke zuerst, Reste vor ganzen Leisten, kein Rest unter 2 Pins. Gebucht wird beim Umbuchen der Zeile ins Gebinde.', 'taxmod-manufacturing') . '</p>'
+            . '<ul>' . implode('', $items) . '</ul>'
+            . '</div>';
+    }
+
+    /** @param array<int, int> $cuts pins per piece → pieces, shown «2 × 5 polig, 3 × 2 polig» */
+    private static function shapes(array $cuts): string
+    {
+        $out = [];
+
+        foreach ($cuts as $pins => $count) {
+            $out[] = sprintf(__('%1$d × %2$d polig', 'taxmod-manufacturing'), $count, $pins);
+        }
+
+        return implode(', ', $out);
+    }
+
+    /** @param array<int, int> $cuts pins per piece → pieces, sent as «5:2,2:3» */
+    private static function cutsText(array $cuts): string
+    {
+        $out = [];
+
+        foreach ($cuts as $pins => $count) {
+            $out[] = $pins . ':' . $count;
+        }
+
+        return implode(',', $out);
     }
 
     /** @param 'ok'|'warn'|'info'|'free' $kind */

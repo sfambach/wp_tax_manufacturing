@@ -131,4 +131,33 @@ final class Staging
 
         return $out;
     }
+
+    /**
+     * D-1535 (P1): the pieces still missing of each strip counted in pins, by length — material → pins per piece →
+     * pieces, from the positions' missing pins and their pins per piece. A position without pins per piece is no cut.
+     *
+     * @param array<int, list<array{position: int, thing: int, missing: float}>> $demand
+     * @param array<int, int> $piece position → pins per piece
+     * @return array<int, array<int, int>>
+     */
+    public static function pieces(array $demand, array $piece): array
+    {
+        $out = [];
+
+        foreach ($demand as $rows) {
+            foreach ($rows as $row) {
+                $pins = $piece[$row['position']] ?? 0;
+
+                if ($pins > 0 && $row['missing'] > 0.000001) {
+                    $out[$row['thing']][$pins] = ($out[$row['thing']][$pins] ?? 0) + (int) ceil($row['missing'] / $pins - 1e-9);
+                }
+            }
+        }
+
+        foreach ($out as &$lengths) {
+            krsort($lengths);
+        }
+
+        return $out;
+    }
 }
