@@ -82,6 +82,7 @@ final class StagingSection
         $cuts    = $canPick && $needs !== [] ? $this->service->cutSources($needs, $order->box) : [];
         // D-1539: what in the box could stand in for a missing material (same catalog node), offered as «Als Ersatz zuweisen».
         $stand   = $this->service->canReserve() ? $this->service->substitutesInBox(array_column($lines, 'missing', 'thing'), array_column($lines, 'thing'), $order->box) : [];
+        $away    = $this->service->canReserve() ? $this->service->substitutesInStock(array_column($lines, 'missing', 'thing'), array_column($lines, 'thing'), $order->box) : [];
         $cutList = array_merge([], ...array_values($cuts));
         $ids     = [];
 
@@ -96,6 +97,12 @@ final class StagingSection
 
         foreach ($stand as $others) {
             array_push($ids, ...array_keys($others));
+        }
+
+        foreach ($away as $others) {
+            foreach ($others as $other => $at) {
+                array_push($ids, $other, ...array_keys($at));
+            }
         }
 
         $missingIds = array_values(array_diff(array_unique(array_filter([...$ids, ...array_column($cutList, 'thing'), ...array_column($cutList, 'place')])), array_keys($labels)));
@@ -126,7 +133,13 @@ final class StagingSection
             }
 
             foreach ($stand[$line['thing']] ?? [] as $other => $there) {
-                $rows[] = $this->substituteRow($order, $other, $there, $line['missing'], $first[$line['thing']] ?? 0, $labels);
+                $rows[] = $this->substituteRow($order, $other, (int) $order->box, $there, $line['missing'], $first[$line['thing']] ?? 0, $labels);
+            }
+
+            foreach ($away[$line['thing']] ?? [] as $other => $at) {
+                foreach ($at as $place => $there) {
+                    $rows[] = $this->substituteRow($order, $other, (int) $place, $there, $line['missing'], $first[$line['thing']] ?? 0, $labels);
+                }
             }
 
             // Stefan 20.11. 20:57 «die Bestandszeilen immer in der gleichen Farbe wie die Position»: the stripes go per material
@@ -293,13 +306,14 @@ final class StagingSection
      * @param array<int, string> $labels
      * @return list<string>
      */
-    private function substituteRow(BuildOrder $order, int $thing, float $there, float $missing, int $position, array $labels): array
+    private function substituteRow(BuildOrder $order, int $thing, int $place, float $there, float $missing, int $position, array $labels): array
     {
-        $key = $thing . ':' . (int) $order->box;
+        $key   = $thing . ':' . $place;
+        $where = $place === (int) $order->box ? esc_html__('im Gebinde', 'taxmod-manufacturing') : esc_html($labels[$place] ?? '#' . $place);
 
         return [
             '',
-            '<span class="taxmod-mf-source">' . esc_html__('im Gebinde', 'taxmod-manufacturing') . ' · ' . $this->part($thing, $labels, $order) . ' ' . esc_html__('(Ersatz)', 'taxmod-manufacturing') . '</span>',
+            '<span class="taxmod-mf-source">' . $where . ' · ' . $this->part($thing, $labels, $order) . ' ' . esc_html__('(Ersatz)', 'taxmod-manufacturing') . '</span>',
             '', '', '', '',
             esc_html($this->count($there)),
             '<input type="number" class="small-text" form="' . self::FORM . '" name="qty[' . esc_attr($key) . ']" min="0" max="' . esc_attr($this->count($there)) . '" step="any" value="' . esc_attr($this->count(min($missing, $there))) . '">'

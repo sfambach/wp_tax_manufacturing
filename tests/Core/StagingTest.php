@@ -60,6 +60,16 @@ final class StagingTest extends TestCase
         self::assertSame([45559 => [60843 => 5.0]], Staging::substitutes([45559 => 1.0, 45842 => 0.0], $nodes, $box, [45559, 45842, 43907]));
     }
 
+    /** D-1539: stand-ins in the stock come from the node of the missing material, the most first, the order's own left out. */
+    public function testStandInsInTheStockAreCappedAndOrdered(): void
+    {
+        $nodes = [45559 => 7];
+        $free  = [7 => [60843 => 5.0, 45559 => 3.0, 70001 => 40.0, 70002 => 0.0, 45842 => 9.0]];
+
+        self::assertSame([45559 => [70001, 60843]], Staging::standIns([45559 => 1.0], $nodes, $free, [45559, 45842]));
+        self::assertSame([45559 => [70001]], Staging::standIns([45559 => 1.0], $nodes, $free, [45559, 45842], 1));
+    }
+
     /** A reservation whose lot lies in the box is counted once, as in the box. */
     public function testReservationInTheBoxIsNotCountedTwice(): void
     {
