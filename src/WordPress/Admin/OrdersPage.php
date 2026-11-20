@@ -345,10 +345,11 @@ final class OrdersPage
         }
 
         // His word 2026-11-15: at «Angelegt» only the build options are chosen; everything else happens from «Bereitstellung» on.
-        $options = $order->step === 'order_planned' ? $this->optionsForm($order, $labels, $demand) : '';
+        [$options, $count] = $order->step === 'order_planned' ? $this->optionsForm($order, $labels, $demand, $plain) : ['', 0];
 
+        // Stefan 20.11. 19:51, Prüftor: «Positionen (n)» as the section's title, one bar under it; no heading per plan.
         if ($options !== '') {
-            $sections[] = ['title' => __('Aufbau: welche Positionen gebaut werden', 'taxmod-manufacturing'), 'html' => $options];
+            $sections[] = ['title' => sprintf(__('Positionen (%d)', 'taxmod-manufacturing'), $count), 'html' => $options];
         }
 
         $leftOut = $order->isClosed() || $order->step === 'order_planned' ? '' : $this->leftOut($order, $labels, $demand);
@@ -387,34 +388,49 @@ final class OrdersPage
      * @param array<int, string> $labels
      * @param array<int, list<array{position: int, thing: int, optional: bool, unused: bool}>> $demand
      */
-    private function optionsForm(BuildOrder $order, array $labels, array $demand): string
+    private function optionsForm(BuildOrder $order, array $labels, array $demand, array $plain = []): array
     {
-        $html = '';
+        // Architecture 17.11.: one 💾 on every step — the ticks join the master data's form.
+        $formId = self::headFormId($order);
+        $boards = $this->boardNames(array_map(static fn (Assembly $a): int => $a->revision, $order->assemblies), $labels);
+        $list   = '';
+        $count  = 0;
 
         foreach ($order->assemblies as $assembly) {
-            $all  = $demand[$assembly->id] ?? [];
-            $rows = array_filter($all, static fn (array $row): bool => $row['position'] > 0);
-            $miss = static fn (array $row): string => $row['missing'] > 0.0 ? ' · ' . sprintf(__('fehlt %s', 'taxmod-manufacturing'), ListPage::number($row['missing'], 2)) : '';
-            // His word 2026-11-15 «die platine wird auch nicht aufgelistet»: the bare board heads the list; it is always built.
-            // Architecture 17.11.: one 💾 on every step — the ticks join the master data's form.
-            $formId = self::headFormId($order);
-            $a      = (string) $assembly->id;
-            // Architecture 16.11.: «Alle auswählen / abwählen» is the tick in the table head, not two buttons.
-            $list   = isset($all[0]) && $all[0]['position'] === 0
-                ? '<tr><th scope="row" class="check-column"><input type="checkbox" checked disabled></th><td>' . esc_html(sprintf(__('Bauplan: %s', 'taxmod-manufacturing'), $labels[$all[0]['thing']] ?? '#' . $all[0]['thing'])) . '</td><td>' . esc_html(ltrim($miss($all[0]), ' ·')) . '</td><td></td></tr>'
-                : '';
+            $all   = $demand[$assembly->id] ?? [];
+            $rows  = array_filter($all, static fn (array $row): bool => $row['position'] > 0);
+            $lines = array_column($plain[$assembly->revision] ?? [], null, 'id');
+            // D-1178/D-1398, Stefan 20.11. 19:44 («80 Stück»): a piece cut from a strip says its poles and its designator, and
+            // what is missing says «Pins» — the strip's own name alone read as whole strips.
+            $miss  = static fn (array $row, int $piece): string => $row['missing'] <= 0.0 ? '' : ($piece > 0
+                ? sprintf(__('fehlt %s Pins', 'taxmod-manufacturing'), ListPage::number($row['missing'], 2))
+                : sprintf(__('fehlt %s', 'taxmod-manufacturing'), ListPage::number($row['missing'], 2)));
+            $a     = (string) $assembly->id;
 
-            foreach ($rows as $row) {
-                $list .= '<tr><th scope="row" class="check-column">' . ListPage::field(InputKind::Tick, 'build[' . $a . '][]', (string) $row['position'], ['checked' => (string) (! $row['unused']) === '1', 'form' => $formId])
-                    . '<input type="hidden" name="optional[' . esc_attr($a) . '][]" form="' . esc_attr($formId) . '" value="' . esc_attr((string) $row['position']) . '"></th>'
-                    . '<td>' . esc_html($labels[$row['thing']] ?? '#' . $row['thing']) . '</td><td>' . esc_html($row['unused'] ? '' : ltrim($miss($row), ' ·')) . '</td><td></td></tr>';
+            // His word 2026-11-15 «die platine wird auch nicht aufgelistet»: the bare board heads the list; it is always built.
+            if (isset($all[0]) && $all[0]['position'] === 0) {
+                $list .= '<tr><th scope="row" class="check-column"><input type="checkbox" checked disabled></th><td>' . esc_html(sprintf(__('Bauplan: %s', 'taxmod-manufacturing'), $boards[$assembly->revision] ?? '#' . $assembly->revision))
+                    . '</td><td>' . esc_html($miss($all[0], 0)) . '</td><td></td></tr>';
+                $count++;
             }
 
-            $html .= '<p><strong>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision) . '</strong></p>'
-                . ListPage::table([[__('Position', 'taxmod-manufacturing')], [__('Fehlt', 'taxmod-manufacturing')]], $list);
+            foreach ($rows as $row) {
+                $line  = $lines[$row['position']] ?? [];
+                $piece = (int) ($line['piece'] ?? 0);
+                $ref   = trim((string) ($line['ref'] ?? ''));
+                $name  = ($labels[$row['thing']] ?? '#' . $row['thing'])
+                    . ($piece > 0 ? ' · ' . sprintf(__('%d-polig', 'taxmod-manufacturing'), $piece) : '')
+                    . ($ref !== '' ? ' (' . $ref . ')' : '');
+                $list .= '<tr><th scope="row" class="check-column">' . ListPage::field(InputKind::Tick, 'build[' . $a . '][]', (string) $row['position'], ['checked' => (string) (! $row['unused']) === '1', 'form' => $formId])
+                    . '<input type="hidden" name="optional[' . esc_attr($a) . '][]" form="' . esc_attr($formId) . '" value="' . esc_attr((string) $row['position']) . '"></th>'
+                    . '<td>' . esc_html($name) . '</td><td>' . esc_html($row['unused'] ? '' : $miss($row, $piece)) . '</td><td></td></tr>';
+                $count++;
+            }
         }
 
-        return $html;
+        // Architecture 16.11.: «Alle auswählen / abwählen» is the tick in the table head, not two buttons. One bar above the
+        // table (D-1500), into which the list head puts grouping, filter and search.
+        return [ListPage::listBar(sprintf(_n('%d Position', '%d Positionen', $count, 'taxmod-manufacturing'), $count)) . ListPage::table([[__('Position', 'taxmod-manufacturing')], [__('Fehlt', 'taxmod-manufacturing')]], $list), $count];
     }
 
     /**
@@ -695,7 +711,8 @@ final class OrdersPage
         $names   = [];
 
         foreach ($revisions as $rev) {
-            $names[$rev] = trim(($boardOf[$boards[$rev] ?? 0] ?? '') . ' · ' . ($labels[$rev] ?? '#' . $rev), ' ·');
+            // Stefan 20.11. 19:51: a bare «#33074» says nothing — the board's name alone when the revision has none.
+            $names[$rev] = trim(($boardOf[$boards[$rev] ?? 0] ?? '') . ' · ' . ($labels[$rev] ?? ''), ' ·') ?: '#' . $rev;
         }
 
         return $names;
