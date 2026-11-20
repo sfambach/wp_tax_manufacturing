@@ -1200,6 +1200,8 @@ final class OrdersPage
             'changed'   => __('Reservierung geändert.', 'taxmod-manufacturing'),
             'released'  => __('Reservierung aufgehoben (Storno im Lager).', 'taxmod-manufacturing'),
             'assigned'  => __('Der Position zugewiesen und für den Auftrag reserviert.', 'taxmod-manufacturing'),
+            'rounded'   => __('Rundkontakt-Leisten für die fehlenden Positionen reserviert.', 'taxmod-manufacturing'),
+            'no_round'  => __('Keine Rundkontakt-Leiste derselben Art in genug Menge am Lager.', 'taxmod-manufacturing'),
             'cleared'   => __('Gebinde leer geräumt, alles zurück an seinen Platz.', 'taxmod-manufacturing'),
             'building'  => __('In Bau.', 'taxmod-manufacturing'),
             'kits_finished' => __('Kits abgeschlossen: Verbrauch von Platine und Teilen gebucht, Kits im Lager. Der Auftrag ist fertig.', 'taxmod-manufacturing'),
