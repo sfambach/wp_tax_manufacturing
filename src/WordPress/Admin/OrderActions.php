@@ -100,6 +100,7 @@ final class OrderActions
                     'back'     => $this->stepBack($order, $back),
                     'assign'   => $this->assign($order, $today, $back),
                     'reorder'  => $this->reorder($order, $back),
+                    'round'    => $this->round($order, $today, $back),
                     'staging'  => $this->step($order, 'order_staging', $today, $back),
                     'clear'    => $this->clear($order, $today, $back),
                     'building' => $this->toBuilding($order, $today, $back),
@@ -373,6 +374,32 @@ final class OrderActions
         $this->service->reorder($order, $quantities);
 
         return 'reordered';
+    }
+
+    /**
+     * D-1535 (P4) «Rundkontakt statt eckig»: position → «plain strip:missing pins» as the dialog sent it; the counterpart
+     * and its place are found again by the service, nothing posted is taken as the substitute.
+     *
+     * @param array<string, string|int> $back
+     */
+    private function round(int $order, string $today, array &$back): string
+    {
+        $back['auftrag'] = $order;
+        $positions       = [];
+
+        foreach ((array) ($_POST['round'] ?? []) as $position => $text) {
+            $text = sanitize_text_field(wp_unslash((string) $text));
+
+            if (absint($position) > 0 && preg_match('/^(\d+):([\d.,]+)$/', $text, $m) === 1 && (float) str_replace(',', '.', $m[2]) > 0.0) {
+                $positions[absint($position)] = ['thing' => (int) $m[1], 'quantity' => (float) str_replace(',', '.', $m[2])];
+            }
+        }
+
+        if ($positions === []) {
+            return 'nothing_picked';
+        }
+
+        return $this->service->reserveRound($order, $positions, $today) > 0 ? 'rounded' : 'no_round';
     }
 
     /**

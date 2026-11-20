@@ -102,6 +102,8 @@ final class ManufacturingService
     public const CUT_FILTER         = 'taxmod_stock_book_cut';
     /** D-1535 (P1): the stock's one cut plan of all pieces of a strip counted in pins, per place. */
     public const PIN_CUT_PLANS_FILTER = 'taxmod_stock_pin_cut_plans';
+    /** D-1535 (P4): plain strip → its round-contact counterpart, from the stock. */
+    public const ROUND_FILTER = 'taxmod_stock_round_counterparts';
 
     /** Whether the stock module's purchasing takes a demand from here (D-1156). */
     public function canReorder(): bool
@@ -553,6 +555,66 @@ final class ManufacturingService
         if ($answer === null) {
             throw ManufacturingError::stockRefused(__('Das Lager hat nicht geantwortet.', 'taxmod-manufacturing'));
         }
+    }
+
+    /**
+     * D-1535 (P4): plain strip → its round-contact counterpart, as the stock finds it (same kind, «Kontaktart»
+     * Rundkontakt). Empty without the stock's filter.
+     *
+     * @param list<int> $things
+     * @return array<int, int>
+     */
+    public function roundCounterparts(array $things): array
+    {
+        if ($things === [] || ! has_filter(self::ROUND_FILTER)) {
+            return [];
+        }
+
+        $answer = apply_filters(self::ROUND_FILTER, null, ['things' => $things]);
+        $out    = [];
+
+        foreach (is_array($answer) ? $answer : [] as $thing => $round) {
+            if ((int) $thing > 0 && is_numeric($round) && (int) $round > 0) {
+                $out[(int) $thing] = (int) $round;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * D-1535 (P4) «Rundkontakt statt eckig»: each given position's missing pins are reserved as its plain strip's round
+     * counterpart, from the place that holds most of it (D-1387: a substitute reserved for a position; the parts list
+     * stays). A position whose strip has no counterpart in stock is left as it is.
+     *
+     * @param array<int, array{thing: int, quantity: float}> $positions position → plain strip and missing pins
+     * @return int positions reserved
+     */
+    public function reserveRound(int $order, array $positions, string $today): int
+    {
+        $built  = $this->order($order);
+        $round  = $this->roundCounterparts(array_values(array_unique(array_column($positions, 'thing'))));
+        $places = $round === [] ? [] : $this->placesOf(array_values(array_unique($round)), (int) $built->box);
+        $lines  = [];
+        $left   = $places;
+
+        foreach ($positions as $position => $want) {
+            $other = $round[$want['thing']] ?? 0;
+            $at    = $left[$other] ?? [];
+            arsort($at);
+            $place = (int) array_key_first($at);
+
+            if ($other === 0 || $place === 0 || $at[$place] + 0.000001 < $want['quantity']) {
+                continue;
+            }
+
+            $lines[]               = ['thing' => $other, 'from' => $place, 'qty' => $want['quantity'], 'position' => $position];
+            $left[$other][$place] -= $want['quantity'];
+        }
+
+        $this->reserve($order, $lines, $today);
+
+        return count($lines);
     }
 
     /**

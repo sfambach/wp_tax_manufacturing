@@ -139,7 +139,7 @@ final class StagingSection
 
         return '<div class="taxmod-mf-pick">'
             . '<h3 class="taxmod-mf-printonly">' . esc_html(sprintf(__('Pickliste · %s', 'taxmod-manufacturing'), $order->label)) . '</h3>'
-            . '<div class="taxmod-mf-noprint">' . $this->bar($order, $lines, $labels, $canPick) . '</div>'
+            . '<div class="taxmod-mf-noprint">' . $this->bar($order, $lines, $labels, $canPick, $canPick ? $this->round($order, $demand, $labels) : '') . '</div>'
             . ($canPick ? '' : '<p class="description">' . esc_html__('Das Lager liefert die Lagerorte und das Umbuchen noch nicht; die Liste zeigt nur, was fehlt.', 'taxmod-manufacturing') . '</p>')
             . ListPage::grid($columns, $rows, '', 'taxmod-mf-staging')
             . ($canPick ? $this->cutting($lines, $pieces, $labels) : '')
@@ -154,7 +154,7 @@ final class StagingSection
      * @param list<array{thing: int, sources: list<array{kind: string, quantity: float}>}> $lines
      * @param array<int, string> $labels
      */
-    private function bar(BuildOrder $order, array $lines, array $labels, bool $canPick): string
+    private function bar(BuildOrder $order, array $lines, array $labels, bool $canPick, string $round = ''): string
     {
         $print = ListPage::button(__('Drucken', 'taxmod-manufacturing'), attributes: ['type' => 'button', 'data-taxmod-mf-print' => '']);
 
@@ -190,7 +190,7 @@ final class StagingSection
             self::RESERVE => $reserving ? __('Reservieren', 'taxmod-manufacturing') : '',
             self::CHANGE  => $releasing ? __('Reservierung ändern', 'taxmod-manufacturing') : '',
             self::RELEASE => $releasing ? __('Reservierung aufheben', 'taxmod-manufacturing') : '',
-        ]), sprintf(_n('%d Zeile', '%d Zeilen', $rows, 'taxmod-manufacturing'), $rows), '<div class="alignleft actions">' . $reorder . ' ' . $print . '</div>', false)
+        ]), sprintf(_n('%d Zeile', '%d Zeilen', $rows, 'taxmod-manufacturing'), $rows), '<div class="alignleft actions">' . $reorder . ' ' . $round . ' ' . $print . '</div>', false)
             . $this->hidden(['order' => (string) $order->id, 'tab' => $this->tab], self::FORM);
     }
 
@@ -354,6 +354,56 @@ final class StagingSection
         }
 
         return [$refs, $first, $piece, $base, Staging::pieces($demand, $pins)];
+    }
+
+    /**
+     * D-1535 (P4) «Rundkontakt statt eckig», for the whole order: every position still missing a plain strip that has a
+     * round-contact counterpart gets that counterpart reserved (a substitute, D-1387; undone by «Reservierung aufheben»).
+     * Shown only where some strip has a counterpart.
+     *
+     * @param array<int, list<array{position: int, thing: int, missing: float}>> $demand
+     * @param array<int, string> $labels
+     */
+    private function round(BuildOrder $order, array $demand, array $labels): string
+    {
+        $missing = [];
+
+        foreach ($demand as $rows) {
+            foreach ($rows as $row) {
+                if ($row['missing'] > 0.000001) {
+                    $missing[$row['position']] = ['thing' => $row['thing'], 'quantity' => $row['missing']];
+                }
+            }
+        }
+
+        $round = $missing === [] ? [] : $this->service->roundCounterparts(array_values(array_unique(array_column($missing, 'thing'))));
+
+        if ($round === []) {
+            return '';
+        }
+
+        $labels += $this->service->labelsOf(array_values(array_diff(array_unique(array_values($round)), array_keys($labels))));
+        $list    = '';
+        $fields  = [];
+        $plain   = [];
+
+        foreach ($missing as $position => $want) {
+            if (isset($round[$want['thing']])) {
+                $fields['round[' . $position . ']'] = $want['thing'] . ':' . $this->count($want['quantity']);
+                $plain[$want['thing']]              = true;
+            }
+        }
+
+        foreach (array_keys($plain) as $thing) {
+            $list .= '<li>' . esc_html(sprintf(__('%1$s → %2$s', 'taxmod-manufacturing'), $labels[$thing] ?? '#' . $thing, $labels[$round[$thing]] ?? '#' . $round[$thing])) . '</li>';
+        }
+
+        return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-inline">' . wp_nonce_field($this->nonce, '_wpnonce', true, false)
+            . $this->hidden(['action' => $this->action, 'order' => (string) $order->id, 'tab' => $this->tab] + $fields)
+            . ListPage::dialogAction('taxmod-mf-round-' . $order->id, __('Rundkontakt statt eckig', 'taxmod-manufacturing'), sprintf(__('Rundkontakt statt eckig: %s', 'taxmod-manufacturing'), $order->label),
+                '<p>' . esc_html__('Was an diesen Leisten noch fehlt, wird als Rundkontakt-Leiste derselben Art reserviert. Die Stückliste bleibt; zurück über «Reservierung aufheben».', 'taxmod-manufacturing') . '</p><ul>' . $list . '</ul>',
+                'do', 'round', __('Reservieren', 'taxmod-manufacturing'))
+            . '</form>';
     }
 
     /**
