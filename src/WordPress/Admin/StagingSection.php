@@ -123,7 +123,8 @@ final class StagingSection
                 $key    = $line['thing'] . ':' . $source['lot'];
                 $rows[] = [
                     '<input type="checkbox" name="selected[]" value="' . esc_attr('cut:' . $key) . '" form="' . self::FORM . '">',
-                    '<span class="taxmod-mf-source">' . esc_html(sprintf(__('ablängen aus %1$s · %2$s', 'taxmod-manufacturing'), $labels[$source['thing']] ?? '#' . $source['thing'], $labels[$source['place']] ?? '#' . $source['place'])) . '</span>',
+                    '<span class="taxmod-mf-source">' . esc_html(sprintf(__('ablängen aus %s', 'taxmod-manufacturing'), $labels[$source['thing']] ?? '#' . $source['thing'])) . '</span>',
+                    esc_html($labels[$source['place']] ?? '#' . $source['place']),
                     '', '', '', '',
                     esc_html($this->count($source['left'])),
                     '<input type="number" class="small-text" form="' . self::FORM . '" name="cutqty[' . esc_attr($key) . ']" min="0" step="1" value="' . esc_attr($this->count($needs[$line['thing']] ?? 0.0)) . '">',
@@ -152,7 +153,9 @@ final class StagingSection
         $num     = \Taxmod\WordPress\Draw\GridMarkup::NUMBER;
         $columns = [
             [''],
-            [__('Material / Lagerort', 'taxmod-manufacturing')],
+            // Stefan 20.11. 23:29 «eine eigene Spalte für Platz»: the material and where it lies, each in its own column.
+            [__('Material', 'taxmod-manufacturing')],
+            [__('Lagerort', 'taxmod-manufacturing')],
             [__('Bedarf', 'taxmod-manufacturing'), $num],
             [__('Im Gebinde', 'taxmod-manufacturing'), $num],
             [__('Reserviert', 'taxmod-manufacturing'), $num],
@@ -241,6 +244,7 @@ final class StagingSection
         return [
             '',
             '<strong>' . $this->part($line['thing'], $labels, $order) . '</strong>' . ($refs === [] ? '' : ' <span class="description">' . esc_html(implode(', ', $refs)) . '</span>'),
+            '',
             '<strong>' . esc_html($this->count($line['needed'])) . '</strong>',
             esc_html($this->count($line['box'])),
             esc_html($this->count($line['reserved'])),
@@ -261,10 +265,10 @@ final class StagingSection
     private function sourceRow(BuildOrder $order, array $source, array $labels, int $piece, int $material, array $cuts = []): array
     {
         $place = $source['place'] === null ? '—' : esc_html($labels[$source['place']] ?? '#' . $source['place']);
-        $name  = $source['thing'] !== $material ? ' · ' . $this->part($source['thing'], $labels, $order) . ' ' . esc_html__('(Ersatz)', 'taxmod-manufacturing') : '';
+        $name  = $source['thing'] !== $material ? $this->part($source['thing'], $labels, $order) . ' ' . esc_html__('(Ersatz)', 'taxmod-manufacturing') : '';
 
         if ($source['kind'] === 'none') {
-            return ['', '<span class="taxmod-mf-source">' . esc_html__('an keinem Lagerort', 'taxmod-manufacturing') . '</span>', '', '', '', '', '',
+            return ['', '', '<span class="taxmod-mf-source">' . esc_html__('an keinem Lagerort', 'taxmod-manufacturing') . '</span>', '', '', '', '', '',
                 esc_html($this->count($source['quantity'])), $this->status('warn', __('nicht zugewiesen', 'taxmod-manufacturing')), ''];
         }
 
@@ -275,7 +279,8 @@ final class StagingSection
 
         return [
             '<input type="checkbox" name="selected[]" value="' . esc_attr($key) . '" form="' . self::FORM . '">',
-            '<span class="taxmod-mf-source">' . $place . $name . '</span>',
+            $name === '' ? '' : '<span class="taxmod-mf-source">' . $name . '</span>',
+            $place,
             '', '', '', '',
             esc_html($this->count($source['there'])),
             '<input type="number" class="small-text" form="' . self::FORM . '" name="qty[' . esc_attr($key) . ']" min="0"' . $max . ' step="any" value="' . esc_attr($this->count($source['quantity'])) . '">'
@@ -313,7 +318,8 @@ final class StagingSection
 
         return [
             '',
-            '<span class="taxmod-mf-source">' . $where . ' · ' . $this->part($thing, $labels, $order) . ' ' . esc_html__('(Ersatz)', 'taxmod-manufacturing') . '</span>',
+            '<span class="taxmod-mf-source">' . $this->part($thing, $labels, $order) . ' ' . esc_html__('(Ersatz)', 'taxmod-manufacturing') . '</span>',
+            $where,
             '', '', '', '',
             esc_html($this->count($there)),
             '<input type="number" class="small-text" form="' . self::FORM . '" name="qty[' . esc_attr($key) . ']" min="0" max="' . esc_attr($this->count($there)) . '" step="any" value="' . esc_attr($this->count(min($missing, $there))) . '">'
