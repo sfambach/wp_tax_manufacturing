@@ -399,7 +399,7 @@ final class OrdersPage
                 : '';
 
             foreach ($rows as $row) {
-                $list .= '<tr><th scope="row" class="check-column"><input type="checkbox" name="build[' . esc_attr($a) . '][]" form="' . esc_attr($formId) . '" value="' . esc_attr((string) $row['position']) . '"' . checked(! $row['unused'], true, false) . '>'
+                $list .= '<tr><th scope="row" class="check-column">' . ListPage::field(InputKind::Tick, 'build[' . $a . '][]', (string) $row['position'], ['checked' => (string) (! $row['unused']) === '1', 'form' => $formId])
                     . '<input type="hidden" name="optional[' . esc_attr($a) . '][]" form="' . esc_attr($formId) . '" value="' . esc_attr((string) $row['position']) . '"></th>'
                     . '<td>' . esc_html($labels[$row['thing']] ?? '#' . $row['thing']) . '</td><td>' . esc_html($row['unused'] ? '' : ltrim($miss($row), ' ·')) . '</td><td></td></tr>';
             }
@@ -538,7 +538,7 @@ final class OrdersPage
             }
 
             if ($order->box !== null && $this->service->canScrap()) {
-                $rows[] = ['label' => __('Grund Ausschuss', 'taxmod-manufacturing') . $name, 'for' => $id . '-scrap-' . $a, 'control' => '<input type="text" class="regular-text" name="scrap_reason[' . esc_attr($a) . ']" id="' . esc_attr($id . '-scrap-' . $a) . '" list="taxmod-mf-scrap-reasons">',
+                $rows[] = ['label' => __('Grund Ausschuss', 'taxmod-manufacturing') . $name, 'for' => $id . '-scrap-' . $a, 'control' => ListPage::field(InputKind::Line, 'scrap_reason[' . $a . ']', '', ['id' => $id . '-scrap-' . $a, 'list' => 'taxmod-mf-scrap-reasons']),
                     'hint' => __('Optional. Gilt für die Zahlen in der Spalte «Ausschuss» der Bestückung.', 'taxmod-manufacturing')];
             }
         }
@@ -755,10 +755,10 @@ final class OrdersPage
             // His report 17.11. «button chaos»: the fields join the master data's form, whose one 💾 saves both.
             $fit      = $row['position'] === 0 || $row['unused'] || $closed
                 ? esc_html($count($row['boards'] * $row['count']))
-                : '<input type="number" class="small-text" name="fitted[' . esc_attr($a) . '][' . esc_attr($position) . ']" form="' . esc_attr($form) . '" min="0" max="' . esc_attr($count($row['needed'])) . '" step="' . esc_attr($count($row['count'])) . '" value="' . esc_attr($count($row['boards'] * $row['count'])) . '" aria-label="' . esc_attr__('Bestückt (Teile)', 'taxmod-manufacturing') . '">';
+                : ListPage::field(InputKind::Number, 'fitted[' . $a . '][' . $position . ']', $count($row['boards'] * $row['count']), ['form' => $form, 'label' => __('Bestückt (Teile)', 'taxmod-manufacturing'), 'min' => '0', 'max' => $count($row['needed']), 'step' => $count($row['count'])]);
             // D-1403: what acts on rows is a bulk choice («Nicht verwenden», «Wieder verwenden»); the save keeps what is left out.
             $kept     = $row['unused'] ? '<input type="hidden" name="unused[' . esc_attr($a) . '][]" form="' . esc_attr($form) . '" value="' . esc_attr($position) . '">' : '';
-            $tick     = $row['position'] === 0 || $closed ? '' : '<input type="checkbox" name="selected[]" form="' . esc_attr($bulk) . '" value="' . esc_attr($position) . '" aria-label="' . esc_attr__('Auswählen', 'taxmod-manufacturing') . '">';
+            $tick     = $row['position'] === 0 || $closed ? '' : ListPage::field(InputKind::Tick, 'selected[]', $position, ['form' => $bulk, 'label' => __('Auswählen', 'taxmod-manufacturing')]);
             $cells    = [
                 $tick,
                 esc_html($row['position'] === 0 ? __('Platine', 'taxmod-manufacturing') : (string) ($refs[$row['position']] ?? '')),
@@ -771,7 +771,7 @@ final class OrdersPage
             ];
 
             if ($scrap) {
-                $cells[] = $row['position'] === 0 ? '' : '<input type="number" class="small-text" name="scrap[' . esc_attr($a) . '][' . esc_attr($position) . ']" form="' . esc_attr($form) . '" min="0" step="1" value="" aria-label="' . esc_attr__('Ausschuss', 'taxmod-manufacturing') . '">';
+                $cells[] = $row['position'] === 0 ? '' : ListPage::field(InputKind::Number, 'scrap[' . $a . '][' . $position . ']', '', ['form' => $form, 'label' => __('Ausschuss', 'taxmod-manufacturing'), 'min' => '0', 'step' => '1']);
             }
 
             // The gate 18.11.: a fitting that is only shown has no tick column.
@@ -1027,8 +1027,7 @@ final class OrdersPage
         // D-1428: «Bestücken» by default; «Kit» packs board and parts for sale.
         if ($this->service->canKit()) {
             $body .= '<div class="taxmod-dialog-field taxmod-mf-field">' . esc_html__('Art', 'taxmod-manufacturing') . '<br>'
-                . '<label><input type="radio" name="art" value="fitting" checked> ' . esc_html__('Bestücken', 'taxmod-manufacturing') . '</label> '
-                . '<label><input type="radio" name="art" value="kit"> ' . esc_html__('Kit (Platine + Teile zum Verkauf)', 'taxmod-manufacturing') . '</label></div>';
+                . ListPage::field(InputKind::Choice, 'art', 'fitting', ['choices' => ['fitting' => __('Bestücken', 'taxmod-manufacturing'), 'kit' => __('Kit (Platine + Teile zum Verkauf)', 'taxmod-manufacturing')]]) . '</div>';
         }
 
         // D-1311: the boards of the chosen project show in the dialog itself; the server still takes only that project's.
@@ -1089,7 +1088,7 @@ final class OrdersPage
         $boxes = '';
 
         foreach ($boards as $revision => $label) {
-            $boxes .= '<p><label><input type="checkbox" name="boards[]" value="' . esc_attr((string) $revision) . '"' . ($only ? ' checked' : '') . '> ' . esc_html($label) . '</label></p>';
+            $boxes .= '<p><label>' . ListPage::field(InputKind::Tick, 'boards[]', (string) $revision, ['checked' => (bool) ($only)]) . ' ' . esc_html($label) . '</label></p>';
         }
 
         return $boxes;

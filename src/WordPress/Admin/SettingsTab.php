@@ -89,7 +89,7 @@ final class SettingsTab
                 'label'   => $channel === null ? __('Neuer Kanal', 'taxmod-manufacturing') : (string) $channel,
                 'for'     => $id,
                 'control' => ListPage::field(InputKind::Line, 'taxmod_production_channel[]', (string) $channel, ['id' => $id, 'size' => 30, 'placeholder' => __('Verkaufskanal', 'taxmod-manufacturing')]) . ' '
-                    . '<input type="number" class="small-text" min="0" step="1" name="taxmod_production_days[]" value="' . esc_attr((string) $days) . '" aria-label="' . esc_attr__('Tage', 'taxmod-manufacturing') . '"> ' . esc_html__('Tage', 'taxmod-manufacturing'),
+                    . ListPage::field(InputKind::Number, 'taxmod_production_days[]', (string) $days, ['label' => __('Tage', 'taxmod-manufacturing'), 'min' => '0', 'step' => '1']) . ' ' . esc_html__('Tage', 'taxmod-manufacturing'),
                 'hint'    => __('Frist der Kundenfertigung: Termin = Verkaufsdatum + diese Tage. Eine Bearbeitungszeit am Verkauf selbst geht vor. Kanal leeren löscht die Zeile.', 'taxmod-manufacturing'),
             ];
         }
