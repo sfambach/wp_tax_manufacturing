@@ -51,6 +51,15 @@ final class StagingTest extends TestCase
         self::assertSame([['free', self::PLATINEN, 1.0], ['free', 85749, 1.0]], array_map(static fn (array $s): array => [$s['kind'], $s['place'], $s['quantity']], $lines[0]['sources']));
     }
 
+    /** D-1539: the PTC of 0.25 A in the box stands in for the missing 200 mA one; the order's own parts and other kinds do not. */
+    public function testSubstitutesComeFromTheSameNodeInTheBox(): void
+    {
+        $nodes = [45559 => 7, 60843 => 7, 45842 => 9, 43907 => 7];
+        $box   = [60843 => 5.0, 45842 => 20.0, 43907 => 2.0];
+
+        self::assertSame([45559 => [60843 => 5.0]], Staging::substitutes([45559 => 1.0, 45842 => 0.0], $nodes, $box, [45559, 45842, 43907]));
+    }
+
     /** A reservation whose lot lies in the box is counted once, as in the box. */
     public function testReservationInTheBoxIsNotCountedTwice(): void
     {

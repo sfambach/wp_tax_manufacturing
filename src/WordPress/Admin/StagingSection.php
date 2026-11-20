@@ -80,6 +80,8 @@ final class StagingSection
         }
 
         $cuts    = $canPick && $needs !== [] ? $this->service->cutSources($needs, $order->box) : [];
+        // D-1539: what in the box could stand in for a missing material (same catalog node), offered as «Als Ersatz zuweisen».
+        $stand   = $this->service->canReserve() ? $this->service->substitutesInBox(array_column($lines, 'missing', 'thing'), array_column($lines, 'thing'), $order->box) : [];
         $cutList = array_merge([], ...array_values($cuts));
         $ids     = [];
 
@@ -90,6 +92,10 @@ final class StagingSection
                 $ids[] = $source['thing'];
                 $ids[] = (int) $source['place'];
             }
+        }
+
+        foreach ($stand as $others) {
+            array_push($ids, ...array_keys($others));
         }
 
         $missingIds = array_values(array_diff(array_unique(array_filter([...$ids, ...array_column($cutList, 'thing'), ...array_column($cutList, 'place')])), array_keys($labels)));
@@ -117,6 +123,10 @@ final class StagingSection
                     $this->status('free', __('ablängen', 'taxmod-manufacturing')),
                     $this->rowAction(self::PICK, 'cut:' . $key, ListPage::ICON_TRANSFER, __('Ablängen und ins Gebinde umbuchen', 'taxmod-manufacturing')),
                 ];
+            }
+
+            foreach ($stand[$line['thing']] ?? [] as $other => $there) {
+                $rows[] = $this->substituteRow($order, $other, $there, $line['missing'], $first[$line['thing']] ?? 0, $labels);
             }
 
             // Stefan 20.11. 20:57 «die Bestandszeilen immer in der gleichen Farbe wie die Position»: the stripes go per material
@@ -272,6 +282,30 @@ final class StagingSection
                 'reserved' => $this->rowAction(self::PICK, $key, ListPage::ICON_TRANSFER, __('Ins Gebinde umbuchen', 'taxmod-manufacturing')),
                 default    => '',
             },
+        ];
+    }
+
+    /**
+     * D-1539, Stefan 20.11. 21:23 «natürlich sollte es möglich sein Ersatzprodukte zu wählen»: another material of the same
+     * kind that lies in the box. Taking it reserves it there for the position (D-1387), so the position counts with it; the
+     * parts list stays as it is.
+     *
+     * @param array<int, string> $labels
+     * @return list<string>
+     */
+    private function substituteRow(BuildOrder $order, int $thing, float $there, float $missing, int $position, array $labels): array
+    {
+        $key = $thing . ':' . (int) $order->box;
+
+        return [
+            '',
+            '<span class="taxmod-mf-source">' . esc_html__('im Gebinde', 'taxmod-manufacturing') . ' · ' . $this->part($thing, $labels, $order) . ' ' . esc_html__('(Ersatz)', 'taxmod-manufacturing') . '</span>',
+            '', '', '', '',
+            esc_html($this->count($there)),
+            '<input type="number" class="small-text" form="' . self::FORM . '" name="qty[' . esc_attr($key) . ']" min="0" max="' . esc_attr($this->count($there)) . '" step="any" value="' . esc_attr($this->count(min($missing, $there))) . '">'
+                . ($position > 0 ? '<input type="hidden" form="' . self::FORM . '" name="position[' . esc_attr($key) . ']" value="' . esc_attr((string) $position) . '">' : ''),
+            $this->status('info', __('Ersatz möglich', 'taxmod-manufacturing')),
+            $this->rowAction(self::RESERVE, $key, 'paperclip', __('Als Ersatz zuweisen', 'taxmod-manufacturing')),
         ];
     }
 
