@@ -66,7 +66,7 @@ final class StagingTest extends TestCase
 
     public function testTheMissingPiecesOfAStripAreCountedByLengthLongestFirst(): void
     {
-        // Pin-Aufbereitung P1: P1/P2 1×5 (10 pins missing), J1 1×6 (6), J2–J4 1×2 (6) — all from one 1×40 material 51307.
+        // D-1535 (P1): P1/P2 1×5 (10 pins missing), J1 1×6 (6), J2–J4 1×2 (6) — all from one 1×40 material 51307.
         $demand = [7 => [
             ['position' => 1, 'thing' => 51307, 'missing' => 10.0],
             ['position' => 2, 'thing' => 51307, 'missing' => 6.0],

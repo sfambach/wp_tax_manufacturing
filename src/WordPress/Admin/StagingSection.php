@@ -225,7 +225,7 @@ final class StagingSection
     /**
      * @param array{kind: string, thing: int, place: ?int, there: float, quantity: float, line: int, position: int} $source
      * @param array<int, string> $labels
-     * @param array<int, int> $cuts Pin-Aufbereitung P1: pins per piece → pieces of all this material's lengths
+     * @param array<int, int> $cuts D-1535 (P1): pins per piece → pieces of all this material's lengths
      * @return list<string>
      */
     private function sourceRow(BuildOrder $order, array $source, array $labels, int $piece, int $material, array $cuts = []): array
@@ -339,7 +339,7 @@ final class StagingSection
     }
 
     /**
-     * Pin-Aufbereitung P1 «Leisten zuschneiden»: per strip counted in pins, the stock's one plan for all its missing pieces
+     * D-1535 (P1) «Leisten zuschneiden»: per strip counted in pins, the stock's one plan for all its missing pieces
      * at the first free place they fit — which strip (rest or whole) gives which pieces, what goes back, what is scrap.
      * He looks into the box of rests first anyway; the plan only says what to cut when nothing there fits.
      *

@@ -134,7 +134,7 @@ final class Staging
     }
 
     /**
-     * Pin-Aufbereitung P1: the pieces still missing of each strip counted in pins, by length — material → pins per piece →
+     * D-1535 (P1): the pieces still missing of each strip counted in pins, by length — material → pins per piece →
      * pieces, from the positions' missing pins and their pins per piece. A position without pins per piece is no cut.
      *
      * @param array<int, list<array{position: int, thing: int, missing: float}>> $demand

@@ -100,7 +100,7 @@ final class ManufacturingService
     /** D9 (D-1320): longer strips of the same kind a missing strip can be cut from, and the booking of the cut. */
     public const CUT_SOURCES_FILTER = 'taxmod_stock_cut_sources';
     public const CUT_FILTER         = 'taxmod_stock_book_cut';
-    /** Pin-Aufbereitung P1: the stock's one cut plan of all pieces of a strip counted in pins, per place. */
+    /** D-1535 (P1): the stock's one cut plan of all pieces of a strip counted in pins, per place. */
     public const PIN_CUT_PLANS_FILTER = 'taxmod_stock_pin_cut_plans';
 
     /** Whether the stock module's purchasing takes a demand from here (D-1156). */
@@ -556,7 +556,7 @@ final class ManufacturingService
     }
 
     /**
-     * Pin-Aufbereitung P1: how the stock would cut these pieces at each place — read only; the plan is the stock's
+     * D-1535 (P1): how the stock would cut these pieces at each place — read only; the plan is the stock's
      * (D-1398), this module only shows it. Empty without the stock's filter.
      *
      * @param list<int>       $places

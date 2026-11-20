@@ -376,7 +376,7 @@ final class OrderActions
     }
 
     /**
-     * Pin-Aufbereitung P1: «5:2,2:3» → pins per piece → pieces; anything else is left out.
+     * D-1535 (P1): «5:2,2:3» → pins per piece → pieces; anything else is left out.
      *
      * @return array<int, int>
      */
@@ -413,7 +413,7 @@ final class OrderActions
 
             if ($qty > 0.0) {
                 // D-1398: pieces of a strip counted in pins — the stock cuts them whole from its strips at `from`.
-                // Pin-Aufbereitung P1: all lengths of the material in one plan, while the quantity is the whole need.
+                // D-1535 (P1): all lengths of the material in one plan, while the quantity is the whole need.
                 $all     = array_sum(array_map(static fn (int $pins, int $count): int => $pins * $count, array_keys($cuts), $cuts));
                 $lines[] = ['thing' => (int) $match[1], 'from' => (int) $match[2], 'qty' => $qty]
                     + ($cuts !== [] && $qty + 0.000001 >= $all ? ['cuts' => $cuts] : [])
