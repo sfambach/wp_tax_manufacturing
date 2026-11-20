@@ -52,6 +52,8 @@ final class OrdersPage
             'order_staging'  => __('In Bereitstellung', 'taxmod-manufacturing'),
             'order_building' => __('In Bau', 'taxmod-manufacturing'),
             'order_test'     => __('In Test', 'taxmod-manufacturing'),
+            // Prüftor 20.11. (3b): the orders with a board in «Nacharbeit» — a view stacked under «In Test», no status, no menu point.
+            'order_rework'   => __('Nacharbeit', 'taxmod-manufacturing'),
             'order_done'     => __('Fertig', 'taxmod-manufacturing'),
             'order_failed'   => __('Fehlgeschlagen', 'taxmod-manufacturing'),
             'cancelled'      => __('Abgebrochen', 'taxmod-manufacturing'),
@@ -59,7 +61,7 @@ final class OrdersPage
     }
 
     /** Every view the list knows; «open», «done» and «all» stay for old links. */
-    public const TABS = ['boxes', 'open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_test', 'order_done', 'order_failed'];
+    public const TABS = ['boxes', 'open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_test', 'order_rework', 'order_done', 'order_failed'];
 
     public const ACTION = 'taxmod_manufacturing';
 
@@ -160,7 +162,9 @@ final class OrdersPage
             ['order_planned', $name['order_planned'], $in('order_planned')],
             $this->service->structure()->hasValue('order_staging') ? ['order_staging', $name['order_staging'], $in('order_staging')] : null,
             ['order_building', $name['order_building'], $in('order_building')],
-            $this->service->structure()->hasValue('order_test') ? ['order_test', $name['order_test'], $in('order_test')] : null,
+            $this->service->structure()->hasValue('order_test')
+                ? [['order_test', $name['order_test'], $in('order_test')], ['order_rework', $name['order_rework'], count(array_filter($orders, fn (BuildOrder $o): bool => $this->inTab($o, 'order_rework')))]]
+                : null,
         ]));
         $ends   = array_values(array_filter([['order_done', $name['order_done'], $in('order_done')],
             $this->service->canFail() ? ['order_failed', $name['order_failed'], $in('order_failed')] : null, ['cancelled', $name['cancelled'], $in('order_cancelled')]]));
@@ -267,7 +271,7 @@ final class OrdersPage
             ['order_planned', $name['order_planned']],
             $staging ? ['order_staging', $name['order_staging']] : null,
             ['order_building', $name['order_building']],
-            $this->service->structure()->hasValue('order_test') && ! $order->kit ? ['order_test', $name['order_test']] : null,
+            $this->service->structure()->hasValue('order_test') && ! $order->kit ? [['order_test', $name['order_test']], ['order_rework', $name['order_rework']]] : null,
             array_values(array_filter([['order_done', $name['order_done']], $this->service->canFail() ? ['order_failed', $name['order_failed']] : null, ['order_cancelled', $name['cancelled']]])),
         ]));
 
@@ -371,7 +375,9 @@ final class OrdersPage
 
         return '<form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => 'detail']) . '</form>'
-            . ListPage::record(sprintf(__('Fertigungsauftrag · %s', 'taxmod-manufacturing'), $order->label), $steps, $order->step, $back, $forward, $actions, $this->headForm($order, $labels, $missing, $demand), $sections);
+            . ListPage::record(sprintf(__('Fertigungsauftrag · %s', 'taxmod-manufacturing'), $order->label), $steps,
+                // «Nacharbeit» lights when every open board waits for it; with boards still in test «In Test» does.
+                $order->step === 'order_test' && $counts[Positions::TEST] === 0 && $counts[Positions::REWORK] > 0 ? 'order_rework' : $order->step, $back, $forward, $actions, $this->headForm($order, $labels, $missing, $demand), $sections);
     }
 
     /**
@@ -1281,6 +1287,7 @@ final class OrdersPage
             'done', 'order_done' => $order->step === 'order_done',
             'cancelled'          => $order->step === 'order_cancelled',
             'order_planned', 'order_staging', 'order_building', 'order_test', 'order_failed' => $order->step === $tab,
+            'order_rework'       => $order->step === 'order_test' && $this->service->inRework($order->id),
             'all'                => true,
             default     => ! $order->isClosed(),
         };
