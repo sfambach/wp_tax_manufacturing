@@ -2,6 +2,7 @@
 
 namespace TaxmodManufacturing\WordPress\Admin;
 
+use Taxmod\Core\Renderer\DecimalText;
 use Taxmod\WordPress\Admin\ListPage;
 use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\Demand;
@@ -274,11 +275,11 @@ final class OrderActions
         }
 
         // D-1425: minutes per board, a decimal with comma or point; empty when the stock does not price yet.
-        $minutes = str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($_POST['minutes'] ?? ''))));
+        $minutes = DecimalText::typed(sanitize_text_field(wp_unslash((string) ($_POST['minutes'] ?? ''))));
         $place   = absint($_POST['place'] ?? 0);
         $boards  = absint($_POST['boards'] ?? 0);
         // D-1475: the time given was that of all boards of this completion — divided by them — or of one.
-        $minutes = is_numeric($minutes) ? Stopwatch::perBoard((float) $minutes, sanitize_key((string) ($_POST['time_for'] ?? '')) === 'all', $boards) : null;
+        $minutes = $minutes !== null ? Stopwatch::perBoard((float) $minutes, sanitize_key((string) ($_POST['time_for'] ?? '')) === 'all', $boards) : null;
         $done    = $this->service->finishBuild($order, $boards, $today, $categories, $minutes, $place > 0 ? $place : null);
 
         if ($done['act'] !== null) {

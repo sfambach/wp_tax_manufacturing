@@ -30,11 +30,11 @@ final class Plugin
 
     public function bootWhenModellerIsThere(): void
     {
-        // The one door into the model (D-1186), its bracket for one act over several bookings (D-1419) and the shared page blocks button/iconButton/money (D-1500, 0.2.172).
+        // The one door into the model (D-1186), its bracket for one act over several bookings (D-1419) and the shared page blocks button/iconButton/money (D-1500, 0.2.172). D-1501: fields through ListPage::field, 0.2.173.
         // Asked by version, not by loading the classes (D-1422).
-        if (! class_exists(\Taxmod\WordPress\Plugin::class, false) || version_compare(\Taxmod\WordPress\Plugin::VERSION, '0.2.172', '<')) {
+        if (! class_exists(\Taxmod\WordPress\Plugin::class, false) || version_compare(\Taxmod\WordPress\Plugin::VERSION, '0.2.173', '<')) {
             add_action('admin_notices', static function (): void {
-                echo '<div class="notice notice-error"><p>' . esc_html__('Taxmod Fertigung braucht den aktiven Taxonomy Modeller ab 0.2.172.', 'taxmod-manufacturing') . '</p></div>';
+                echo '<div class="notice notice-error"><p>' . esc_html__('Taxmod Fertigung braucht den aktiven Taxonomy Modeller ab 0.2.173.', 'taxmod-manufacturing') . '</p></div>';
             });
 
             return;

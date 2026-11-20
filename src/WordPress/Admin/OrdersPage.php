@@ -5,6 +5,8 @@ namespace TaxmodManufacturing\WordPress\Admin;
 use Taxmod\Core\Renderer\Control;
 use Taxmod\WordPress\Draw\ControlMarkup;
 use Taxmod\WordPress\Draw\GridMarkup;
+use Taxmod\WordPress\Draw\SelectMarkup;
+use Taxmod\Core\Description\InputKind;
 use Taxmod\WordPress\Admin\ListPage;
 use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
@@ -293,7 +295,7 @@ final class OrdersPage
             in_array($order->step, ['order_planned', 'order_staging'], true) => $missing > 0 && $order->box !== null
                 ? $this->dialogForm('building', $order, $name['order_building'] . ' →', __('Trotz Fehlteilen in Bau geben', 'taxmod-manufacturing'),
                     esc_html(sprintf(_n('Es fehlt noch %d Position. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', 'Es fehlen noch %d Positionen. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', $missing, 'taxmod-manufacturing'), $missing))
-                    . '</p><p><label>' . esc_html__('Grund', 'taxmod-manufacturing') . '<br><input type="text" class="regular-text" name="reason" required></label>')
+                    . '</p><p><label>' . esc_html__('Grund', 'taxmod-manufacturing') . '<br>' . ListPage::field(InputKind::Line, 'reason', '', ['required' => true, 'size' => 40]) . '</label>')
                 : ListPage::stepButton($name['order_building'], true, '', 'do', 'building', $form),
             // D-1419: «Fertigung abschließen» for the fully fitted boards; once all are completed the order is in «Test».
             $order->step === 'order_building' && ! $order->isFinished() && $this->service->structure()->hasField('assembly_done') => $this->finishDialog($order, $labels),
@@ -456,21 +458,21 @@ final class OrdersPage
         $locked   = $order->isClosed() || $order->step === 'order_test';
 
         if ($planned && $revision > 0) {
-            $options = '';
+            $options = [];
 
             foreach ($this->service->siblingRevisions($revision) as $rev => $label) {
-                $options .= '<option value="' . esc_attr((string) $rev) . '"' . selected($rev, $revision, false) . '>' . esc_html(($boardOf[$boards[$revision] ?? 0] ?? '') . ' · ' . $label) . '</option>';
+                $options[$rev] = ($boardOf[$boards[$revision] ?? 0] ?? '') . ' · ' . $label;
             }
 
-            $boardControl = '<select name="revision" id="' . esc_attr($id) . '-revision">' . $options . '</select>';
+            $boardControl = SelectMarkup::of('revision', $options, (string) $revision, false, '', ['id' => $id . '-revision']);
         } else {
             $boardControl = $text(implode(', ', array_map(static fn (Assembly $a): string => $board($a->revision), $order->assemblies)));
         }
 
-        $boxes = '<option value="0">' . esc_html__('— kein Gebinde —', 'taxmod-manufacturing') . '</option>';
+        $boxes = [0 => __('— kein Gebinde —', 'taxmod-manufacturing')];
 
         foreach ($this->service->boxesOf($order->project) as $box => $label) {
-            $boxes .= '<option value="' . esc_attr((string) $box) . '"' . selected($box, $order->box, false) . '>' . esc_html($label) . '</option>';
+            $boxes[$box] = $label;
         }
 
         $statuses = $this->service->revisionStatuses(array_column($order->assemblies, 'revision'));
@@ -483,11 +485,11 @@ final class OrdersPage
                     array_keys($statuses), $statuses))],
             ['label' => __('Stück', 'taxmod-manufacturing'), 'for' => $locked ? '' : $id . '-count', 'control' => $locked
                 ? $text((string) $order->count)
-                : '<input type="number" class="small-text" min="' . esc_attr((string) max([1, ...array_map(static fn ($a): int => $a->done, $order->assemblies)])) . '" step="1" name="count" id="' . esc_attr($id) . '-count" value="' . esc_attr((string) $order->count) . '">',
+                : ListPage::field(InputKind::Number, 'count', (string) $order->count, ['id' => $id . '-count', 'min' => max([1, ...array_map(static fn ($a): int => $a->done, $order->assemblies)]), 'step' => 1]),
                 'hint' => $order->step === 'order_planned' ? '' : __('Weniger Stück geben überzählige Reservierungen frei; was schon im Gebinde liegt, bleibt dort bis «Box leer räumen».', 'taxmod-manufacturing')],
             ['label' => __('Gebinde', 'taxmod-manufacturing'), 'for' => $locked ? '' : $id . '-box', 'control' => $locked
                 ? $text($order->box === null ? '—' : ($this->service->labelsOf([$order->box])[$order->box] ?? '#' . $order->box))
-                : '<select name="box" id="' . esc_attr($id) . '-box">' . $boxes . '</select>',
+                : SelectMarkup::of('box', $boxes, (string) (int) $order->box, false, '', ['id' => $id . '-box']),
                 'hint' => __('Was im Gebinde und darunter liegt, zählt als vorhanden. Projekt-Gebinde legst du im Lager an.', 'taxmod-manufacturing')],
             ['label' => __('Fehlende Pos.', 'taxmod-manufacturing'), 'control' => $text($order->box === null ? '—' : (string) $missing)],
         ];
@@ -495,7 +497,7 @@ final class OrdersPage
         if ($this->service->structure()->hasField('order_due')) {
             $rows[] = ['label' => __('Wunschtermin', 'taxmod-manufacturing'), 'for' => $locked ? '' : $id . '-due', 'control' => $locked
                 ? $text($order->due ?? '—')
-                : '<input type="date" name="due" id="' . esc_attr($id) . '-due" value="' . esc_attr((string) $order->due) . '">',
+                : ListPage::field(InputKind::Moment, 'due', (string) $order->due, ['id' => $id . '-due', 'note' => 'date']),
                 'hint' => __('Optional. Plant nichts, steht nur am Auftrag.', 'taxmod-manufacturing')];
         }
 
@@ -532,7 +534,7 @@ final class OrdersPage
             }
 
             if ($this->service->structure()->hasField('assembly_note')) {
-                $rows[] = ['label' => __('Hinweis', 'taxmod-manufacturing') . $name, 'for' => $id . '-note-' . $a, 'control' => '<input type="text" class="regular-text" name="note[' . esc_attr($a) . ']" id="' . esc_attr($id . '-note-' . $a) . '" value="' . esc_attr($assembly->note) . '">'];
+                $rows[] = ['label' => __('Hinweis', 'taxmod-manufacturing') . $name, 'for' => $id . '-note-' . $a, 'control' => ListPage::field(InputKind::Line, 'note[' . $a . ']', $assembly->note, ['id' => $id . '-note-' . $a, 'size' => 40])];
             }
 
             if ($order->box !== null && $this->service->canScrap()) {
@@ -706,7 +708,7 @@ final class OrdersPage
                     esc_html__('Alle Teile sind bereit.', 'taxmod-manufacturing'))
                 : $this->dialogForm('building', $order, __('Trotzdem in Bau geben …', 'taxmod-manufacturing'), __('Trotz Fehlteilen in Bau geben', 'taxmod-manufacturing'),
                     esc_html(sprintf(_n('Es fehlt noch %d Position. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', 'Es fehlen noch %d Positionen. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', $missing, 'taxmod-manufacturing'), $missing))
-                    . '</p><p><label>' . esc_html__('Grund', 'taxmod-manufacturing') . '<br><input type="text" class="regular-text" name="reason" required></label>');
+                    . '</p><p><label>' . esc_html__('Grund', 'taxmod-manufacturing') . '<br>' . ListPage::field(InputKind::Line, 'reason', '', ['required' => true, 'size' => 40]) . '</label>');
         }
 
         if (! $order->isClosed() && $order->isFinished()) {
@@ -856,7 +858,7 @@ final class OrdersPage
         $categories = array_filter($order->assemblies, fn (Assembly $assembly): bool => $this->categoryChooser($order, $assembly) !== '');
 
         $body = $order->kit ? $this->kitBody($order, $max, $done, $categories, $labels) : '<div>' . esc_html(sprintf(__('Voll bestückt und offen: %1$d. Abgeschlossen sind %2$d von %3$d.', 'taxmod-manufacturing'), $max, $done, $order->count)) . '</div>'
-            . '<div class="taxmod-mf-field"><label>' . esc_html__('Stücke abschließen', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="boards" min="1" max="' . esc_attr((string) $max) . '" value="' . esc_attr((string) $max) . '" required></label></div>'
+            . '<div class="taxmod-mf-field"><label>' . esc_html__('Stücke abschließen', 'taxmod-manufacturing') . ' ' . ListPage::field(InputKind::Number, 'boards', (string) $max, ['min' => 1, 'max' => $max, 'required' => true]) . '</label></div>'
             . $this->minutesField($order)
             . ($categories === [] ? '' : '<div>' . esc_html__('Die Material-Kategorie des Stücks steht in den Stammdaten.', 'taxmod-manufacturing') . '</div>')
             . $this->systemsLines($categories, $labels)
@@ -901,15 +903,10 @@ final class OrdersPage
     private function kitBody(BuildOrder $order, int $max, int $done, array $categories, array $labels): string
     {
         $places  = $this->service->kitPlaces($order);
-        $options = '';
-
-        foreach ($places as $place => $name) {
-            $options .= '<option value="' . esc_attr((string) $place) . '">' . esc_html($name) . '</option>';
-        }
 
         return '<div>' . esc_html(sprintf(__('Offen: %1$d. Abgeschlossen sind %2$d von %3$d Kits.', 'taxmod-manufacturing'), $max, $done, $order->count)) . '</div>'
-            . '<div class="taxmod-mf-field"><label>' . esc_html__('Kits abschließen', 'taxmod-manufacturing') . ' <input type="number" class="small-text" name="boards" min="1" max="' . esc_attr((string) $max) . '" value="' . esc_attr((string) $max) . '" required></label></div>'
-            . '<div class="taxmod-mf-field"><label>' . esc_html__('Lagerplatz der Kits', 'taxmod-manufacturing') . ' <select name="place" required>' . $options . '</select></label></div>'
+            . '<div class="taxmod-mf-field"><label>' . esc_html__('Kits abschließen', 'taxmod-manufacturing') . ' ' . ListPage::field(InputKind::Number, 'boards', (string) $max, ['min' => 1, 'max' => $max, 'required' => true]) . '</label></div>'
+            . '<div class="taxmod-mf-field"><label>' . esc_html__('Lagerplatz der Kits', 'taxmod-manufacturing') . ' ' . SelectMarkup::of('place', $places, null, false, '', ['required' => 'required']) . '</label></div>'
             . $this->minutesField($order)
             . ($categories !== [] ? '<div>' . esc_html__('Die Material-Kategorie des Kits steht in den Stammdaten.', 'taxmod-manufacturing') . '</div>' : '')
             // D-1460 for kits too (his word 19.11. 07:01).
@@ -945,13 +942,13 @@ final class OrdersPage
             $order->kit => __('Packzeit je Kit', 'taxmod-manufacturing'),
             default     => __('Produktionszeit je Stück', 'taxmod-manufacturing'),
         };
-        $scope    = $timed ? '<div class="taxmod-mf-field"><label>' . esc_html__('Zeit gilt für', 'taxmod-manufacturing') . ' <select name="time_for">'
-            . '<option value="all"' . selected($forAll, true, false) . '>' . esc_html($order->kit ? __('alle Kits dieses Abschlusses (wird geteilt)', 'taxmod-manufacturing') : __('alle Stücke dieses Abschlusses (wird geteilt)', 'taxmod-manufacturing')) . '</option>'
-            . '<option value="one"' . selected($forAll, false, false) . '>' . esc_html($order->kit ? __('ein Kit', 'taxmod-manufacturing') : __('ein Stück', 'taxmod-manufacturing')) . '</option>'
-            . '</select></label></div>'
+        $scope    = $timed ? '<div class="taxmod-mf-field"><label>' . esc_html__('Zeit gilt für', 'taxmod-manufacturing') . ' ' . SelectMarkup::of('time_for', [
+                'all' => $order->kit ? __('alle Kits dieses Abschlusses (wird geteilt)', 'taxmod-manufacturing') : __('alle Stücke dieses Abschlusses (wird geteilt)', 'taxmod-manufacturing'),
+                'one' => $order->kit ? __('ein Kit', 'taxmod-manufacturing') : __('ein Stück', 'taxmod-manufacturing'),
+            ], $forAll ? 'all' : 'one', false) . '</label></div>'
             . ($forAll ? '<div>' . esc_html(sprintf(__('Erfasst mit der Zeitmessung: %s h. Wird mit dem Abschluss auf 0 gesetzt.', 'taxmod-manufacturing'), Stopwatch::clock($recorded))) . '</div>' : '') : '';
 
-        return '<div class="taxmod-mf-field"><label>' . esc_html($label) . ' <input type="text" inputmode="decimal" class="small-text" name="minutes" pattern="[0-9]+([,.][0-9]+)?" value="' . esc_attr($value === null ? '' : ListPage::number($value, 2)) . '" required> ' . esc_html__('Minuten', 'taxmod-manufacturing') . '</label></div>'
+        return '<div class="taxmod-mf-field"><label>' . esc_html($label) . ' ' . ListPage::field(InputKind::Decimal, 'minutes', $value === null ? '' : number_format($value, 2, '.', ''), ['required' => true, 'size' => 6]) . ' ' . esc_html__('Minuten', 'taxmod-manufacturing') . '</label></div>'
             . $scope
             /* translators: 1: wage per hour, 2: set-up hours per order */
             . '<div class="description">' . esc_html(sprintf($order->kit
@@ -1025,7 +1022,7 @@ final class OrdersPage
             : '';
         $picker = $chooser !== '' ? $chooser : '<select name="project" required>' . $options . '</select>';
         $body   = '<div class="taxmod-dialog-field taxmod-mf-field">' . esc_html__('Projekt', 'taxmod-manufacturing') . '<br>' . $picker . '</div>'
-            . '<label class="taxmod-dialog-field taxmod-mf-field">' . esc_html__('Stückzahl', 'taxmod-manufacturing') . '<br><input type="number" name="count" min="1" step="1" value="1" required></label>';
+            . '<label class="taxmod-dialog-field taxmod-mf-field">' . esc_html__('Stückzahl', 'taxmod-manufacturing') . '<br>' . ListPage::field(InputKind::Number, 'count', '1', ['min' => 1, 'step' => 1, 'required' => true]) . '</label>';
 
         // D-1428: «Bestücken» by default; «Kit» packs board and parts for sale.
         if ($this->service->canKit()) {
@@ -1117,7 +1114,7 @@ final class OrdersPage
     private function failDialog(BuildOrder $order): string
     {
         return $this->dialogForm('failed', $order, __('Fehlgeschlagen …', 'taxmod-manufacturing'), __('Fehlgeschlagen', 'taxmod-manufacturing'),
-            '<label>' . esc_html__('Befund', 'taxmod-manufacturing') . '<br><input type="text" class="regular-text" name="finding" required></label></p>'
+            '<label>' . esc_html__('Befund', 'taxmod-manufacturing') . '<br>' . ListPage::field(InputKind::Line, 'finding', '', ['required' => true, 'size' => 40]) . '</label></p>'
             . '<p class="description">' . esc_html__('Der Bauplan funktioniert nicht. Die Revision gilt dann als «Nicht bestätigt». Ein einzelnes Stück, das nicht geht, ist Ausschuss: «Verschrotten» unter Positionen. «Wieder aufnehmen» nimmt es zurück.', 'taxmod-manufacturing'));
     }
 

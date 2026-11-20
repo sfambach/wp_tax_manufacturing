@@ -2,6 +2,7 @@
 
 namespace TaxmodManufacturing\WordPress\Admin;
 
+use Taxmod\Core\Description\InputKind;
 use Taxmod\WordPress\Admin\ListPage;
 use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\Positions;
@@ -84,7 +85,7 @@ final class TestSection
 
         // Not «required»: the boxes belong to the bar's form even while their dialog is shut, and an empty required box there
         // blocks every action of the bar without a word (his report 17.11. 21:56). The handler asks for them instead.
-        $note    = static fn (string $name, string $label): string => '<p><label>' . esc_html($label) . '<br><input type="text" class="regular-text" name="' . esc_attr($name) . '" form="' . esc_attr($form) . '"></label></p>';
+        $note    = static fn (string $name, string $label): string => '<p><label>' . esc_html($label) . '<br>' . ListPage::field(InputKind::Line, $name, '', ['form' => $form, 'size' => 40]) . '</label></p>';
         $dialogs = [
             $form . '-failed' => [__('Nacharbeit …', 'taxmod-manufacturing'), ListPage::dialogAction($form . '-failed', __('Nacharbeit …', 'taxmod-manufacturing'), __('Nacharbeit: ausgewählte Stücke', 'taxmod-manufacturing'),
                 $note('note', __('Was ist aufgefallen?', 'taxmod-manufacturing')) . '<p class="description">' . esc_html__('Die Stücke warten auf Nacharbeit; danach zurück in den Test.', 'taxmod-manufacturing') . '</p>', 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form)],
@@ -133,7 +134,7 @@ final class TestSection
     {
         $form   = 'taxmod-mf-judge-' . $lot;
         $button = static fn (string $action, string $label): string => ListPage::button($label, '', false, 'action', $action, $form);
-        $text   = static fn (string $name, string $label, string $value, string $hint): string => '<p><label>' . esc_html($label) . '<br><input type="text" class="regular-text" name="' . esc_attr($name) . '" form="' . esc_attr($form) . '" value="' . esc_attr($value) . '"></label></p>'
+        $text   = static fn (string $name, string $label, string $value, string $hint): string => '<p><label>' . esc_html($label) . '<br>' . ListPage::field(InputKind::Line, $name, $value, ['form' => $form, 'size' => 40]) . '</label></p>'
             . '<p class="description">' . esc_html($hint) . '</p>';
         $inner  = match ($status) {
             Positions::TEST => $button(self::PASSED, __('Bestanden', 'taxmod-manufacturing'))
