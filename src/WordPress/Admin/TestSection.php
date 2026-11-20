@@ -52,7 +52,10 @@ final class TestSection
             return '<div class="notice notice-warning inline"><p>' . esc_html__('Das Lager bietet die Test-Schnittstelle noch nicht an (Lager ab 0.64.110 mit «taxmod_stock_test_lots»). Die abgeschlossenen Stücke liegen ungeprüft auf «Test»; das Ergebnis lässt sich hier eintragen, sobald das Lager aktualisiert ist.', 'taxmod-manufacturing') . '</p></div>';
         }
 
-        $bar = $this->statusBar($order, $counts);
+        // Stefan 20.11. 19:36: the bar filters the rows — the server shows only the status chosen, «Alle» by default.
+        $shown = sanitize_key((string) ($_GET['pos'] ?? ''));
+        $shown = in_array($shown, Positions::ALL, true) ? $shown : 'all';
+        $bar   = $this->statusBar($order, $counts, $shown);
 
         if ($lots === []) {
             return $bar . '<p class="description">' . esc_html__('Das Lager kennt noch kein Stück dieses Auftrags.', 'taxmod-manufacturing') . '</p>';
@@ -69,6 +72,11 @@ final class TestSection
 
         foreach ($lots as $lot => $row) {
             $status = Positions::ofLot($row['state']);
+
+            if ($shown !== 'all' && $status !== $shown) {
+                continue;
+            }
+
             $tick   = in_array($status, Positions::OPEN, true) ? ListPage::field(InputKind::Tick, 'selected[]', (string) $lot, ['form' => $form, 'label' => __('Auswählen', 'taxmod-manufacturing')]) : '';
             $grid[] = [
                 $tick,
@@ -113,7 +121,7 @@ final class TestSection
             [__('Status', 'taxmod-manufacturing')], [__('Getestet am', 'taxmod-manufacturing')], [__('Befund', 'taxmod-manufacturing')],
             ...($priced ? [[__('Preis je Stück', 'taxmod-manufacturing')]] : []),
             [''],
-        ], $grid, '', 'taxmod-mf-ticks');
+        ], $grid, __('Kein Stück in diesem Status.', 'taxmod-manufacturing'), 'taxmod-mf-ticks');
     }
 
     /**
@@ -122,7 +130,7 @@ final class TestSection
      *
      * @param array<string, int> $counts
      */
-    private function statusBar(BuildOrder $order, array $counts): string
+    private function statusBar(BuildOrder $order, array $counts, string $shown = 'all'): string
     {
         $step = static fn (string $status, string $label): array => [$status, $label, $counts[$status] ?? 0];
         $ends = [$step(Positions::DONE, __('Fertig', 'taxmod-manufacturing')), $step(Positions::SCRAPPED, __('Verschrottet', 'taxmod-manufacturing'))];
@@ -130,7 +138,15 @@ final class TestSection
             ? [$step(Positions::BUILDING, __('In Bau', 'taxmod-manufacturing')), $ends]
             : [$step(Positions::BUILDING, __('In Bau', 'taxmod-manufacturing')), [$step(Positions::TEST, __('In Test', 'taxmod-manufacturing')), $step(Positions::REWORK, __('Nacharbeit', 'taxmod-manufacturing'))], $ends];
 
-        return '<div class="taxmod-mf-positions">' . ListPage::steps($bar, '', null) . '</div>';
+        // Prüftor 20.11.: «Alle» first, with the sum, as a step of its own; each step links `pos`, the chosen one is active.
+        array_unshift($bar, ['all', __('Alle', 'taxmod-manufacturing'), array_sum(array_intersect_key($counts, array_flip(Positions::ALL)))]);
+
+        return '<div class="taxmod-mf-positions">' . ListPage::steps($bar, $shown, static function (string $status): string {
+            // The notice of the last act stays behind; only the page and the order travel.
+            $here = remove_query_arg(['pos', 'msg', 'act', 'err', 'made', 'systems']);
+
+            return $status === 'all' ? $here : add_query_arg('pos', $status, $here);
+        }) . '</div>';
     }
 
     /**
