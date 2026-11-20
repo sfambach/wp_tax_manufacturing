@@ -106,10 +106,10 @@ final class SettingsTab
 
         // D-1425: the price of a completed board.
         $rows[] = ['label' => __('Stundenlohn', 'taxmod-manufacturing'), 'for' => 'taxmod-production-wage',
-            'control' => ListPage::field(InputKind::Decimal, 'taxmod_production_wage', number_format(self::settings()->wage, 2, '.', ''), ['id' => 'taxmod-production-wage', 'size' => 6]) . ' ' . esc_html__('€ je Stunde', 'taxmod-manufacturing'),
+            'control' => ListPage::field(InputKind::Decimal, 'taxmod_production_wage', (string) round(self::settings()->wage, 2), ['id' => 'taxmod-production-wage', 'size' => 6]) . ' ' . esc_html__('€ je Stunde', 'taxmod-manufacturing'),
             'hint' => __('Arbeitslohn für den Fertigungspreis: Produktionszeit je Stück und Bereitstellung mal diesen Lohn. Gilt ab dem nächsten Abschluss; abgeschlossene Stücke behalten ihren Preis.', 'taxmod-manufacturing')];
         $rows[] = ['label' => __('Bereitstellung', 'taxmod-manufacturing'), 'for' => 'taxmod-production-setup',
-            'control' => ListPage::field(InputKind::Decimal, 'taxmod_production_setup', number_format(self::settings()->setupHours, 2, '.', ''), ['id' => 'taxmod-production-setup', 'size' => 6]) . ' ' . esc_html__('Stunden je Auftrag', 'taxmod-manufacturing'),
+            'control' => ListPage::field(InputKind::Decimal, 'taxmod_production_setup', (string) round(self::settings()->setupHours, 2), ['id' => 'taxmod-production-setup', 'size' => 6]) . ' ' . esc_html__('Stunden je Auftrag', 'taxmod-manufacturing'),
             'hint' => __('Wird auf die Stücke des Auftrags verteilt und als eigene Zeile im Preis ausgewiesen.', 'taxmod-manufacturing')];
 
         $stock = class_exists(\TaxmodStock\WordPress\Admin\SettingsPage::class) && method_exists(\TaxmodStock\WordPress\Admin\SettingsPage::class, 'url')
