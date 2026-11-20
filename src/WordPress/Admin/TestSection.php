@@ -139,14 +139,20 @@ final class TestSection
             : [$step(Positions::BUILDING, __('In Bau', 'taxmod-manufacturing')), [$step(Positions::TEST, __('In Test', 'taxmod-manufacturing')), $step(Positions::REWORK, __('Nacharbeit', 'taxmod-manufacturing'))], $ends];
 
         // Prüftor 20.11.: «Alle» first, with the sum, as a step of its own; each step links `pos`, the chosen one is active.
-        array_unshift($bar, ['all', __('Alle', 'taxmod-manufacturing'), array_sum(array_intersect_key($counts, array_flip(Positions::ALL)))]);
+        // D-1530 (modeller 0.2.183): ListPage::steps puts «Alle» first itself; an older modeller gets it as the first step.
+        $all   = ['all', __('Alle', 'taxmod-manufacturing'), array_sum(array_intersect_key($counts, array_flip(Positions::ALL)))];
+        $front = version_compare(\Taxmod\WordPress\Plugin::VERSION, '0.2.183', '>=');
+
+        if (! $front) {
+            array_unshift($bar, $all);
+        }
 
         return '<div class="taxmod-mf-positions">' . ListPage::steps($bar, $shown, static function (string $status): string {
             // The notice of the last act stays behind; only the page and the order travel.
             $here = remove_query_arg(['pos', 'msg', 'act', 'err', 'made', 'systems']);
 
             return $status === 'all' ? $here : add_query_arg('pos', $status, $here);
-        }) . '</div>';
+        }, [], $front ? $all : []) . '</div>';
     }
 
     /**
@@ -156,18 +162,26 @@ final class TestSection
      */
     private function rowActions(BuildOrder $order, int $lot, string $status, string $note, string $board, string $findings = ''): string
     {
-        $form   = 'taxmod-mf-judge-' . $lot;
-        $button = static fn (string $action, string $label): string => ListPage::button($label, '', false, 'action', $action, $form);
-        $text   = static fn (string $name, string $label, string $value, string $hint, string $list = ''): string => '<p><label>' . esc_html($label) . '<br>' . ListPage::field(InputKind::Line, $name, $value, ['form' => $form, 'size' => 40, 'list' => $list]) . '</label></p>'
+        $base = 'taxmod-mf-judge-' . $lot;
+        // 0.0.91, Stefan 20.11. 19:02 «beim ersten Mal nicht gespeichert»: each act of a row is a form of its own, so a box the
+        // act needs can be `required` without blocking the others — an empty «Befund» is stopped in the dialog, not refused
+        // at the server with a message far up the page.
+        $form   = fn (string $id, string $inner): string => '<form method="post" id="' . esc_attr($id) . '" action="' . esc_url(admin_url('admin-post.php')) . '">'
+            . wp_nonce_field($this->nonce, '_wpnonce', true, false)
+            . $this->hidden(['order' => (string) $order->id, 'tab' => $this->tab, 'selected[]' => (string) $lot], $id)
+            . $inner . '</form>';
+        $text   = static fn (string $id, string $name, string $label, string $value, string $hint, bool $required, string $list = ''): string => '<p><label>' . esc_html($label) . '<br>'
+            . ListPage::field(InputKind::Line, $name, $value, ['form' => $id, 'size' => 40, 'list' => $list, 'required' => $required]) . '</label></p>'
             . '<p class="description">' . esc_html($hint) . '</p>';
+        $act    = static fn (string $id, string $opener, string $title, string $body, string $value, string $submit): string => ListPage::dialogAction($id . '-dialog', $opener, $title, $body, 'action', $value, $submit, $id);
         $inner  = match ($status) {
-            Positions::TEST => $button(self::PASSED, __('Bestanden', 'taxmod-manufacturing'))
-                . ListPage::dialogAction($form . '-failed', __('Nacharbeit …', 'taxmod-manufacturing'), sprintf(__('Nacharbeit: Posten #%1$d, %2$s', 'taxmod-manufacturing'), $lot, $board),
-                    $text('note', __('Befund', 'taxmod-manufacturing'), $note, __('Das Stück wartet auf Nacharbeit; danach zurück in den Test.', 'taxmod-manufacturing'), $findings), 'action', self::FAILED, __('Eintragen', 'taxmod-manufacturing'), $form),
-            Positions::REWORK => ListPage::dialogAction($form . '-retest', __('Zurück in Test …', 'taxmod-manufacturing'), sprintf(__('Zurück in Test: Posten #%1$d, %2$s', 'taxmod-manufacturing'), $lot, $board),
-                    $text('retest_note', __('Was wurde nachgearbeitet? (optional)', 'taxmod-manufacturing'), '', __('Das Stück kommt ungetestet zurück in den Test.', 'taxmod-manufacturing')), 'action', self::RETEST, __('Zurück in Test', 'taxmod-manufacturing'), $form)
-                . ListPage::dialogAction($form . '-scrap', __('Verschrotten …', 'taxmod-manufacturing'), sprintf(__('Verschrotten: Posten #%1$d, %2$s', 'taxmod-manufacturing'), $lot, $board),
-                    $text('reason', __('Grund', 'taxmod-manufacturing'), '', __('Das Stück geht ganz als «Defekt/Ausschuss» aus dem Lager. Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing')), 'action', self::SCRAP, __('Verschrotten', 'taxmod-manufacturing'), $form),
+            Positions::TEST => $form($base, ListPage::button(__('Bestanden', 'taxmod-manufacturing'), '', false, 'action', self::PASSED, $base))
+                . $form($base . '-failed', $act($base . '-failed', __('Nacharbeit …', 'taxmod-manufacturing'), sprintf(__('Nacharbeit: Posten #%1$d, %2$s', 'taxmod-manufacturing'), $lot, $board),
+                    $text($base . '-failed', 'note', __('Befund', 'taxmod-manufacturing'), $note, __('Das Stück wartet auf Nacharbeit; danach zurück in den Test.', 'taxmod-manufacturing'), true, $findings), self::FAILED, __('Eintragen', 'taxmod-manufacturing'))),
+            Positions::REWORK => $form($base . '-retest', $act($base . '-retest', __('Zurück in Test …', 'taxmod-manufacturing'), sprintf(__('Zurück in Test: Posten #%1$d, %2$s', 'taxmod-manufacturing'), $lot, $board),
+                    $text($base . '-retest', 'retest_note', __('Was wurde nachgearbeitet? (optional)', 'taxmod-manufacturing'), '', __('Das Stück kommt ungetestet zurück in den Test.', 'taxmod-manufacturing'), false), self::RETEST, __('Zurück in Test', 'taxmod-manufacturing')))
+                . $form($base . '-scrap', $act($base . '-scrap', __('Verschrotten …', 'taxmod-manufacturing'), sprintf(__('Verschrotten: Posten #%1$d, %2$s', 'taxmod-manufacturing'), $lot, $board),
+                    $text($base . '-scrap', 'reason', __('Grund', 'taxmod-manufacturing'), '', __('Das Stück geht ganz als «Defekt/Ausschuss» aus dem Lager. Ein Vorgang, zurücknehmen über die Änderungsnummer.', 'taxmod-manufacturing'), true), self::SCRAP, __('Verschrotten', 'taxmod-manufacturing'))),
             default => '',
         };
         $label = $status === Positions::SCRAPPED ? '' : $this->service->lotLabelButton($lot);
@@ -176,10 +190,8 @@ final class TestSection
             return $label;
         }
 
-        // One row of buttons, the label's beside the others; its dialog brings a form of its own, so it stands outside this one.
-        return '<div class="taxmod-mf-judge"><form method="post" id="' . esc_attr($form) . '" action="' . esc_url(admin_url('admin-post.php')) . '">' . wp_nonce_field($this->nonce, '_wpnonce', true, false)
-            . $this->hidden(['order' => (string) $order->id, 'tab' => $this->tab, 'selected[]' => (string) $lot], $form)
-            . $inner . '</form>' . $label . '</div>';
+        // One row of buttons, the label's beside the others; each act and the label's dialog bring a form of their own.
+        return '<div class="taxmod-mf-judge">' . $inner . $label . '</div>';
     }
 
     /**
