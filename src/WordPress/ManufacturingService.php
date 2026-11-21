@@ -168,15 +168,16 @@ final class ManufacturingService
             return [];
         }
 
-        $nodes = $this->model->nodesOf(array_values(array_unique([...array_keys($missing), ...array_keys($content)])));
+        $nodes = array_map('intval', $this->model->nodesOf(array_values(array_unique([...array_keys($missing), ...array_keys($content)]))));
+        $alike = $this->model->sameKeyValuesOf(Staging::candidates($missing, $nodes, $content, $needed));
 
-        return Staging::substitutes($missing, array_map('intval', $nodes), $content, $needed);
+        return Staging::substitutes($missing, $nodes, $content, $needed, $alike);
     }
 
     public const THINGS_IN_STOCK_FILTER = 'taxmod_stock_things_in_stock';
 
     /**
-     * D-1539: stand-ins in the rest of the stock, with the places they lie at — one nodesOf, one stock read per catalog node
+     * D-1539: stand-ins in the rest of the stock, with the places they lie at — one nodesOf, one stock read, one key-value comparison (D-1540)
      * of the missing materials, one placesOf for all stand-ins.
      *
      * @param array<int, float> $missing thing → pieces still missing
@@ -187,7 +188,7 @@ final class ManufacturingService
     {
         $missing = array_filter($missing, static fn (float $q): bool => $q > 1e-9);
 
-        if ($missing === [] || ! has_filter(self::THINGS_IN_STOCK_FILTER)) {
+        if ($missing === [] || ! has_filter(self::THINGS_IN_STOCK_FILTER) || ! $this->model->comparesKeyValues()) {
             return [];
         }
 
@@ -209,7 +210,18 @@ final class ManufacturingService
             }
         }
 
-        $standIns = Staging::standIns($missing, $nodes, $free, $needed);
+        $pool  = [];
+        $owner = $nodes;
+
+        foreach ($free as $node => $things) {
+            foreach ($things as $other => $pieces) {
+                $pool[$other]  = $pieces;
+                $owner[$other] = $node;
+            }
+        }
+
+        $alike    = $this->model->sameKeyValuesOf(Staging::candidates($missing, $owner, $pool, $needed));
+        $standIns = Staging::standIns($missing, $nodes, $free, $needed, $alike);
         $places   = $standIns === [] ? [] : $this->placesOf(array_values(array_unique(array_merge(...array_values($standIns)))), (int) $box);
         $out      = [];
 

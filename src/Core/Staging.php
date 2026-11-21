@@ -162,6 +162,37 @@ final class Staging
     }
 
     /**
+     * D-1540: who could stand in at all — another material of the same catalog node with pieces in the pool that the order does
+     * not need itself. The model then says which of them carry the same key values; only those are offered.
+     *
+     * @param array<int, float> $missing thing → pieces still missing
+     * @param array<int, int>   $nodes   record → its catalog node
+     * @param array<int, float> $pool    thing → pieces there
+     * @param list<int>         $needed  the order's own materials
+     * @return array<int, list<int>> missing thing → candidates
+     */
+    public static function candidates(array $missing, array $nodes, array $pool, array $needed): array
+    {
+        $out = [];
+
+        foreach ($missing as $thing => $pieces) {
+            $node = $nodes[$thing] ?? 0;
+
+            if ($pieces <= 1e-9 || $node === 0) {
+                continue;
+            }
+
+            foreach ($pool as $other => $there) {
+                if ($other !== $thing && $there > 1e-9 && ($nodes[$other] ?? 0) === $node && ! in_array($other, $needed, true)) {
+                    $out[$thing][] = $other;
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * D-1539: what in the box could stand in for a missing material — another material of the same catalog node that the order
      * does not need itself. INFERRED (Prüftor 20.11.): Stefan said «Ersatzprodukte wählen»; «same node» is the reading.
      *
@@ -169,9 +200,10 @@ final class Staging
      * @param array<int, int>   $nodes   record → its catalog node
      * @param array<int, float> $box     thing → pieces in the box
      * @param list<int>         $needed  the materials the order needs itself; they are never offered as another's stand-in
+     * @param array<int, list<int>> $alike missing thing → candidates with the same key values (D-1540)
      * @return array<int, array<int, float>> missing thing → stand-in → pieces in the box, most first
      */
-    public static function substitutes(array $missing, array $nodes, array $box, array $needed): array
+    public static function substitutes(array $missing, array $nodes, array $box, array $needed, array $alike): array
     {
         $out = [];
 
@@ -183,7 +215,7 @@ final class Staging
             }
 
             foreach ($box as $other => $there) {
-                if ($other !== $thing && $there > 1e-9 && ($nodes[$other] ?? 0) === $node && ! in_array($other, $needed, true)) {
+                if ($other !== $thing && $there > 1e-9 && ($nodes[$other] ?? 0) === $node && ! in_array($other, $needed, true) && in_array($other, $alike[$thing] ?? [], true)) {
                     $out[$thing][$other] = $there;
                 }
             }
@@ -205,9 +237,10 @@ final class Staging
      * @param array<int, int>               $nodes   record → its catalog node
      * @param array<int, array<int, float>> $free    node → thing → free pieces outside the box
      * @param list<int>                     $needed  the order's own materials
+     * @param array<int, list<int>>         $alike   missing thing → candidates with the same key values (D-1540)
      * @return array<int, list<int>> missing thing → stand-ins, most first
      */
-    public static function standIns(array $missing, array $nodes, array $free, array $needed, int $limit = 5): array
+    public static function standIns(array $missing, array $nodes, array $free, array $needed, array $alike, int $limit = 5): array
     {
         $out = [];
 
@@ -218,7 +251,7 @@ final class Staging
                 continue;
             }
 
-            $there = array_filter($free[$node] ?? [], static fn (float $q, int $other): bool => $q > 1e-9 && $other !== $thing && ! in_array($other, $needed, true), ARRAY_FILTER_USE_BOTH);
+            $there = array_filter($free[$node] ?? [], static fn (float $q, int $other): bool => $q > 1e-9 && $other !== $thing && ! in_array($other, $needed, true) && in_array($other, $alike[$thing] ?? [], true), ARRAY_FILTER_USE_BOTH);
             arsort($there);
 
             if ($there !== []) {

@@ -70,6 +70,31 @@ final class ModelGateway
         return $records === [] ? [] : $this->ask(fn (): array => $this->door->nodesOf($records));
     }
 
+    /** D-1540: the modeller compares key values from 0.2.197 on; without it no stand-in is offered. */
+    public function comparesKeyValues(): bool
+    {
+        return method_exists($this->door, 'sameKeyValuesOf');
+    }
+
+    /**
+     * D-1540: which candidates carry the same key values of their category as the record — one call for all records (CD-7).
+     *
+     * @param array<int, list<int>> $candidates record → candidates
+     * @return array<int, list<int>> record → the candidates that match
+     */
+    public function sameKeyValuesOf(array $candidates): array
+    {
+        if ($candidates === [] || ! $this->comparesKeyValues()) {
+            return [];
+        }
+
+        $answer = $this->ask(fn (): array => $this->door->sameKeyValuesOf($candidates));
+
+        // mixed: the door answers a plain array; a foreign value is dropped rather than trusted.
+
+        return array_map(static fn (mixed $list): array => is_array($list) ? array_values(array_map('intval', $list)) : [], $answer);
+    }
+
     /**
      * «Review nötig» on records made with only what could be derived (D-1255); a modeller before 0.2.44 has no such mark.
      *
