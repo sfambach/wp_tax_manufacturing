@@ -133,7 +133,7 @@ final class StagingSection
                     esc_html($labels[$source['place']] ?? '#' . $source['place']),
                     '', '', '', '',
                     esc_html($this->count($source['left'])),
-                    $this->withUnit(ListPage::field(InputKind::Number, 'cutqty[' . $key . ']', $this->stored($needs[$line['thing']] ?? 0.0), ['form' => self::FORM, 'min' => '0', 'step' => '1']),
+                    $this->quantity('cutqty[' . $key . ']', $this->stored($needs[$line['thing']] ?? 0.0),
                         ($piece[$line['thing']] ?? 0) > 0 ? __('Pins', 'taxmod-manufacturing') : ($this->units[$line['thing']] ?? '')),
                     $this->status('free', __('ablängen', 'taxmod-manufacturing')),
                     $this->rowAction(self::PICK, 'cut:' . $key, ListPage::ICON_TRANSFER, __('Ablängen und ins Gebinde umbuchen', 'taxmod-manufacturing')),
@@ -282,7 +282,6 @@ final class StagingSection
         $key = $source['kind'] === 'free'
             ? $source['thing'] . ':' . (int) $source['place']
             : 'res:' . $source['line'] . ':' . $source['thing'] . ':' . (int) $source['place'];
-        $max = $source['kind'] === 'free' ? $this->stored($source['there']) : '';
 
         return [
             ListPage::field(InputKind::Tick, 'selected[]', $key, ['form' => self::FORM]),
@@ -290,7 +289,7 @@ final class StagingSection
             $place,
             '', '', '', '',
             esc_html($this->count($source['there'])),
-            $this->withUnit(ListPage::field(InputKind::Decimal, 'qty[' . $key . ']', $this->stored($source['quantity']), ['form' => self::FORM, 'min' => '0', 'max' => $max, 'step' => 'any']),
+            $this->quantity('qty[' . $key . ']', $this->stored($source['quantity']),
                 $piece > 0 ? __('Pins', 'taxmod-manufacturing') : ($this->units[$source['thing']] ?? ''))
                 . ($piece > 0 ? '<input type="hidden" form="' . self::FORM . '" name="piece[' . esc_attr($key) . ']" value="' . esc_attr((string) $piece) . '">' : '')
                 . ($cuts !== [] && $source['kind'] === 'free' ? '<input type="hidden" form="' . self::FORM . '" name="cuts[' . esc_attr($key) . ']" value="' . esc_attr(self::cutsText($cuts)) . '">' : '')
@@ -330,7 +329,7 @@ final class StagingSection
             $where,
             '', '', '', '',
             esc_html($this->count($there)),
-            $this->withUnit(ListPage::field(InputKind::Decimal, 'qty[' . $key . ']', $this->stored(min($missing, $there)), ['form' => self::FORM, 'min' => '0', 'max' => $this->stored($there), 'step' => 'any']), $this->units[$thing] ?? '')
+            $this->quantity('qty[' . $key . ']', $this->stored(min($missing, $there)), $this->units[$thing] ?? '')
                 . ($position > 0 ? '<input type="hidden" form="' . self::FORM . '" name="position[' . esc_attr($key) . ']" value="' . esc_attr((string) $position) . '">' : ''),
             $this->status('info', __('Ersatz möglich', 'taxmod-manufacturing')),
             $this->rowAction(self::RESERVE, $key, 'paperclip', __('Als Ersatz zuweisen', 'taxmod-manufacturing')),
@@ -597,10 +596,15 @@ final class StagingSection
         return \Taxmod\Core\Renderer\DecimalText::stored($n, 2);
     }
 
-    /** A quantity field with its unit behind it; no unit when the stock names none (nothing guessed, Prüftor 21.11.). */
-    private function withUnit(string $field, string $unit): string
+    /**
+     * Live-Check 4 (3), Prüftor 21.11.: the standard quantity box (D-1500, 6em, unit beside it) — the bare decimal field took the
+     * browser's default width and pushed the grid past its page. No unit when the stock names none (nothing guessed).
+     */
+    private function quantity(string $name, string $stored, string $unit): string
     {
-        return $unit === '' ? $field : '<span class="taxmod-mf-nowrap">' . $field . ' ' . esc_html($unit) . '</span>';
+        $shown = \Taxmod\Core\Renderer\DecimalText::shown($stored, \Taxmod\WordPress\Plugin::siteDecimalSeparator());
+
+        return ListPage::quantity($name, $unit, $shown, ['form' => self::FORM]);
     }
 
     private function count(float $n): string
