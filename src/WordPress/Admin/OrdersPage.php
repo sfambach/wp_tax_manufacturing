@@ -1147,8 +1147,12 @@ final class OrdersPage
         }
 
         // D-1311: the boards of the chosen project show in the dialog itself; the server still takes only that project's.
-        foreach (array_intersect_key($this->boards, $projects) as $project => $boards) {
-            $body .= ListPage::shownBy('project', (string) $project, '<fieldset><legend>' . esc_html__('Baupläne', 'taxmod-manufacturing') . '</legend>' . $this->boardBoxes($boards) . '</fieldset>');
+        // Live-Check 21.11.: with many projects every single board came ticked in its hidden part (28 ticks sent); only a
+        // dialog for one project ticks its single board.
+        $shown = array_intersect_key($this->boards, $projects);
+
+        foreach ($shown as $project => $boards) {
+            $body .= ListPage::shownBy('project', (string) $project, '<fieldset><legend>' . esc_html__('Baupläne', 'taxmod-manufacturing') . '</legend>' . $this->boardBoxes($boards, count($shown) === 1) . '</fieldset>');
         }
 
         $body .= $this->hidden(['choosing' => '1']);
@@ -1197,10 +1201,10 @@ final class OrdersPage
         return $form === '' ? $button : preg_replace('/^<button /', '<button form="' . esc_attr($form) . '" ', $button, 1) ?? $button;
     }
 
-    /** @param array<int, string> $boards newest revision id => label; a single board comes ticked */
-    private function boardBoxes(array $boards): string
+    /** @param array<int, string> $boards newest revision id => label; a single board comes ticked when `$tickSingle` */
+    private function boardBoxes(array $boards, bool $tickSingle = true): string
     {
-        $only  = count($boards) === 1;
+        $only  = $tickSingle && count($boards) === 1;
         $boxes = '';
 
         foreach ($boards as $revision => $label) {
