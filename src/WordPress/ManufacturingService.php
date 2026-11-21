@@ -1550,7 +1550,8 @@ final class ManufacturingService
             $counts[] = $fitted[$position['id']] ?? $part->fittedOn($position['id']);
         }
 
-        return $counts === [] ? 0 : min($counts);
+        // Live-Check 21.11. (88226): nothing to fit is fitted on every board (package assumption §4, 7); callers cap at the count.
+        return $counts === [] ? PHP_INT_MAX : min($counts);
     }
 
     /**

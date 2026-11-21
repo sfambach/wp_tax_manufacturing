@@ -89,6 +89,7 @@ final class DemandTest extends TestCase
         $rows = Demand::of([new Assembly(600, 305, [], [], bareBoard: self::BOARD)], [305 => []], 3, [self::BOARD => 3.0])[600];
 
         self::assertSame(3, Demand::boardsFitted($rows));
+        self::assertSame(3, $rows[0]['boards']);
         self::assertSame(0, Demand::boardsFitted(Demand::of([new Assembly(600, 305, [], [])], [305 => []], 3, [])[600]));
     }
 
