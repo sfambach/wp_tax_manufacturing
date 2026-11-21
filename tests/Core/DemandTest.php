@@ -83,7 +83,16 @@ final class DemandTest extends TestCase
         self::assertSame([9001 => 3.0, 9002 => 1.0, 4711 => 1.0], Demand::finished($assembly, 1, self::POSITIONS[305], [703]));
     }
 
-    public function testBoxIsHandedOutOnce(): void
+    /** Live-Check 21.11. (88226, MCEBlaster): a revision whose parts list holds nothing to fit has all its pieces fitted. */
+    public function testABoardWithNothingToFitIsFitted(): void
+    {
+        $rows = Demand::of([new Assembly(600, 305, [], [], bareBoard: self::BOARD)], [305 => []], 3, [self::BOARD => 3.0])[600];
+
+        self::assertSame(3, Demand::boardsFitted($rows));
+        self::assertSame(0, Demand::boardsFitted(Demand::of([new Assembly(600, 305, [], [])], [305 => []], 3, [])[600]));
+    }
+
+        public function testBoxIsHandedOutOnce(): void
     {
         $positions = [1 => [['id' => 10, 'thing' => 50, 'count' => 1.0, 'fitting' => '']], 2 => [['id' => 20, 'thing' => 50, 'count' => 1.0, 'fitting' => '']]];
         $demand    = Demand::of([new Assembly(100, 1, [], [], bareBoard: 1001), new Assembly(200, 2, [], [], bareBoard: 1002)], $positions, 1, [50 => 1.0]);

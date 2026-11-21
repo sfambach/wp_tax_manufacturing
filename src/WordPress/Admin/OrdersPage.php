@@ -902,7 +902,9 @@ final class OrdersPage
         ], $scrap ? [[__('Ausschuss', 'taxmod-manufacturing')]] : []), $grid, '', $closed ? '' : 'taxmod-mf-ticks');
 
         // D-1403: the choices on ticked rows; the save is the master data's one 💾.
-        $bar = $closed ? '' : ListPage::bulkBar($bulk, self::NONCE, [
+        // Live-Check 21.11. (88226): a board with nothing to fit has no row to tick — and no bar that acts on none.
+        $tickable = array_filter($rows, static fn (array $row): bool => $row['position'] > 0) !== [];
+        $bar = $closed || ! $tickable ? '' : ListPage::bulkBar($bulk, self::NONCE, [
             self::BULK_FIT_FULL => __('Voll bestückt (alle Stück)', 'taxmod-manufacturing'),
             self::BULK_FIT_NONE => __('Bestückt auf 0', 'taxmod-manufacturing'),
             self::BULK_UNUSE    => __('Nicht verwenden', 'taxmod-manufacturing'),
