@@ -11,9 +11,8 @@
 /* Stefan 20.11. 20:57: one stripe per material with its places (the band mark), not per row. */
 .taxmod-mf-staging.striped > tbody > tr { background-color: transparent; }
 .taxmod-mf-staging.striped > tbody > tr:has(.taxmod-mf-band) { background-color: #f6f7f7; }
-.taxmod-mf-staging td:nth-child(2) { min-width: 16em; }
 .taxmod-mf-staging td:first-child { width: 2em; }
-.taxmod-mf-source { display: inline-block; padding-left: 1.5em; white-space: nowrap; }
+.taxmod-mf-source { display: inline-block; padding-left: 1.5em; }
 .taxmod-mf-source::before { content: "↳ "; color: #646970; }
 .taxmod-mf-status { font-weight: 600; }
 .taxmod-mf-status-ok { color: #008a20; }

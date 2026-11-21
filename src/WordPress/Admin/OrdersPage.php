@@ -1375,6 +1375,7 @@ final class OrdersPage
             'stock_refused'            => sprintf(__('Das Lager hat die Buchung abgelehnt, nichts gespeichert: %s', 'taxmod-manufacturing'), $error->detail),
             'assemblies_not_done'      => __('Erst wenn alle Stücke fertig sind, lässt sich der Auftrag abschließen.', 'taxmod-manufacturing'),
             'position_not_on_revision' => __('Nur optionale Positionen der Stückliste lassen sich weglassen.', 'taxmod-manufacturing'),
+            'no_production_inbound'    => __('Im Lager ist kein Platz für «Wareneingang Produktion» eingestellt. Bitte unter Lager › Grundeinstellungen wählen; danach geht «Bestanden».', 'taxmod-manufacturing'),
             'boards_fixed'             => __('Baupläne ändern geht nur, solange der Auftrag in Planung ist.', 'taxmod-manufacturing'),
             'boards_reserved'          => __('Der Auftrag hat Reservierungen. Erst freigeben, dann einen Bauplan entfernen.', 'taxmod-manufacturing'),
             'head_fixed'               => __('Ein abgeschlossener Auftrag behält seine Stückzahl.', 'taxmod-manufacturing'),

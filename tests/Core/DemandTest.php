@@ -163,4 +163,11 @@ final class DemandTest extends TestCase
         self::assertSame([305 => 2.0], Demand::shortfall([305 => 6.0, 300 => 1.0], [305 => 4.0, 300 => 1.0]));
         self::assertSame([], Demand::shortfall([305 => 4.0], [305 => 4.0]));
     }
+
+    /** D-1566: J1 asks for a 12-pin strip and its part is a 12-pin strip — pieces; a long strip stays in pins (D-1398). */
+    public function testACutStripCountsInPieces(): void
+    {
+        self::assertSame([2 => 12], Demand::withoutCutStrips([1 => 12, 2 => 12], [1 => 87436, 2 => 64765], [87436 => 12, 64765 => 40]));
+        self::assertSame([1 => 12], Demand::withoutCutStrips([1 => 12], [1 => 5], []));
+    }
 }

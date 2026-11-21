@@ -1243,7 +1243,7 @@ final class ManufacturingService
         $inbound = has_filter('taxmod_stock_production_inbound') ? (int) apply_filters('taxmod_stock_production_inbound', null) : 0;
 
         if ($inbound <= 0) {
-            throw ManufacturingError::notConfigured('production_inbound');
+            throw ManufacturingError::noProductionInbound();
         }
 
         return $this->moveLots($order, $this->ownLots($order, $lots), $inbound, 'passed', '', $today);
@@ -1724,7 +1724,15 @@ final class ManufacturingService
             default                                                                                                     => '',
         };
         $out    = [];
-        $poles  = $this->piecePins(array_merge(...array_map(fn (int $r): array => $this->positionsOf($r), $revisions) ?: [[]]));
+        $all    = array_merge(...array_map(fn (int $r): array => $this->positionsOf($r), $revisions) ?: [[]]);
+        $partOf = [];
+
+        foreach ($all as $position) {
+            $partOf[$position] = (int) $positions->first($position, $s->field('position_part'));
+        }
+
+        // D-1566: a part that already has the position's pins is a cut strip; it counts in pieces.
+        $poles  = Demand::withoutCutStrips($this->piecePins($all), $partOf, $this->partPins(array_values(array_unique(array_filter($partOf)))));
 
         foreach ($revisions as $revision) {
             foreach ($this->positionsOf($revision) as $position) {
@@ -1744,6 +1752,45 @@ final class ManufacturingService
         $loss = $this->cutLoss(array_values(array_unique(array_merge(...array_map(static fn (array $l): array => array_column($l, 'thing'), array_values($out)) ?: [[]]))));
 
         return $loss === [] ? $out : array_map(static fn (array $list): array => Demand::withCutLoss($list, $loss), $out);
+    }
+
+    /**
+     * D-1566: the pins of each part itself — its «Polzahl», a unit value, read with the parts and their amounts in two reads (CD-7).
+     *
+     * @param list<int> $parts
+     * @return array<int, int> part → pins, only where set
+     */
+    private function partPins(array $parts): array
+    {
+        $s = $this->structure();
+
+        if ($parts === [] || ! $s->hasField('part_poles') || ! $s->hasField('unit_amount')) {
+            return [];
+        }
+
+        $table  = $this->model->records($parts);
+        $values = [];
+
+        foreach ($parts as $part) {
+            $value = (int) $table->first($part, $s->field('part_poles'));
+
+            if ($value > 0) {
+                $values[$part] = $value;
+            }
+        }
+
+        $amounts = $values === [] ? null : $this->model->records(array_values(array_unique($values)));
+        $out     = [];
+
+        foreach ($values as $part => $value) {
+            $pins = (int) round((float) str_replace(',', '.', (string) $amounts?->first($value, $s->field('unit_amount'))));
+
+            if ($pins > 0) {
+                $out[$part] = $pins;
+            }
+        }
+
+        return $out;
     }
 
     /**

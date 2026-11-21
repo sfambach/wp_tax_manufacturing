@@ -40,6 +40,12 @@ final class ManufacturingError extends \RuntimeException
         return new self('head_fixed', (string) $order);
     }
 
+    /** Stefan 21.11. 15:08 «was soll die Fehlermeldung heißen»: the stock names no place «Wareneingang Produktion». */
+    public static function noProductionInbound(): self
+    {
+        return new self('no_production_inbound', '');
+    }
+
     /** Stefan 21.11. 10:34: the plans of an order change only while it is planned. */
     public static function boardsFixed(int $order): self
     {

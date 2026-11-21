@@ -52,6 +52,8 @@ final class Structure
         'order_due', 'revision_checks', 'check_instruction', 'check_firmware',
         // D-1393/D-1398: the pins of one piece at a BOM line (a unit value) and the amount field of a unit value.
         'position_poles', 'unit_amount',
+        // D-1566: the pins of the part itself — a strip already cut to the position's length counts in pieces.
+        'part_poles',
         // D-1428: the art of an order and of its result material — «Bestücken» or «Kit».
         'order_art', 'assembled_art',
         // D-1475: the order's stopwatch — the minutes summed and since when it runs.
