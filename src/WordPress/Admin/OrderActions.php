@@ -80,6 +80,8 @@ final class OrderActions
                 }
 
                 $back['msg'] = $action === OrdersPage::BULK_CANCEL ? 'cancelled' : 'reopened';
+            } elseif (in_array($action, OrdersPage::STEPPING, true)) {
+                $back['msg'] = $this->stepBulk($action, array_values(array_filter(array_map('absint', (array) ($_POST['selected'] ?? [])))), $today);
             } elseif ($action === OrdersPage::BULK_PICK || $action === OrdersPage::BULK_RESERVE) {
                 $back['msg'] = $this->pick(absint($_POST['order'] ?? 0), $today, $back, $action === OrdersPage::BULK_RESERVE);
             } elseif (in_array($action, OrdersPage::FITTING, true)) {
@@ -665,16 +667,51 @@ final class OrderActions
     /** @param array<string, string|int> $back */
     private function stepBack(int $order, array &$back): string
     {
-        $built = $this->service->order($order);
-        $this->service->stepBack($order);
-
         // His report 16.11.: back at «Angelegt» nothing stays reserved for the order; the box keeps what was moved (D-1384).
-        if ($built->step === 'order_staging' && $this->service->canRelease()) {
-            $this->service->release($order, null);
-        }
+        $this->backOne($this->service->order($order));
         $back['auftrag'] = $order;
 
         return 'stepped_back';
+    }
+
+    /**
+     * Stefan 21.11. 10:30: the selected orders one step on or back. Only the orders standing where the step starts move; into
+     * «Bau» only those with nothing missing — the others need their reason, one by one (D-1301).
+     *
+     * @param list<int> $selected
+     */
+    private function stepBulk(string $action, array $selected, string $today): string
+    {
+        $all    = $this->service->orders();
+        $from   = $action === OrdersPage::BULK_BACK ? ['order_staging'] : ($action === OrdersPage::BULK_STAGING ? ['order_planned'] : ['order_planned', 'order_staging']);
+        $chosen = array_values(array_filter($all, static fn (BuildOrder $o): bool => in_array($o->id, $selected, true) && in_array($o->step, $from, true)));
+        $short  = [];
+
+        if ($action === OrdersPage::BULK_BUILDING) {
+            $missing = $this->page->missingOf($chosen, $all);
+            $short   = array_filter($chosen, static fn (BuildOrder $o): bool => ($missing[$o->id] ?? 0) > 0);
+            $chosen  = array_values(array_filter($chosen, static fn (BuildOrder $o): bool => ($missing[$o->id] ?? 0) === 0));
+        }
+
+        foreach ($chosen as $order) {
+            match ($action) {
+                OrdersPage::BULK_BACK    => $this->backOne($order),
+                OrdersPage::BULK_STAGING => $this->service->setStep($order->id, 'order_staging', $today),
+                default                  => $this->service->setStep($order->id, 'order_building', $today),
+            };
+        }
+
+        return $short === [] ? 'stepped' : 'stepped_short';
+    }
+
+    /** Back to «Planung»: the order's reservations are given free; the box keeps what was moved (D-1384). */
+    private function backOne(BuildOrder $order): void
+    {
+        $this->service->stepBack($order->id);
+
+        if ($order->step === 'order_staging' && $this->service->canRelease()) {
+            $this->service->release($order->id, null);
+        }
     }
 
     /** @param array<string, string|int> $back */

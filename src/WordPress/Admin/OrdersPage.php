@@ -69,6 +69,15 @@ final class OrdersPage
 
     public const BULK_REOPEN = 'taxmod_manufacturing_reopen';
 
+    /** Stefan 21.11. 10:30 «zurück in Planung und vor in Bau, dass das klar ist»: the steps as bulk choices. */
+    public const BULK_STAGING = 'taxmod_manufacturing_to_staging';
+
+    public const BULK_BUILDING = 'taxmod_manufacturing_to_building';
+
+    public const BULK_BACK = 'taxmod_manufacturing_back';
+
+    public const STEPPING = [self::BULK_STAGING, self::BULK_BUILDING, self::BULK_BACK];
+
     /** @var list<string> the admin-post actions this page answers */
     /** D-1403: the pick list's choices of its one bulk selection. */
     public const BULK_PICK = StagingSection::PICK;
@@ -86,7 +95,7 @@ final class OrdersPage
 
     public const FITTING = [self::BULK_FIT_FULL, self::BULK_FIT_NONE, self::BULK_UNUSE, self::BULK_USE];
 
-    public const ACTIONS = [self::ACTION, self::BULK_CANCEL, self::BULK_REOPEN, StagingSection::PICK, StagingSection::RESERVE, StagingSection::CHANGE, StagingSection::RELEASE, ...self::FITTING, ...TestSection::ACTIONS];
+    public const ACTIONS = [self::ACTION, self::BULK_CANCEL, self::BULK_REOPEN, ...self::STEPPING, StagingSection::PICK, StagingSection::RESERVE, StagingSection::CHANGE, StagingSection::RELEASE, ...self::FITTING, ...TestSection::ACTIONS];
 
     public const NONCE = 'taxmod_manufacturing';
 
@@ -177,7 +186,7 @@ final class OrdersPage
         // D-1526 (his word 20.11. 18:21 «eine Toolbar»): the bar, then the one row — bulk actions, «Neuer Auftrag», the count.
         $html .= $this->chooseBoards()
             . ListPage::steps($steps, $tab, fn (string $slug): string => $this->url(['tab' => $slug]), $beside, ['all', __('Alle', 'taxmod-manufacturing'), count($orders)])
-            . ListPage::bulkBar(self::FORM, self::NONCE, [self::BULK_CANCEL => __('Abbrechen', 'taxmod-manufacturing'), self::BULK_REOPEN => __('Wieder aufnehmen', 'taxmod-manufacturing')],
+            . ListPage::bulkBar(self::FORM, self::NONCE, $this->bulkChoices($tab),
                 sprintf(_n('%d Auftrag', '%d Aufträge', count($shown), 'taxmod-manufacturing'), count($shown)), '<div class="alignleft actions taxmod-list-buttons">' . $this->createAction() . '</div>');
 
         if ($tab === 'boxes') {
@@ -519,7 +528,8 @@ final class OrdersPage
                 ? $text($order->box === null ? '—' : ($this->service->labelsOf([$order->box])[$order->box] ?? '#' . $order->box))
                 : SelectMarkup::of('box', $boxes, (string) (int) $order->box, false, '', ['id' => $id . '-box']),
                 'hint' => __('Was im Gebinde und darunter liegt, zählt als vorhanden. Projekt-Gebinde legst du im Lager an.', 'taxmod-manufacturing')],
-            ['label' => __('Fehlende Pos.', 'taxmod-manufacturing'), 'control' => $text($order->box === null ? '—' : (string) $missing)],
+            // Stefan 21.11. 10:34: what is missing matters from «Bereitstellung» on, not while planning.
+            ...($planned ? [] : [['label' => __('Fehlende Pos.', 'taxmod-manufacturing'), 'control' => $text($order->box === null ? '—' : (string) $missing)]]),
         ];
 
         if ($this->service->structure()->hasField('order_due')) {
@@ -661,6 +671,39 @@ final class OrdersPage
         return [$lists, $labels];
     }
 
+    /**
+     * The missing positions of these orders, as the list counts them: the orders sharing a box take their shares in turn —
+     * one read of the lists, the reservations and the boxes for all (CD-7).
+     *
+     * @param list<BuildOrder> $orders the orders asked about
+     * @param list<BuildOrder> $all    every order, for the box shares
+     * @return array<int, int> order → missing positions; 0 for an order without a box
+     */
+    public function missingOf(array $orders, array $all): array
+    {
+        $boxes            = array_flip(array_filter(array_map(static fn (BuildOrder $o): int => (int) $o->box, $orders)));
+        $related          = array_values(array_filter($all, static fn (BuildOrder $o): bool => in_array($o, $orders, true) || (! $o->isClosed() && isset($boxes[(int) $o->box]))));
+        [$lists]          = $this->context($related);
+        $ids              = array_map(static fn (BuildOrder $o): int => $o->id, $related);
+        $reserved         = $this->service->reservedFor($ids, array_combine($ids, array_map(static fn (BuildOrder $o): ?int => $o->box, $related)));
+        $present          = $this->service->presentInEach(array_values(array_keys($boxes)));
+        $assigned         = $this->service->assignments($ids);
+        $own              = [];
+
+        foreach ($related as $order) {
+            $own[$order->id] = $this->service->assignedLists($order, $lists, $assigned[$order->id] ?? []);
+        }
+
+        $shares = Demand::boxShares($related, $own, $reserved, $present);
+        $out    = [];
+
+        foreach ($orders as $order) {
+            $out[$order->id] = $order->box === null ? 0 : Demand::missingRows(Demand::of($order->assemblies, $own[$order->id], $order->count, $this->service->available($order, $reserved[$order->id] ?? [], $shares[$order->id] ?? [])));
+        }
+
+        return $out;
+    }
+
     /** admin-post: the page's acts live in {@see OrderActions} (architecture 16.11.: the page draws, the handler acts). */
     public function handle(string $action): void
     {
@@ -687,20 +730,8 @@ final class OrdersPage
             esc_html($order->started ?? '—'),
         ];
 
-        $details = '';
-
-        foreach ($order->assemblies as $assembly) {
-            $rows     = $demand[$assembly->id] ?? [];
-            $details .= '<li>' . esc_html($labels[$assembly->revision] ?? '#' . $assembly->revision) . ': '
-                . esc_html(sprintf(__('%1$d von %2$d bestückt, %3$d fertig', 'taxmod-manufacturing'), Demand::boardsFitted($rows), $order->count, $assembly->done))
-                . ($order->box !== null && Demand::missingRows([$rows]) > 0 ? ' · <strong class="taxmod-mf-status taxmod-mf-status-warn">' . esc_html(sprintf(__('%d Positionen fehlen', 'taxmod-manufacturing'), Demand::missingRows([$rows]))) . '</strong>' : '') . '</li>';
-        }
-
-        $details = '<ul class="taxmod-mf-details">' . $details . '</ul><p>' . (method_exists(ListPage::class, 'openButton')
-            ? ListPage::openButton($this->url(['auftrag' => $order->id, 'tab' => $this->tab()]), __('Öffnen', 'taxmod-manufacturing'))
-            : ListPage::iconButton('visibility', __('Öffnen', 'taxmod-manufacturing'), $this->url(['auftrag' => $order->id, 'tab' => $this->tab()]))) . '</p>';
-
-        return ListPage::row(self::FORM, (string) $order->id, $cells, $this->rowButtons($order, $order->box === null ? 0 : Demand::missingRows($demand)), $details);
+        // Stefan 21.11. 10:32 «aufklappen weg»: the missing positions stand in their column, the name opens the order.
+        return ListPage::row(self::FORM, (string) $order->id, $cells, $this->rowButtons($order, $order->box === null ? 0 : Demand::missingRows($demand)), '');
     }
 
     /**
@@ -724,21 +755,50 @@ final class OrdersPage
         return $names;
     }
 
+    /**
+     * The bulk choices of a tab: the steps that tab's orders can take (Stefan 21.11. 10:30), «Wieder aufnehmen» only where the
+     * orders have ended.
+     *
+     * @return array<string, string> action → label
+     */
+    private function bulkChoices(string $tab): array
+    {
+        $name   = self::viewLabels();
+        $cancel = [self::BULK_CANCEL => __('Abbrechen', 'taxmod-manufacturing')];
+
+        return match ($tab) {
+            'order_planned' => [...($this->service->structure()->hasValue('order_staging') ? [self::BULK_STAGING => $name['order_staging'] . ' →'] : []), self::BULK_BUILDING => $name['order_building'] . ' →', ...$cancel],
+            'order_staging' => [self::BULK_BACK => '← ' . $name['order_planned'], self::BULK_BUILDING => $name['order_building'] . ' →', ...$cancel],
+            'done', 'order_done', 'cancelled', 'order_failed' => [self::BULK_REOPEN => __('Wieder aufnehmen', 'taxmod-manufacturing')],
+            default => [...$cancel, self::BULK_REOPEN => __('Wieder aufnehmen', 'taxmod-manufacturing')],
+        };
+    }
+
     private function rowButtons(BuildOrder $order, int $missing = 0): string
     {
         $buttons = '';
 
+        $name = self::viewLabels();
+
+        // Stefan 21.11. 10:28: the step back first, «In Bau geben» before «Abbrechen», as arrows; from «Planung» there is no
+        // way back (10:31: «man kann nicht zurück ins Projektgebinde»).
+        if ($order->step === 'order_staging') {
+            $buttons .= $this->dialogForm('back', $order, '← ' . $name['order_planned'], sprintf(__('Zurück nach «%s»', 'taxmod-manufacturing'), $name['order_planned']),
+                esc_html__('Die Reservierungen dieses Auftrags werden freigegeben (Storno im Lager). Was schon im Gebinde liegt, bleibt dort.', 'taxmod-manufacturing'));
+        }
+
         if ($order->step === 'order_planned' && $this->service->structure()->hasValue('order_staging')) {
-            $buttons .= $this->dialogForm('staging', $order, __('In Bereitstellung geben', 'taxmod-manufacturing'), __('In Bereitstellung geben', 'taxmod-manufacturing'),
+            $buttons .= $this->dialogForm('staging', $order, $name['order_staging'] . ' →', __('In Bereitstellung geben', 'taxmod-manufacturing'),
                 esc_html__('Die Teile werden jetzt ins Gebinde umgelagert oder reserviert.', 'taxmod-manufacturing'));
         }
 
+        // Stefan 21.11. 10:28: one «In Bau geben»; when something is missing it warns, and the user decides (D-1301: with a reason).
         if (in_array($order->step, ['order_planned', 'order_staging'], true)) {
             $buttons .= $missing === 0 || $order->box === null
-                ? $this->dialogForm('building', $order, __('In Bau geben', 'taxmod-manufacturing'), __('In Bau geben', 'taxmod-manufacturing'),
+                ? $this->dialogForm('building', $order, $name['order_building'] . ' →', __('In Bau geben', 'taxmod-manufacturing'),
                     esc_html__('Alle Teile sind bereit.', 'taxmod-manufacturing'))
-                : $this->dialogForm('building', $order, __('Trotzdem in Bau geben …', 'taxmod-manufacturing'), __('Trotz Fehlteilen in Bau geben', 'taxmod-manufacturing'),
-                    esc_html(sprintf(_n('Es fehlt noch %d Position. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', 'Es fehlen noch %d Positionen. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', $missing, 'taxmod-manufacturing'), $missing))
+                : $this->dialogForm('building', $order, $name['order_building'] . ' →', __('Trotz Fehlteilen in Bau geben', 'taxmod-manufacturing'),
+                    esc_html(sprintf(_n('Achtung: Es fehlt noch %d Position. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', 'Achtung: Es fehlen noch %d Positionen. Der Auftrag bleibt mit «Fehlteile» markiert, bis alles da ist.', $missing, 'taxmod-manufacturing'), $missing))
                     . '</p><p><label>' . esc_html__('Grund', 'taxmod-manufacturing') . '<br>' . ListPage::field(InputKind::Line, 'reason', '', ['required' => true, 'size' => 40]) . '</label>');
         }
 
@@ -1187,6 +1247,8 @@ final class OrdersPage
             'options'   => __('Aufbau-Optionen gespeichert.', 'taxmod-manufacturing'),
             'readded'   => __('Position wieder hinzugefügt.', 'taxmod-manufacturing'),
             'stepped_back' => __('Einen Schritt zurück.', 'taxmod-manufacturing'),
+            'stepped'      => __('Die gewählten Aufträge sind weitergestellt.', 'taxmod-manufacturing'),
+            'stepped_short' => __('Aufträge mit Fehlteilen sind nicht in Bau gegangen: jeden einzeln mit Grund in Bau geben.', 'taxmod-manufacturing'),
             'reordered' => __('Fehlendes als Bedarf im Einkauf angelegt.', 'taxmod-manufacturing'),
             'nothing_missing' => __('Es fehlt nichts, was nirgends am Lager liegt.', 'taxmod-manufacturing'),
             'picked'    => __('Abgehakte Teile ins Gebinde umgebucht.', 'taxmod-manufacturing'),
