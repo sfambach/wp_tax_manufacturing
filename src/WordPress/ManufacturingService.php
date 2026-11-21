@@ -1243,7 +1243,7 @@ final class ManufacturingService
         $inbound = has_filter('taxmod_stock_production_inbound') ? (int) apply_filters('taxmod_stock_production_inbound', null) : 0;
 
         if ($inbound <= 0) {
-            throw ManufacturingError::notConfigured('production_inbound');
+            throw ManufacturingError::noProductionInbound();
         }
 
         return $this->moveLots($order, $this->ownLots($order, $lots), $inbound, 'passed', '', $today);
