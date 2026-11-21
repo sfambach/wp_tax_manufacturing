@@ -25,7 +25,10 @@ final class Assembly
     ) {
     }
 
-    /** D-1572 with the fallback of D-1388: the material taken as the bare board — its own record, else the revision itself. */
+    /**
+     * D-1572: the material taken as the bare board — its own record. ⚠️ *The fallback to the revision itself (D-1388) is a
+     * transition only (Prüftor 21.11.): it is removed in step 3, once every revision with stock has its bare board live.*
+     */
     public function boardThing(): int
     {
         return $this->bareBoard > 0 ? $this->bareBoard : $this->revision;
