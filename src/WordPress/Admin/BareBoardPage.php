@@ -52,7 +52,9 @@ final class BareBoardPage
         add_submenu_page('taxmod', __('Platinenmaterial erzeugen', 'taxmod-manufacturing'), '', 'manage_options', self::PAGE, static function (): void {
             print self::render(absint(wp_unslash((string) ($_GET['revision'] ?? '0')))); // phpcs:ignore WordPress.Security -- read-only page, escaped in render()
         });
-        remove_submenu_page('taxmod', self::PAGE);
+        // Removed only when the menu is drawn: WordPress checks access to a page against the submenu, so removing the entry
+        // here locked the page («nicht berechtigt», Prüftor live check 21.11.).
+        add_action('admin_head', static fn () => remove_submenu_page('taxmod', self::PAGE));
     }
 
     private static function render(int $revision): string
