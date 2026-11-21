@@ -79,8 +79,8 @@ final class ManufacturingService
     {
         $s = $this->structure();
 
-        return $this->workedIsDuration ??= $s->hasField('order_worked') && $s->hasField('unit_amount') && $s->hasField('unit_unit') && $s->hasValue('unit_second')
-            && $this->model->amountFields([$s->field('order_worked')]) !== [];
+        return $this->workedIsDuration ??= $s->hasField('order_worked') && $this->model->amountFields([$s->field('order_worked')]) !== []
+            && method_exists(\Taxmod\WordPress\ModelDoor::class, 'inAct');
     }
 
     /**
@@ -1300,9 +1300,21 @@ final class ManufacturingService
     {
         $built = $this->derived([$this->order($order)])[0];
         $watch = new Stopwatch($this->structure(), $this->workedIsDuration());
-        $done  = $this->model->write($start ? $watch->start($built, self::now()) : $watch->stop($built, self::now()));
+        $now   = self::now();
 
-        return isset($done['act']) ? (int) $done['act'] : null;
+        if ($start || ! $this->workedIsDuration()) {
+            $done = $this->model->write($start ? $watch->start($built, $now) : $watch->stop($built, $now));
+
+            return isset($done['act']) ? (int) $done['act'] : null;
+        }
+
+        // Feldkatalog 21.11.: the duration in seconds through the modeller, in one act with the stop, so one undo takes both back.
+        $act = \Taxmod\WordPress\ModelDoor::inAct(function () use ($watch, $built, $now): void {
+            $this->model->write($watch->stop($built, $now));
+            $this->model->putAmount($built->id, $this->structure()->field('order_worked'), Stopwatch::minutes($built, $now) * 60);
+        })['act'] ?? null;
+
+        return $act === null ? null : (int) $act;
     }
 
     /** D-1464: the plan does not work — the «Fertig» order becomes «Fehlgeschlagen», with the finding. */
