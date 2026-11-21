@@ -4,6 +4,7 @@ namespace TaxmodManufacturing\WordPress\Admin;
 
 use Taxmod\Core\Renderer\DecimalText;
 use Taxmod\WordPress\Admin\ListPage;
+use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\Demand;
 use TaxmodManufacturing\Core\ManufacturingError;
@@ -593,11 +594,19 @@ final class OrderActions
         $back['auftrag'] = $order;
 
         $revision = absint($_POST['revision'] ?? 0);
+        // Stefan 21.11. 10:34: while planned the head sends the plans; an empty chooser sends nothing worth keeping.
+        $plans    = isset($_POST['revisions']) ? array_values(array_filter(array_map('absint', (array) $_POST['revisions']))) : null;
+        $have     = array_map(static fn (Assembly $a): int => $a->revision, $built->assemblies);
         // A new revision has other positions: its options are chosen after it is saved, not with the old ones.
-        $sameRevision = $revision === 0 || count($built->assemblies) !== 1 || $built->assemblies[0]->revision === $revision;
+        $sameRevision = ($revision === 0 || count($built->assemblies) !== 1 || $built->assemblies[0]->revision === $revision)
+            && ($plans === null || (array_diff($have, $plans) === [] && array_diff($plans, $have) === []));
 
         // Review F11, D-1410: one 💾 is one change, with one number to take it back.
-        $answer = \Taxmod\WordPress\ModelDoor::inAct(function () use ($order, $built, $revision, $sameRevision, $today): void {
+        $answer = \Taxmod\WordPress\ModelDoor::inAct(function () use ($order, $built, $revision, $sameRevision, $today, $plans): void {
+            if ($plans !== null && $built->step === 'order_planned') {
+                $this->service->setBoards($order, $plans);
+            }
+
             $this->saveHead($order, $built, $revision, $sameRevision, $today);
         });
 

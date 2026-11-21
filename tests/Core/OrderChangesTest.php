@@ -3,6 +3,8 @@
 namespace TaxmodManufacturing\Tests\Core;
 
 use PHPUnit\Framework\TestCase;
+use TaxmodManufacturing\Core\Assembly;
+use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\BuildOrders;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\OrderChanges;
@@ -53,6 +55,45 @@ final class OrderChangesTest extends TestCase
         self::assertSame('3', $values['21']);
         self::assertSame('40', $values['22']);
         self::assertSame([['30' => '305', '31' => '50'], ['30' => '310', '31' => '50']], array_values($values['23']));
+    }
+
+    /** Stefan 21.11. 10:34: plans are added, dropped, and another revision of a built board keeps its assembly. */
+    public function testPlansAreAddedDroppedAndSwapped(): void
+    {
+        $order   = new BuildOrder(9, 'A', 100, 1, 'order_planned', null, null, null, [new Assembly(61, 305, [], []), new Assembly(62, 310, [], [])]);
+        $changes = (new OrderChanges($this->s()))->setBoards($order, [306, 320], [305 => 200, 306 => 200, 310 => 201, 320 => 202]);
+
+        self::assertSame([
+            ['op' => 'set_values', 'record' => '61', 'values' => ['30' => '306']],
+            ['op' => 'remove_record', 'record' => '62'],
+            ['op' => 'set_values', 'record' => '9', 'values' => ['23' => ['n1' => ['30' => '320', '31' => '50']]]],
+        ], $changes);
+        self::assertSame([], (new OrderChanges($this->s()))->setBoards($order, [305, 310], []));
+    }
+
+    public function testThePlansStayOnceTheOrderLeftPlanningOrWhenNoneIsLeft(): void
+    {
+        $changes = new OrderChanges($this->s());
+        $staged  = new BuildOrder(9, 'A', 100, 1, 'order_staging', null, null, null, [new Assembly(61, 305, [], [])]);
+        $planned = new BuildOrder(9, 'A', 100, 1, 'order_planned', null, null, null, [new Assembly(61, 305, [], [])]);
+
+        foreach ([[$staged, [306]], [$planned, []]] as [$order, $revisions]) {
+            try {
+                $changes->setBoards($order, $revisions, []);
+                self::fail('refused');
+            } catch (ManufacturingError $e) {
+                self::assertContains($e->reason, ['boards_fixed', 'no_board_chosen']);
+            }
+        }
+    }
+
+    /** The preview keeps the assemblies of the plans it keeps and adds empty ones for new plans. */
+    public function testThePreviewShowsTheChosenPlans(): void
+    {
+        $order   = new BuildOrder(9, 'A', 100, 1, 'order_planned', null, null, null, [new Assembly(61, 305, [], [4]), new Assembly(62, 310, [], [])]);
+        $preview = $order->withRevisions([310, 320]);
+
+        self::assertSame([[62, 310], [-1, 320]], array_map(static fn (Assembly $a): array => [$a->id, $a->revision], $preview->assemblies));
     }
 
     public function testProjectWithoutBoardsIsRefused(): void

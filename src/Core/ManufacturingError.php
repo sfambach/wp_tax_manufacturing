@@ -40,6 +40,18 @@ final class ManufacturingError extends \RuntimeException
         return new self('head_fixed', (string) $order);
     }
 
+    /** Stefan 21.11. 10:34: the plans of an order change only while it is planned. */
+    public static function boardsFixed(int $order): self
+    {
+        return new self('boards_fixed', (string) $order);
+    }
+
+    /** Prüftor 21.11.: a plan does not leave an order holding reservations; they are given free first, never silently. */
+    public static function boardsReserved(int $order): self
+    {
+        return new self('boards_reserved', (string) $order);
+    }
+
     /** D-1373: a step back only until the first booking; after it, back is «Storno». */
     public static function noStepBack(int $order): self
     {

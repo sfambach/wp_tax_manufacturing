@@ -332,6 +332,63 @@ final class OrderChanges
     }
 
     /**
+     * Stefan 21.11. 10:34 «Baupläne hinzufügen, entfernen»: the order builds exactly these plans. A plan it gains is a new
+     * assembly, one it drops is removed; another revision of a board it already builds keeps that assembly and changes its
+     * revision (D-1373). Only while planned, and never down to no plan.
+     *
+     * @param list<int>       $revisions the plans chosen
+     * @param array<int, int> $boardOf   revision → its board
+     * @return list<array<string, mixed>>
+     */
+    public function setBoards(BuildOrder $order, array $revisions, array $boardOf): array
+    {
+        if ($order->step !== 'order_planned') {
+            throw ManufacturingError::boardsFixed($order->id);
+        }
+
+        $revisions = array_values(array_unique(array_filter($revisions, static fn (int $r): bool => $r > 0)));
+
+        if ($revisions === []) {
+            throw ManufacturingError::noBoardChosen($order->project);
+        }
+
+        $s       = $this->s;
+        $changes = [];
+        $new     = array_values(array_diff($revisions, array_map(static fn (Assembly $a): int => $a->revision, $order->assemblies)));
+        $parts   = [];
+
+        foreach ($order->assemblies as $assembly) {
+            if (in_array($assembly->revision, $revisions, true)) {
+                continue;
+            }
+
+            $board = $boardOf[$assembly->revision] ?? 0;
+            $swap  = array_values(array_filter($new, static fn (int $r): bool => $board > 0 && ($boardOf[$r] ?? 0) === $board));
+
+            if ($swap !== []) {
+                $new       = array_values(array_diff($new, [$swap[0]]));
+                $changes[] = ['op' => 'set_values', 'record' => (string) $assembly->id, 'values' => [(string) $s->field('assembly_revision') => (string) $swap[0]]];
+            } else {
+                $changes[] = ['op' => 'remove_record', 'record' => (string) $assembly->id];
+            }
+        }
+
+        foreach ($new as $i => $revision) {
+            $parts['n' . ($i + 1)] = [(string) $s->field('assembly_revision') => (string) $revision];
+
+            if (! $s->hasValue('order_failed') && $s->hasField('assembly_status')) {
+                $parts['n' . ($i + 1)][(string) $s->field('assembly_status')] = (string) $s->value('build_open');
+            }
+        }
+
+        if ($parts !== []) {
+            $changes[] = ['op' => 'set_values', 'record' => (string) $order->id, 'values' => [(string) $s->field('order_assemblies') => $parts]];
+        }
+
+        return $changes;
+    }
+
+    /**
      * D-1373: one step back — «Bereitstellung» to «Angelegt», «In Fertigung» to the step before while nothing is fitted yet.
      *
      * @return list<array<string, mixed>>
