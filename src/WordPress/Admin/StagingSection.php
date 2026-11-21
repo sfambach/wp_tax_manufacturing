@@ -34,6 +34,9 @@ final class StagingSection
     public const CHANGE  = 'taxmod_manufacturing_change';
     public const RELEASE = 'taxmod_manufacturing_release';
 
+    /** @var array<int, string> material → its unit word, as the stock names it */
+    private array $units = [];
+
     public function __construct(
         private readonly ManufacturingService $service,
         private readonly string $nonce,
@@ -109,6 +112,8 @@ final class StagingSection
         $missingIds = array_values(array_diff(array_unique(array_filter([...$ids, ...array_column($cutList, 'thing'), ...array_column($cutList, 'place')])), array_keys($labels)));
         $labels    += $missingIds === [] ? [] : $this->service->labelsOf($missingIds);
         [$refs, $first, $piece, $base, $pieces] = $this->positions($demand, $plain);
+        // Stefan 21.11. 15:08 «Mengenfeld schon wieder ohne Einheit»: each material's unit from the stock, read once.
+        $this->units = $this->service->unitsOf(array_values(array_unique(array_filter($ids))));
         $rows      = [];
 
         foreach ($lines as $band => $line) {
@@ -128,7 +133,8 @@ final class StagingSection
                     esc_html($labels[$source['place']] ?? '#' . $source['place']),
                     '', '', '', '',
                     esc_html($this->count($source['left'])),
-                    ListPage::field(InputKind::Number, 'cutqty[' . $key . ']', $this->stored($needs[$line['thing']] ?? 0.0), ['form' => self::FORM, 'min' => '0', 'step' => '1']),
+                    $this->withUnit(ListPage::field(InputKind::Number, 'cutqty[' . $key . ']', $this->stored($needs[$line['thing']] ?? 0.0), ['form' => self::FORM, 'min' => '0', 'step' => '1']),
+                        ($piece[$line['thing']] ?? 0) > 0 ? __('Pins', 'taxmod-manufacturing') : ($this->units[$line['thing']] ?? '')),
                     $this->status('free', __('ablängen', 'taxmod-manufacturing')),
                     $this->rowAction(self::PICK, 'cut:' . $key, ListPage::ICON_TRANSFER, __('Ablängen und ins Gebinde umbuchen', 'taxmod-manufacturing')),
                 ];
@@ -284,7 +290,8 @@ final class StagingSection
             $place,
             '', '', '', '',
             esc_html($this->count($source['there'])),
-            ListPage::field(InputKind::Decimal, 'qty[' . $key . ']', $this->stored($source['quantity']), ['form' => self::FORM, 'min' => '0', 'max' => $max, 'step' => 'any'])
+            $this->withUnit(ListPage::field(InputKind::Decimal, 'qty[' . $key . ']', $this->stored($source['quantity']), ['form' => self::FORM, 'min' => '0', 'max' => $max, 'step' => 'any']),
+                $piece > 0 ? __('Pins', 'taxmod-manufacturing') : ($this->units[$source['thing']] ?? ''))
                 . ($piece > 0 ? '<input type="hidden" form="' . self::FORM . '" name="piece[' . esc_attr($key) . ']" value="' . esc_attr((string) $piece) . '">' : '')
                 . ($cuts !== [] && $source['kind'] === 'free' ? '<input type="hidden" form="' . self::FORM . '" name="cuts[' . esc_attr($key) . ']" value="' . esc_attr(self::cutsText($cuts)) . '">' : '')
                 . ($source['position'] > 0 ? '<input type="hidden" form="' . self::FORM . '" name="position[' . esc_attr($key) . ']" value="' . esc_attr((string) $source['position']) . '">' : ''),
@@ -323,7 +330,7 @@ final class StagingSection
             $where,
             '', '', '', '',
             esc_html($this->count($there)),
-            ListPage::field(InputKind::Decimal, 'qty[' . $key . ']', $this->stored(min($missing, $there)), ['form' => self::FORM, 'min' => '0', 'max' => $this->stored($there), 'step' => 'any'])
+            $this->withUnit(ListPage::field(InputKind::Decimal, 'qty[' . $key . ']', $this->stored(min($missing, $there)), ['form' => self::FORM, 'min' => '0', 'max' => $this->stored($there), 'step' => 'any']), $this->units[$thing] ?? '')
                 . ($position > 0 ? '<input type="hidden" form="' . self::FORM . '" name="position[' . esc_attr($key) . ']" value="' . esc_attr((string) $position) . '">' : ''),
             $this->status('info', __('Ersatz möglich', 'taxmod-manufacturing')),
             $this->rowAction(self::RESERVE, $key, 'paperclip', __('Als Ersatz zuweisen', 'taxmod-manufacturing')),
@@ -588,6 +595,12 @@ final class StagingSection
     private function stored(float $n): string
     {
         return \Taxmod\Core\Renderer\DecimalText::stored($n, 2);
+    }
+
+    /** A quantity field with its unit behind it; no unit when the stock names none (nothing guessed, Prüftor 21.11.). */
+    private function withUnit(string $field, string $unit): string
+    {
+        return $unit === '' ? $field : '<span class="taxmod-mf-nowrap">' . $field . ' ' . esc_html($unit) . '</span>';
     }
 
     private function count(float $n): string

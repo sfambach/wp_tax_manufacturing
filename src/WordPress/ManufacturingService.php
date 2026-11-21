@@ -176,6 +176,25 @@ final class ManufacturingService
 
     public const THINGS_IN_STOCK_FILTER = 'taxmod_stock_things_in_stock';
 
+    public const UNITS_FILTER = 'taxmod_stock_units_of';
+
+    /**
+     * Stefan 21.11. 15:08: the unit word of each material, from the stock in one call; none where the stock does not say.
+     *
+     * @param list<int> $things
+     * @return array<int, string>
+     */
+    public function unitsOf(array $things): array
+    {
+        if ($things === [] || ! has_filter(self::UNITS_FILTER)) {
+            return [];
+        }
+
+        $answer = apply_filters(self::UNITS_FILTER, null, ['things' => $things]);
+
+        return is_array($answer) ? array_filter(array_map('strval', $answer), static fn (string $u): bool => $u !== '') : [];
+    }
+
     /**
      * D-1539: stand-ins in the rest of the stock, with the places they lie at — one nodesOf, one stock read, one key-value comparison (D-1540)
      * of the missing materials, one placesOf for all stand-ins.
