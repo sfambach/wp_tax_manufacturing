@@ -23,12 +23,12 @@ final class BuildOrders
      * @param array<int, int> $bareBoards D-1572: revision → its bare board material
      * @return list<BuildOrder> newest first
      */
-    public function all(Table $orders, Table $assemblies, Table $fittings, array $bareBoards = []): array
+    public function all(Table $orders, Table $assemblies, Table $fittings, array $bareBoards = [], ?Table $durations = null): array
     {
         $out = [];
 
         foreach ($orders->ids() as $id) {
-            $out[] = $this->one($id, $orders, $assemblies, $fittings, $bareBoards);
+            $out[] = $this->one($id, $orders, $assemblies, $fittings, $bareBoards, $durations);
         }
 
         usort($out, static fn (BuildOrder $a, BuildOrder $b): int => $b->id <=> $a->id);
@@ -36,8 +36,11 @@ final class BuildOrders
         return $out;
     }
 
-    /** @param array<int, int> $bareBoards D-1572: revision → its bare board material */
-    public function one(int $id, Table $orders, Table $assemblies, Table $fittings, array $bareBoards = []): BuildOrder
+    /**
+     * @param array<int, int> $bareBoards D-1572: revision → its bare board material
+     * @param Table|null $durations Feldkatalog 21.11.: the duration parts «Erfasste Zeit» points at; null while it is a plain number of minutes
+     */
+    public function one(int $id, Table $orders, Table $assemblies, Table $fittings, array $bareBoards = [], ?Table $durations = null): BuildOrder
     {
         $s = $this->s;
 
@@ -90,8 +93,25 @@ final class BuildOrders
             ($due = substr((string) ($optional('order_due') ?? ''), 0, 10)) === '' ? null : $due,
             $s->hasValue('art_kit') && (int) ($optional('order_art') ?? 0) === $s->value('art_kit'),
             (string) ($optional('order_note') ?? ''),
-            (float) ($optional('order_worked') ?? 0),
+            $this->worked($optional('order_worked'), $durations),
             ($since = substr((string) ($optional('order_running') ?? ''), 0, 19)) === '' ? null : $since,
         );
+    }
+
+    /** Feldkatalog 21.11.: «Erfasste Zeit» as minutes — the plain number, or the duration part it points at. */
+    private function worked(?string $stored, ?Table $durations): float
+    {
+        if ($stored === null || $stored === '') {
+            return 0.0;
+        }
+
+        $part = (int) $stored;
+
+        // A value written before the field became a duration is still the plain number.
+        if ($durations === null || ! $durations->has($part)) {
+            return (float) $stored;
+        }
+
+        return Stopwatch::durationMinutes($durations->first($part, $this->s->field('unit_amount')), $durations->first($part, $this->s->field('unit_unit')), $this->s);
     }
 }

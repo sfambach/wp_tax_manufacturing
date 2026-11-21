@@ -22,8 +22,27 @@ final class Stopwatch
     /** Only while the parts are staged and the boards are built — not in «Test» (architecture 19.11.). */
     public const STEPS = ['order_staging', 'order_building'];
 
-    public function __construct(private readonly Structure $s)
+    /** @param bool $asDuration Feldkatalog 21.11.: «Erfasste Zeit» is a duration (a unit value), no longer a plain number of minutes */
+    public function __construct(private readonly Structure $s, private readonly bool $asDuration = false)
     {
+    }
+
+    /** Units the structure knows → minutes per unit (D-1425: the stock stores times in seconds). */
+    private const MINUTES_PER = ['unit_second' => 1 / 60, 'unit_minute' => 1.0, 'unit_hour' => 60.0];
+
+    /**
+     * Feldkatalog 21.11.: the minutes a stored duration stands for. A missing or foreign unit is an error, never read as
+     * minutes (PR-4) — the number alone does not say what it counts.
+     */
+    public static function durationMinutes(?string $amount, ?string $unit, Structure $s): float
+    {
+        foreach (self::MINUTES_PER as $key => $factor) {
+            if ($unit !== null && $s->hasValue($key) && (string) $s->value($key) === $unit) {
+                return (float) str_replace(',', '.', (string) $amount) * $factor;
+            }
+        }
+
+        throw ManufacturingError::unknownTimeUnit((string) $unit);
     }
 
     public function exists(): bool
@@ -76,9 +95,22 @@ final class Stopwatch
         }
 
         return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => [
-            (string) $this->s->field('order_worked')  => self::number(self::minutes($order, $now)),
+            (string) $this->s->field('order_worked')  => $this->worked(self::minutes($order, $now)),
             (string) $this->s->field('order_running') => '',
         ]]];
+    }
+
+    /** @return string|array<string, array<string, string>> the plain minutes, or a new duration part in seconds */
+    private function worked(float $minutes): string|array
+    {
+        if (! $this->asDuration) {
+            return self::number($minutes);
+        }
+
+        return ['neu' => [
+            (string) $this->s->field('unit_amount') => self::number($minutes * 60),
+            (string) $this->s->field('unit_unit')   => (string) $this->s->value('unit_second'),
+        ]];
     }
 
     /**

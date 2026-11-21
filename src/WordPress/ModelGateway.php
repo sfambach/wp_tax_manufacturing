@@ -70,6 +70,12 @@ final class ModelGateway
         return $records === [] ? [] : $this->ask(fn (): array => $this->door->nodesOf($records));
     }
 
+    /** Feldkatalog 21.11.: the simple type of a field («decimal», …), null when it points at a composite such as a unit value. */
+    public function simpleType(int $node, int $relation): ?string
+    {
+        return $this->ask(fn (): array => $this->door->fields($node))[$relation]['type'] ?? null;
+    }
+
     /** D-1540: the modeller compares key values from 0.2.197 on; without it no stand-in is offered. */
     public function comparesKeyValues(): bool
     {

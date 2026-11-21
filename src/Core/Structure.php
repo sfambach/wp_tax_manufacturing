@@ -59,11 +59,15 @@ final class Structure
         'order_art', 'assembled_art',
         // D-1475: the order's stopwatch — the minutes summed and since when it runs.
         'order_worked', 'order_running',
+        // Feldkatalog 21.11.: «Erfasste Zeit» becomes a duration — the unit of a unit value, beside its amount.
+        'unit_unit',
         // D-1572: the bare board's revision («für Revision») and the pictures, which «Platinenmaterial erzeugen» takes over.
         'bare_board_revision', 'images'];
 
     /** D-954: the «Best.» values that matter here — «optional» may be left out, «nein» is never needed. */
-    private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no', 'fitting_external', 'order_staging', 'order_test', 'art_fitting', 'art_kit', 'order_failed'];
+    private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no', 'fitting_external', 'order_staging', 'order_test', 'art_fitting', 'art_kit', 'order_failed',
+        // Feldkatalog 21.11.: the time units a duration may be stored in (D-1425: the stock stores seconds).
+        'unit_second', 'unit_minute', 'unit_hour'];
 
     /**
      * @param array<string, int> $nodes

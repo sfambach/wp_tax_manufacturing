@@ -111,6 +111,12 @@ final class ManufacturingError extends \RuntimeException
         return new self('count_not_positive', $given);
     }
 
+    /** Feldkatalog 21.11.: a duration whose unit is no time unit the structure knows — never guessed as minutes (PR-4). */
+    public static function unknownTimeUnit(string $unit): self
+    {
+        return new self('unknown_time_unit', $unit);
+    }
+
     public static function unknownOrder(int $order): self
     {
         return new self('unknown_order', (string) $order);

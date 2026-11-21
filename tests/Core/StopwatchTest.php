@@ -5,9 +5,11 @@ namespace TaxmodManufacturing\Tests\Core;
 use PHPUnit\Framework\TestCase;
 use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
+use TaxmodManufacturing\Core\BuildOrders;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\Stopwatch;
 use TaxmodManufacturing\Core\Structure;
+use TaxmodManufacturing\Core\Table;
 
 final class StopwatchTest extends TestCase
 {
@@ -82,5 +84,36 @@ final class StopwatchTest extends TestCase
     public function testAClockSetBackCountsNothing(): void
     {
         self::assertSame(5.0, Stopwatch::minutes($this->order('order_building', 5.0, '2026-11-19 08:00:00'), '2026-11-19 07:00:00'));
+    }
+
+    /** Feldkatalog 21.11.: «Erfasste Zeit» reads as the plain number and as a duration; a foreign unit is never taken as minutes. */
+    public function testWorkedReadsTheNumberAndTheDuration(): void
+    {
+        $s = Structure::fromArray([
+            'nodes'  => ['order' => 5],
+            'fields' => ['label' => 10, 'order_project' => 20, 'order_count' => 21, 'order_status' => 22, 'order_assemblies' => 23, 'order_worked' => 80, 'order_running' => 81, 'unit_amount' => 90, 'unit_unit' => 91],
+            'values' => ['order_building' => 41, 'unit_second' => 4040, 'unit_hour' => 4041],
+        ]);
+        $orders = new Table([500 => [21 => ['1'], 22 => ['41'], 80 => ['75.5']], 501 => [21 => ['1'], 22 => ['41'], 80 => ['900']], 502 => [21 => ['1'], 22 => ['41'], 80 => ['901']], 503 => [21 => ['1'], 22 => ['41']]]);
+        $parts  = new Table([900 => [90 => ['4530'], 91 => ['4040']], 901 => [90 => ['1,5'], 91 => ['4041']]]);
+        $read   = static fn (int $id, ?Table $d): float => (new BuildOrders($s))->one($id, $orders, new Table([]), new Table([]), [], $d)->worked;
+
+        self::assertSame(75.5, $read(500, null));
+        self::assertSame(75.5, $read(500, $parts));
+        self::assertSame(75.5, $read(501, $parts));
+        self::assertSame(90.0, $read(502, $parts));
+        self::assertSame(0.0, $read(503, $parts));
+
+        $this->expectException(ManufacturingError::class);
+        Stopwatch::durationMinutes('10', '4999', $s);
+    }
+
+    /** Feldkatalog 21.11.: once the field is a duration the stopwatch writes a new part in seconds. */
+    public function testStopWritesADurationOnceTheFieldIsOne(): void
+    {
+        $s     = Structure::fromArray(['fields' => ['order_worked' => 80, 'order_running' => 81, 'unit_amount' => 90, 'unit_unit' => 91], 'values' => ['unit_second' => 4040]]);
+        $watch = new Stopwatch($s, true);
+
+        self::assertSame(['80' => ['neu' => ['90' => '4530', '91' => '4040']], '81' => ''], $watch->stop($this->order('order_building', 30.0, '2026-11-19 06:00:00'), '2026-11-19 06:45:30')[0]['values']);
     }
 }

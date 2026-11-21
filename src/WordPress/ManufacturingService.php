@@ -31,6 +31,7 @@ final class ManufacturingService
     public const STRUCTURE = 'taxmod_manufacturing_structure';
 
     private ?Structure $structure = null;
+    private ?bool $workedIsDuration = null;
     /** @var array<int, list<int>> D-1460: material made in this request → the systems taken over from its plan */
     private array $made = [];
     /** Review F1: the one stock service of this request, and the stock's write count it was made at. */
@@ -62,12 +63,46 @@ final class ManufacturingService
     /** @return list<BuildOrder> */
     public function orders(): array
     {
-        return (new BuildOrders($this->structure()))->all($this->table('order'), $this->table('assembly'), $this->table('fitting'), $this->bareBoards());
+        return (new BuildOrders($this->structure()))->all($this->table('order'), $this->table('assembly'), $this->table('fitting'), $this->bareBoards(), $this->durations());
     }
 
     public function order(int $id): BuildOrder
     {
-        return (new BuildOrders($this->structure()))->one($id, $this->table('order'), $this->table('assembly'), $this->table('fitting'), $this->bareBoards());
+        return (new BuildOrders($this->structure()))->one($id, $this->table('order'), $this->table('assembly'), $this->table('fitting'), $this->bareBoards(), $this->durations([$id]));
+    }
+
+    /**
+     * Feldkatalog 21.11.: whether «Erfasste Zeit» is a duration (a unit value) rather than a plain number — read from the
+     * field's target, so the same code serves before and after the data job.
+     */
+    public function workedIsDuration(): bool
+    {
+        $s = $this->structure();
+
+        return $this->workedIsDuration ??= $s->hasField('order_worked') && $s->hasField('unit_amount') && $s->hasField('unit_unit') && $s->hasValue('unit_second')
+            && $this->model->simpleType($s->node('order'), $s->field('order_worked')) === null;
+    }
+
+    /**
+     * Feldkatalog 21.11.: the duration parts «Erfasste Zeit» points at, read in one go (CD-7); null while it is a number.
+     *
+     * @param list<int>|null $orders null: every order
+     */
+    private function durations(?array $orders = null): ?Table
+    {
+        if (! $this->workedIsDuration()) {
+            return null;
+        }
+
+        $table = $this->table('order');
+        $parts = [];
+
+        foreach ($orders ?? $table->ids() as $order) {
+            $part = (int) ($table->first($order, $this->structure()->field('order_worked')) ?? 0);
+            $part > 0 && $parts[] = $part;
+        }
+
+        return $this->model->records(array_values(array_unique($parts)));
     }
 
     /**
@@ -1027,7 +1062,7 @@ final class ManufacturingService
             }
 
             // D-1475: the stopwatch's time is booked onto these boards — back to nothing, in this act.
-            $reset = (new Stopwatch($this->structure()))->reset($built);
+            $reset = (new Stopwatch($this->structure(), $this->workedIsDuration()))->reset($built);
 
             if ($reset !== []) {
                 $this->model->write($reset);
@@ -1246,7 +1281,7 @@ final class ManufacturingService
     /** D-1475: the order's stopwatch exists once the model has its two fields. */
     public function canTime(): bool
     {
-        return (new Stopwatch($this->structure()))->exists();
+        return (new Stopwatch($this->structure(), $this->workedIsDuration()))->exists();
     }
 
     /** D-1475: «Y-m-d H:i:s» in UTC — the stopwatch counts on the server, never in the browser. */
@@ -1263,7 +1298,7 @@ final class ManufacturingService
     public function timer(int $order, bool $start): ?int
     {
         $built = $this->derived([$this->order($order)])[0];
-        $watch = new Stopwatch($this->structure());
+        $watch = new Stopwatch($this->structure(), $this->workedIsDuration());
         $done  = $this->model->write($start ? $watch->start($built, self::now()) : $watch->stop($built, self::now()));
 
         return isset($done['act']) ? (int) $done['act'] : null;
