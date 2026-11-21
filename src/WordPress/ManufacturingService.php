@@ -63,46 +63,47 @@ final class ManufacturingService
     /** @return list<BuildOrder> */
     public function orders(): array
     {
-        return (new BuildOrders($this->structure()))->all($this->table('order'), $this->table('assembly'), $this->table('fitting'), $this->bareBoards(), $this->durations());
+        return (new BuildOrders($this->structure()))->all($this->table('order'), $this->table('assembly'), $this->table('fitting'), $this->bareBoards(), $this->workedSeconds());
     }
 
     public function order(int $id): BuildOrder
     {
-        return (new BuildOrders($this->structure()))->one($id, $this->table('order'), $this->table('assembly'), $this->table('fitting'), $this->bareBoards(), $this->durations([$id]));
+        return (new BuildOrders($this->structure()))->one($id, $this->table('order'), $this->table('assembly'), $this->table('fitting'), $this->bareBoards(), $this->workedSeconds([$id]));
     }
 
     /**
-     * Feldkatalog 21.11.: whether «Erfasste Zeit» is a duration (a unit value) rather than a plain number — read from the
-     * field's target, so the same code serves before and after the data job.
+     * Feldkatalog 21.11.: whether «Erfasste Zeit» is a duration (a unit value) rather than a plain number — the modeller
+     * says so, so the same code serves before and after the data job.
      */
     public function workedIsDuration(): bool
     {
         $s = $this->structure();
 
         return $this->workedIsDuration ??= $s->hasField('order_worked') && $s->hasField('unit_amount') && $s->hasField('unit_unit') && $s->hasValue('unit_second')
-            && $this->model->simpleType($s->node('order'), $s->field('order_worked')) === null;
+            && $this->model->amountFields([$s->field('order_worked')]) !== [];
     }
 
     /**
-     * Feldkatalog 21.11.: the duration parts «Erfasste Zeit» points at, read in one go (CD-7); null while it is a number.
+     * Feldkatalog 21.11.: «Erfasste Zeit» in seconds where it is a duration, read in one go (CD-7); the modeller converts.
      *
      * @param list<int>|null $orders null: every order
+     * @return array<int, float> order → seconds
      */
-    private function durations(?array $orders = null): ?Table
+    private function workedSeconds(?array $orders = null): array
     {
         if (! $this->workedIsDuration()) {
-            return null;
+            return [];
         }
 
-        $table = $this->table('order');
-        $parts = [];
+        $field = $this->structure()->field('order_worked');
 
-        foreach ($orders ?? $table->ids() as $order) {
-            $part = (int) ($table->first($order, $this->structure()->field('order_worked')) ?? 0);
-            $part > 0 && $parts[] = $part;
+        $out = [];
+
+        foreach ($this->model->amountsOf($orders ?? $this->table('order')->ids(), [$field]) as $order => $fields) {
+            isset($fields[$field]) && $out[(int) $order] = (float) $fields[$field];
         }
 
-        return $this->model->records(array_values(array_unique($parts)));
+        return $out;
     }
 
     /**

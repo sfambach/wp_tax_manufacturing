@@ -27,24 +27,6 @@ final class Stopwatch
     {
     }
 
-    /** Units the structure knows → minutes per unit (D-1425: the stock stores times in seconds). */
-    private const MINUTES_PER = ['unit_second' => 1 / 60, 'unit_minute' => 1.0, 'unit_hour' => 60.0];
-
-    /**
-     * Feldkatalog 21.11.: the minutes a stored duration stands for. A missing or foreign unit is an error, never read as
-     * minutes (PR-4) — the number alone does not say what it counts.
-     */
-    public static function durationMinutes(?string $amount, ?string $unit, Structure $s): float
-    {
-        foreach (self::MINUTES_PER as $key => $factor) {
-            if ($unit !== null && $s->hasValue($key) && (string) $s->value($key) === $unit) {
-                return (float) str_replace(',', '.', (string) $amount) * $factor;
-            }
-        }
-
-        throw ManufacturingError::unknownTimeUnit((string) $unit);
-    }
-
     public function exists(): bool
     {
         return $this->s->hasField('order_worked') && $this->s->hasField('order_running');
