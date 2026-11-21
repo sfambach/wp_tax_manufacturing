@@ -234,6 +234,20 @@ final class Demand
     }
 
     /**
+     * D-1566 (Stefan 21.11. 15:08 «der findet die im eigenen Gebinde nicht»): a position whose part already has the position's
+     * pins is a strip cut to length — it counts in pieces, not in pins (D-1398 stays for a long strip).
+     *
+     * @param array<int, int> $piece    position → pins per piece
+     * @param array<int, int> $partOf   position → its part
+     * @param array<int, int> $partPins part → its own pins, where set
+     * @return array<int, int> position → pins per piece, without the cut strips
+     */
+    public static function withoutCutStrips(array $piece, array $partOf, array $partPins): array
+    {
+        return array_filter($piece, static fn (int $pins, int $position): bool => ($partPins[$partOf[$position] ?? 0] ?? 0) !== $pins, ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
      * Adds the pins lost at cutting to each position's count (D-1178): one cut per piece, a piece per reference designator
      * («J1, J2» are two pieces), at least one (INFERRED).
      *
