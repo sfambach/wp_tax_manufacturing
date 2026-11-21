@@ -465,7 +465,14 @@ final class OrderActions
             $qty = (float) str_replace(',', '.', sanitize_text_field(wp_unslash((string) ($cutQty[$key] ?? '0'))));
 
             if (preg_match('/^(\d+):(\d+)$/', $key, $match) === 1 && $qty > 0.0) {
-                $cuts[] = ['from' => (int) $match[2], 'thing' => (int) $match[1], 'pieces' => $qty];
+                // Prüftor 21.11.: the box is a text field now (D-1500), so a half piece can arrive; a strip is cut in whole pieces.
+                if (abs($qty - round($qty)) > 1e-9) {
+                    $back['auftrag'] = $order;
+
+                    return 'whole_pieces';
+                }
+
+                $cuts[] = ['from' => (int) $match[2], 'thing' => (int) $match[1], 'pieces' => (int) round($qty)];
             }
         }
 

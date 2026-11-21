@@ -1290,6 +1290,7 @@ final class OrdersPage
             'nothing_missing' => __('Es fehlt nichts, was nirgends am Lager liegt.', 'taxmod-manufacturing'),
             'picked'    => __('Abgehakte Teile ins Gebinde umgebucht.', 'taxmod-manufacturing'),
             'nothing_picked' => __('Nichts abgehakt, nichts gebucht.', 'taxmod-manufacturing'),
+            'whole_pieces' => __('Ablängen geht nur in ganzen Stück, nichts gebucht.', 'taxmod-manufacturing'),
             'closed'    => __('Auftrag abgeschlossen. «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'),
             'cancelled' => __('Abgebrochen. «Wieder aufnehmen» macht das rückgängig.', 'taxmod-manufacturing'),
             'reopened'  => __('Wieder aufgenommen.', 'taxmod-manufacturing'),
