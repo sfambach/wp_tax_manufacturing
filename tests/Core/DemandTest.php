@@ -69,6 +69,17 @@ final class DemandTest extends TestCase
         self::assertSame([9001 => 3.0, 9002 => 1.0, 305 => 1.0], Demand::finished($assembly, 1, self::POSITIONS[305], [703]));
     }
 
+    /** D-1572: a revision with its own bare board material is needed and consumed as that material, no longer as itself. */
+    public function testBareBoardIsItsOwnMaterialOnceThereIsOne(): void
+    {
+        $assembly = new Assembly(600, 305, [], [], 0, 0, '', 4711);
+        $demand   = Demand::of([$assembly], self::POSITIONS, 2, [305 => 2.0, 4711 => 1.0]);
+
+        self::assertSame(4711, $demand[600][0]['thing']);
+        self::assertSame(1.0, $demand[600][0]['missing']);
+        self::assertSame([9001 => 3.0, 9002 => 1.0, 4711 => 1.0], Demand::finished($assembly, 1, self::POSITIONS[305], [703]));
+    }
+
     public function testBoxIsHandedOutOnce(): void
     {
         $positions = [1 => [['id' => 10, 'thing' => 50, 'count' => 1.0, 'fitting' => '']], 2 => [['id' => 20, 'thing' => 50, 'count' => 1.0, 'fitting' => '']]];

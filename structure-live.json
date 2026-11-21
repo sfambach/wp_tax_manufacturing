@@ -12,6 +12,7 @@
     "lager": 149000110147,
     "hardware": 149000103001,
     "check_step": 149000110485,
+    "bare_board": 149000110408,
     "systems": 149000110516
   },
   "fields": {
@@ -57,7 +58,8 @@
     "hardware_systems": 149000110510,
     "board_systems": 149000110512,
     "order_worked": 149000110513,
-    "order_running": 149000110514
+    "order_running": 149000110514,
+    "images": 149000108057
   },
   "values": {
     "order_planned": 149000110324,

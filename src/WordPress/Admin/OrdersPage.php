@@ -1353,6 +1353,7 @@ final class OrdersPage
     {
         return match ($error->reason) {
             'not_configured'           => sprintf(__('Im Modell fehlt %s.', 'taxmod-manufacturing'), $error->detail),
+            'not_a_revision'           => sprintf(__('#%s ist keine Revision eines Bauplans.', 'taxmod-manufacturing'), $error->detail),
             'shortage_without_reason'  => __('Es fehlen noch Teile: bitte einen Grund angeben.', 'taxmod-manufacturing'),
             'no_board_chosen'          => __('Kein Bauplan gewählt.', 'taxmod-manufacturing'),
             'project_without_boards'   => __('Das Projekt hat keinen Bauplan mit Revision.', 'taxmod-manufacturing'),

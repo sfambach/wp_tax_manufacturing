@@ -20,7 +20,15 @@ final class Assembly
         public readonly int $tested = 0,
         public readonly int $done = 0,
         public readonly string $note = '',
+        // D-1572: the bare board as a material of its own («Platinen» → «für Revision»); 0 while the revision has none.
+        public readonly int $bareBoard = 0,
     ) {
+    }
+
+    /** D-1572 with the fallback of D-1388: the material taken as the bare board — its own record, else the revision itself. */
+    public function boardThing(): int
+    {
+        return $this->bareBoard > 0 ? $this->bareBoard : $this->revision;
     }
 
     public function fittedOn(int $position): int
