@@ -101,7 +101,14 @@ final class Demand
     {
         $counts = array_column(array_filter($rows, static fn (array $row): bool => $row['position'] > 0 && ! $row['unused']), 'boards');
 
-        return $counts === [] ? 0 : min($counts);
+        if ($counts !== []) {
+            return min($counts);
+        }
+
+        // Live-Check 21.11. (88226): a board with no part to fit is fitted as it is — every piece the board row needs.
+        $board = array_values(array_filter($rows, static fn (array $row): bool => $row['position'] === 0));
+
+        return $board === [] ? 0 : (int) round($board[0]['needed'] / max(1.0, $board[0]['count']));
     }
 
     /**
