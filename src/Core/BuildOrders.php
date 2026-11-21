@@ -21,14 +21,15 @@ final class BuildOrders
 
     /**
      * @param array<int, int> $bareBoards D-1572: revision → its bare board material
+     * @param array<int, float> $workedSeconds Feldkatalog 21.11.: order → «Erfasste Zeit» in seconds, see {@see one()}
      * @return list<BuildOrder> newest first
      */
-    public function all(Table $orders, Table $assemblies, Table $fittings, array $bareBoards = []): array
+    public function all(Table $orders, Table $assemblies, Table $fittings, array $bareBoards = [], array $workedSeconds = []): array
     {
         $out = [];
 
         foreach ($orders->ids() as $id) {
-            $out[] = $this->one($id, $orders, $assemblies, $fittings, $bareBoards);
+            $out[] = $this->one($id, $orders, $assemblies, $fittings, $bareBoards, $workedSeconds);
         }
 
         usort($out, static fn (BuildOrder $a, BuildOrder $b): int => $b->id <=> $a->id);
@@ -36,8 +37,11 @@ final class BuildOrders
         return $out;
     }
 
-    /** @param array<int, int> $bareBoards D-1572: revision → its bare board material */
-    public function one(int $id, Table $orders, Table $assemblies, Table $fittings, array $bareBoards = []): BuildOrder
+    /**
+     * @param array<int, int> $bareBoards D-1572: revision → its bare board material
+     * @param array<int, float> $workedSeconds Feldkatalog 21.11.: order → «Erfasste Zeit» in seconds, as the modeller reads a duration; an order missing here holds the plain number of minutes
+     */
+    public function one(int $id, Table $orders, Table $assemblies, Table $fittings, array $bareBoards = [], array $workedSeconds = []): BuildOrder
     {
         $s = $this->s;
 
@@ -90,7 +94,7 @@ final class BuildOrders
             ($due = substr((string) ($optional('order_due') ?? ''), 0, 10)) === '' ? null : $due,
             $s->hasValue('art_kit') && (int) ($optional('order_art') ?? 0) === $s->value('art_kit'),
             (string) ($optional('order_note') ?? ''),
-            (float) ($optional('order_worked') ?? 0),
+            isset($workedSeconds[$id]) ? $workedSeconds[$id] / 60 : (float) ($optional('order_worked') ?? 0),
             ($since = substr((string) ($optional('order_running') ?? ''), 0, 19)) === '' ? null : $since,
         );
     }

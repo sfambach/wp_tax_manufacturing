@@ -70,6 +70,31 @@ final class ModelGateway
         return $records === [] ? [] : $this->ask(fn (): array => $this->door->nodesOf($records));
     }
 
+    /**
+     * Feldkatalog 21.11.: which of these fields already hold unit values; none while the modeller is older than
+     * `ModelDoor::amountFields`.
+     *
+     * @param list<int> $fields
+     * @return list<int>
+     */
+    public function amountFields(array $fields): array
+    {
+        return $fields === [] || ! method_exists($this->door, 'amountFields') ? [] : array_map('intval', $this->ask(fn (): array => $this->door->amountFields($fields)));
+    }
+
+    /**
+     * Feldkatalog 21.11.: the unit values of these fields in their base unit (a time in seconds), converted by the modeller;
+     * an empty field or an old plain number is missing here and read as before.
+     *
+     * @param list<int> $records
+     * @param list<int> $fields
+     * @return array<int, array<int, float>> record → field → amount
+     */
+    public function amountsOf(array $records, array $fields): array
+    {
+        return $records === [] || $fields === [] || ! method_exists($this->door, 'amountsOf') ? [] : $this->ask(fn (): array => $this->door->amountsOf($records, $fields));
+    }
+
     /** D-1540: the modeller compares key values from 0.2.197 on; without it no stand-in is offered. */
     public function comparesKeyValues(): bool
     {

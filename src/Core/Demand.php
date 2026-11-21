@@ -56,8 +56,11 @@ final class Demand
                 $rows[]   = self::row($position['id'], $position['thing'], $position['count'], $unused ? 0.0 : $position['count'] * $pieces, $boards, $unused ? 0 : $done, $optional, $unused, $left);
             }
 
-            // D-1572: the bare board is its own material pointing at the revision; the revision itself only for the transition.
-            array_unshift($rows, self::row(0, $assembly->boardThing(), 1.0, (float) $pieces, $most, $done, false, false, $left));
+            // D-1572: the bare board is its own material pointing at the revision. A revision without one has no board row
+            // (Prüftor 21.11., step 3: the revision itself is no material any more).
+            if ($assembly->boardThing() > 0) {
+                array_unshift($rows, self::row(0, $assembly->boardThing(), 1.0, (float) $pieces, $most, $done, false, false, $left));
+            }
             $out[$assembly->id] = $rows;
         }
 
@@ -316,7 +319,9 @@ final class Demand
             $out[$position['thing']] = ($out[$position['thing']] ?? 0.0) + $made * $position['count'];
         }
 
-        $out[$assembly->boardThing()] = ($out[$assembly->boardThing()] ?? 0.0) + $made;
+        if ($assembly->boardThing() > 0) {
+            $out[$assembly->boardThing()] = ($out[$assembly->boardThing()] ?? 0.0) + $made;
+        }
 
         return array_filter($out, static fn (float $n): bool => $n !== 0.0);
     }

@@ -35,8 +35,15 @@
             return;
         }
 
-        all.closest('table').querySelectorAll('tbody input[type="checkbox"]').forEach(function (box) {
+        // Only the row ticks: a row's other boxes open dialogs (Live-Check 21.11.: 15 dialogs, «Etikett drucken» among them).
+        // Each box announces its change, so the bulk bar counts at the first click.
+        all.closest('table').querySelectorAll('tbody input[type="checkbox"][name="selected[]"]').forEach(function (box) {
+            if (box.disabled || box.checked === all.checked) {
+                return;
+            }
+
             box.checked = all.checked;
+            box.dispatchEvent(new Event('change', { bubbles: true }));
         });
     });
 

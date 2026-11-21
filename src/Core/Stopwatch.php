@@ -22,7 +22,8 @@ final class Stopwatch
     /** Only while the parts are staged and the boards are built — not in «Test» (architecture 19.11.). */
     public const STEPS = ['order_staging', 'order_building'];
 
-    public function __construct(private readonly Structure $s)
+    /** @param bool $asDuration Feldkatalog 21.11.: «Erfasste Zeit» is a duration (a unit value), no longer a plain number of minutes */
+    public function __construct(private readonly Structure $s, private readonly bool $asDuration = false)
     {
     }
 
@@ -76,9 +77,22 @@ final class Stopwatch
         }
 
         return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => [
-            (string) $this->s->field('order_worked')  => self::number(self::minutes($order, $now)),
+            (string) $this->s->field('order_worked')  => $this->worked(self::minutes($order, $now)),
             (string) $this->s->field('order_running') => '',
         ]]];
+    }
+
+    /** @return string|array<string, array<string, string>> the plain minutes, or a new duration part in seconds */
+    private function worked(float $minutes): string|array
+    {
+        if (! $this->asDuration) {
+            return self::number($minutes);
+        }
+
+        return ['neu' => [
+            (string) $this->s->field('unit_amount') => self::number($minutes * 60),
+            (string) $this->s->field('unit_unit')   => (string) $this->s->value('unit_second'),
+        ]];
     }
 
     /**
