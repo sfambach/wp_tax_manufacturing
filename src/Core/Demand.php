@@ -59,6 +59,8 @@ final class Demand
             // D-1572: the bare board is its own material pointing at the revision. A revision without one has no board row
             // (Prüftor 21.11., step 3: the revision itself is no material any more).
             if ($assembly->boardThing() > 0) {
+                // Live-Check 21.11. (88226): with nothing to fit every piece of the board counts as fitted (package assumption §4, 7).
+                $most = array_filter($rows, static fn (array $row): bool => ! $row['unused']) === [] ? $pieces : $most;
                 array_unshift($rows, self::row(0, $assembly->boardThing(), 1.0, (float) $pieces, $most, $done, false, false, $left));
             }
             $out[$assembly->id] = $rows;
