@@ -1866,6 +1866,61 @@ final class ManufacturingService
         return $ids === [] ? [] : $this->labelsOf($ids);
     }
 
+    /**
+     * Stefan 21.11. 10:34: the plans an order may build — every revision of every board of its project, one row per board for
+     * the standard chooser (D-1488); the tables are read once, the labels in one read (CD-7).
+     *
+     * @return list<array{depth: int, name: string, records: array<int, string>}>
+     */
+    public function planTree(int $project): array
+    {
+        $s       = $this->structure();
+        $boardT  = $this->table('board');
+        $boards  = array_map('intval', $this->table('project')->all($project, $s->field('project_boards')));
+        $revs    = [];
+
+        foreach ($boards as $board) {
+            $revs[$board] = array_map('intval', $boardT->all($board, $s->field('board_revisions')));
+        }
+
+        $labels = $this->labelsOf([...$boards, ...array_merge([], ...array_values($revs))]);
+        $rows   = [];
+
+        foreach ($revs as $board => $ids) {
+            $records = [];
+
+            foreach ($ids as $rev) {
+                $records[$rev] = ($labels[$board] ?? '') . ' · ' . ($labels[$rev] ?? '#' . $rev);
+            }
+
+            $rows[] = ['depth' => 0, 'name' => $labels[$board] ?? '#' . $board, 'records' => $records];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Stefan 21.11. 10:34: the order builds these plans (see {@see OrderChanges::setBoards()}). Prüftor 21.11.: an order holding
+     * reservations does not change its plans; they are given free first, never silently.
+     *
+     * @param list<int> $revisions
+     */
+    public function setBoards(int $order, array $revisions): void
+    {
+        $built = $this->order($order);
+        $have  = array_map(static fn (Assembly $a): int => $a->revision, $built->assemblies);
+
+        if (array_diff($have, $revisions) === [] && array_diff($revisions, $have) === []) {
+            return;
+        }
+
+        if (array_diff($have, $revisions) !== [] && $this->reservationRows($order) !== []) {
+            throw ManufacturingError::boardsReserved($order);
+        }
+
+        $this->model->write((new OrderChanges($this->structure()))->setBoards($built, $revisions, $this->boardsOfRevisions(array_values(array_unique([...$have, ...$revisions])))));
+    }
+
     /** D-1300: count in any step before the order is closed, revision while it is «Angelegt» (D-1373). */
     public function setHead(int $order, string $count, ?int $revision, ?string $due = null): void
     {

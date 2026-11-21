@@ -8,6 +8,7 @@ use Taxmod\WordPress\Draw\GridMarkup;
 use Taxmod\WordPress\Draw\SelectMarkup;
 use Taxmod\Core\Description\InputKind;
 use Taxmod\WordPress\Admin\ListPage;
+use Taxmod\WordPress\Admin\RecordPick;
 use TaxmodManufacturing\Core\Assembly;
 use TaxmodManufacturing\Core\BuildOrder;
 use TaxmodManufacturing\Core\Demand;
@@ -262,6 +263,8 @@ final class OrdersPage
         }
 
         $order     = Positions::derive($found[0], $lots);
+        // D-1551: a plan chosen and not yet saved is shown — the positions below follow the choice (Stefan 21.11. 10:34).
+        $order     = $order->step === 'order_planned' && isset($_GET['taxmod_chosen']) ? $order->withRevisions($this->chosenPlans($order)) : $order;
         $counts    = Positions::counts($order, $lots);
         [$plain, $labels] = $this->context([$order]);
         $assigned = $this->service->assignments([$order->id])[$order->id] ?? [];
@@ -358,7 +361,11 @@ final class OrdersPage
         [$options, $count] = $order->step === 'order_planned' ? $this->optionsForm($order, $labels, $demand, $plain) : ['', 0];
 
         // Stefan 20.11. 19:51, Prüftor: «Positionen (n)» as the section's title, one bar under it; no heading per plan.
-        if ($options !== '') {
+        if ($order->step === 'order_planned') {
+            // D-1551: the positions follow the plans chosen in the head, fetched anew on `taxmod:chosen`, saved by its 💾.
+            $sections[] = ['title' => sprintf(__('Positionen (%d)', 'taxmod-manufacturing'), $count), 'html' => '<div id="taxmod-mf-positions-' . esc_attr((string) $order->id)
+                . '" data-taxmod-follows="revisions[]" form="' . esc_attr(self::headFormId($order)) . '">' . $options . '</div>'];
+        } elseif ($options !== '') {
             $sections[] = ['title' => sprintf(__('Positionen (%d)', 'taxmod-manufacturing'), $count), 'html' => $options];
         }
 
@@ -485,7 +492,6 @@ final class OrdersPage
     {
         $planned  = $order->step === 'order_planned';
         $id       = 'taxmod-mf-head-' . $order->id;
-        $revision = count($order->assemblies) === 1 ? $order->assemblies[0]->revision : 0;
         $named    = $this->service->labelsOf(array_column($order->assemblies, 'revision'));
         $boards   = $this->service->boardsOfRevisions(array_column($order->assemblies, 'revision'));
         $boardOf  = $this->service->labelsOf(array_values($boards));
@@ -494,14 +500,13 @@ final class OrdersPage
         // His question 18.11. «warum kann ich Stück und Gebinde im Test noch ändern»: from «Test» on the boards are built.
         $locked   = $order->isClosed() || $order->step === 'order_test';
 
-        if ($planned && $revision > 0) {
-            $options = [];
-
-            foreach ($this->service->siblingRevisions($revision) as $rev => $label) {
-                $options[$rev] = ($boardOf[$boards[$revision] ?? 0] ?? '') . ' · ' . $label;
-            }
-
-            $boardControl = SelectMarkup::of('revision', $options, (string) $revision, false, '', ['id' => $id . '-revision']);
+        // Stefan 21.11. 10:34 «Baupläne hinzufügen, entfernen»: while planned each plan is a standard chooser (D-1488) of the
+        // project's revisions, its ✕ drops it, the empty one below adds one; the 💾 of the head saves them (Prüftor 21.11.).
+        if ($planned) {
+            $tree         = $this->service->planTree($order->project);
+            $chosen       = $this->chosenPlans($order);
+            $boardControl = implode('', array_map(static fn (int $rev): string => '<div class="taxmod-mf-plan">' . RecordPick::field('revisions[]', $tree, $rev) . '</div>', $chosen))
+                . '<div class="taxmod-mf-plan">' . RecordPick::field('revisions[]', $tree, null) . '</div>';
         } else {
             $boardControl = $text(implode(', ', array_map(static fn (Assembly $a): string => $board($a->revision), $order->assemblies)));
         }
@@ -516,7 +521,7 @@ final class OrdersPage
         $rows     = [
             ['label' => __('Projekt', 'taxmod-manufacturing'), 'control' => $text($labels[$order->project] ?? '#' . $order->project)],
             ...($this->service->canKit() ? [['label' => __('Art', 'taxmod-manufacturing'), 'control' => $text($order->kit ? __('Kit', 'taxmod-manufacturing') : __('Bestücken', 'taxmod-manufacturing'))]] : []),
-            ['label' => _n('Bauplan', 'Baupläne', count($order->assemblies), 'taxmod-manufacturing'), 'control' => $boardControl, 'for' => $planned && $revision > 0 ? $id . '-revision' : '',
+            ['label' => _n('Bauplan', 'Baupläne', count($order->assemblies), 'taxmod-manufacturing'), 'control' => $boardControl,
                 // D-1463: the revision's status as its first order says it, read here, kept nowhere.
                 'hint' => implode(' · ', array_map(static fn (int $rev, array $status): string => sprintf(__('Status der Revision %1$s: %2$s', 'taxmod-manufacturing'), $named[$rev] ?? '#' . $rev, $status['label']),
                     array_keys($statuses), $statuses))],
@@ -587,6 +592,25 @@ final class OrdersPage
             // Once, whatever the number of boards: an id stands once on a page.
             . '<datalist id="taxmod-mf-scrap-reasons"><option value="' . esc_attr__('heruntergefallen', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('defekt', 'taxmod-manufacturing') . '"><option value="' . esc_attr__('falsch bestückt', 'taxmod-manufacturing') . '"></datalist>'
             . '</form>';
+    }
+
+    /**
+     * The plans shown while planned: what the chooser sent with `taxmod_chosen` (D-1551, a preview before the 💾), else the
+     * order's own.
+     *
+     * @return list<int>
+     */
+    private function chosenPlans(BuildOrder $order): array
+    {
+        $sent = json_decode(wp_unslash((string) ($_GET['taxmod_chosen'] ?? '')), true);
+
+        if ($order->step !== 'order_planned' || ! is_array($sent) || ! array_key_exists('revisions[]', $sent)) {
+            return array_map(static fn (Assembly $a): int => $a->revision, $order->assemblies);
+        }
+
+        $allowed = array_merge([], ...array_map(static fn (array $row): array => array_keys($row['records']), $this->service->planTree($order->project)));
+
+        return array_values(array_intersect(array_map('absint', (array) $sent['revisions[]']), $allowed));
     }
 
     private static function headFormId(BuildOrder $order): string
@@ -1339,6 +1363,8 @@ final class OrdersPage
             'stock_refused'            => sprintf(__('Das Lager hat die Buchung abgelehnt, nichts gespeichert: %s', 'taxmod-manufacturing'), $error->detail),
             'assemblies_not_done'      => __('Erst wenn alle Stücke fertig sind, lässt sich der Auftrag abschließen.', 'taxmod-manufacturing'),
             'position_not_on_revision' => __('Nur optionale Positionen der Stückliste lassen sich weglassen.', 'taxmod-manufacturing'),
+            'boards_fixed'             => __('Baupläne ändern geht nur, solange der Auftrag in Planung ist.', 'taxmod-manufacturing'),
+            'boards_reserved'          => __('Der Auftrag hat Reservierungen. Erst freigeben, dann einen Bauplan entfernen.', 'taxmod-manufacturing'),
             'head_fixed'               => __('Ein abgeschlossener Auftrag behält seine Stückzahl.', 'taxmod-manufacturing'),
             'readd_after_use'          => __('Von dieser Baugruppe ist schon etwas verbraucht; die Position kommt nur noch über eine Nachbuchung dazu.', 'taxmod-manufacturing'),
             'no_step_back'             => __('Zurück geht nur, solange noch nichts bestückt ist; danach über «Storno».', 'taxmod-manufacturing'),
