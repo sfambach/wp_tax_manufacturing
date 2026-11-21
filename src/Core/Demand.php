@@ -56,7 +56,7 @@ final class Demand
                 $rows[]   = self::row($position['id'], $position['thing'], $position['count'], $unused ? 0.0 : $position['count'] * $pieces, $boards, $unused ? 0 : $done, $optional, $unused, $left);
             }
 
-            // D-1572: the bare board is its own material pointing at the revision; until it has one, the revision (D-1388).
+            // D-1572: the bare board is its own material pointing at the revision; the revision itself only for the transition.
             array_unshift($rows, self::row(0, $assembly->boardThing(), 1.0, (float) $pieces, $most, $done, false, false, $left));
             $out[$assembly->id] = $rows;
         }
