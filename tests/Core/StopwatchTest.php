@@ -103,12 +103,11 @@ final class StopwatchTest extends TestCase
         self::assertSame(0.0, $read(502, [501 => 4530.0]));
     }
 
-    /** Feldkatalog 21.11.: once the field is a duration the stopwatch writes a new part in seconds. */
-    public function testStopWritesADurationOnceTheFieldIsOne(): void
+    /** Feldkatalog 21.11.: once the field is a duration the stop only ends the run; the modeller writes the time (putAmount). */
+    public function testStopLeavesADurationToTheModeller(): void
     {
-        $s     = Structure::fromArray(['fields' => ['order_worked' => 80, 'order_running' => 81, 'unit_amount' => 90, 'unit_unit' => 91], 'values' => ['unit_second' => 4040]]);
-        $watch = new Stopwatch($s, true);
+        $changes = (new Stopwatch(Structure::fromArray(['fields' => ['order_worked' => 80, 'order_running' => 81]]), true))->stop($this->order('order_building', 30.0, '2026-11-19 06:00:00'), '2026-11-19 06:45:30');
 
-        self::assertSame(['80' => ['neu' => ['90' => '4530', '91' => '4040']], '81' => ''], $watch->stop($this->order('order_building', 30.0, '2026-11-19 06:00:00'), '2026-11-19 06:45:30')[0]['values']);
+        self::assertSame(['81' => ''], $changes[0]['values']);
     }
 }

@@ -82,6 +82,13 @@ final class ModelGateway
         return $fields === [] || ! method_exists($this->door, 'amountFields') ? [] : array_map('intval', $this->ask(fn (): array => $this->door->amountFields($fields)));
     }
 
+    /** Feldkatalog 21.11.: a number in its base unit (a time in seconds) into a unit-value field; the modeller builds the part. */
+    public function putAmount(int $record, int $field, float $base): void
+    {
+        $this->tables = [];
+        $this->ask(fn (): array => [$this->door->putAmount($record, $field, $base)]);
+    }
+
     /**
      * Feldkatalog 21.11.: the unit values of these fields in their base unit (a time in seconds), converted by the modeller;
      * an empty field or an old plain number is missing here and read as before.

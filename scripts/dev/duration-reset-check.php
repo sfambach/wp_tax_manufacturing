@@ -1,7 +1,7 @@
 <?php declare(strict_types=1);
 /**
- * Feldkatalog 21.11. (Prüftor 22:18): once «Erfasste Zeit» is a duration, the stopwatch's stop writes a unit value part and
- * the reset after a completion writes '' — this check proves the reset really empties the field in the model.
+ * Feldkatalog 21.11. (Prüftor 22:18): once «Erfasste Zeit» is a duration it holds a unit value part (the modeller writes it,
+ * ModelDoor::putAmount); the reset after a completion writes '' — this check proves the reset really empties the field.
  *
  *     php scripts/dev/duration-reset-check.php [path/to/wordpress]
  *
@@ -50,14 +50,15 @@ if (! isset($refs['zeit'], $refs['seit'], $refs['satz'])) {
     exit(1);
 }
 
-$s     = Structure::fromArray(['fields' => ['order_worked' => (int) $refs['zeit'], 'order_running' => (int) $refs['seit'], 'unit_amount' => 4234, 'unit_unit' => 4236], 'values' => ['unit_second' => 4040]]);
+$s     = Structure::fromArray(['fields' => ['order_worked' => (int) $refs['zeit'], 'order_running' => (int) $refs['seit']]]);
 $watch = new Stopwatch($s, true);
 $order = static fn (float $worked, ?string $since): BuildOrder => new BuildOrder((int) $refs['satz'], 'A', 1, 1, 'order_building', null, null, null, [new Assembly(1, 1, [], [])], '', null, false, '', $worked, $since);
 $zeit  = static fn (): array => (new ModelDoor())->valuesOf([(int) $refs['satz']])[(int) $refs['satz']][(int) $refs['zeit']] ?? [];
 
-$apply($watch->stop($order(30.0, '2026-11-21 06:00:00'), '2026-11-21 06:45:30'));
+// The part as the modeller's putAmount leaves it: a number in the unit value (4234 «Betrag»).
+$apply([['op' => 'set_values', 'record' => (string) $refs['satz'], 'values' => [(string) $refs['zeit'] => ['neu' => ['4234' => '4530']]]]]);
 $teil = (int) ($zeit()[0] ?? 0);
-$pruefe($teil > 0 && (new ModelDoor())->valuesOf([$teil])[$teil][4234][0] === '4530', 'stop writes a duration part of 4530 seconds');
+$pruefe($teil > 0 && ((new ModelDoor())->valuesOf([$teil])[$teil][4234][0] ?? '') === '4530', 'the field holds a duration part of 4530');
 
 $apply($watch->reset($order(75.5, null)));
 $pruefe($zeit() === [], 'reset empties the unit value part — the field holds nothing afterwards');

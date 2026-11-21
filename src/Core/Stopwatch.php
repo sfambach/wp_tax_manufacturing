@@ -76,23 +76,10 @@ final class Stopwatch
             throw ManufacturingError::unknownStatus('timer_stop');
         }
 
-        return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => [
-            (string) $this->s->field('order_worked')  => $this->worked(self::minutes($order, $now)),
-            (string) $this->s->field('order_running') => '',
-        ]]];
-    }
+        // Feldkatalog 21.11.: a duration is written by the modeller (ModelDoor::putAmount, in the same act), not built here.
+        $worked = $this->asDuration ? [] : [(string) $this->s->field('order_worked') => self::number(self::minutes($order, $now))];
 
-    /** @return string|array<string, array<string, string>> the plain minutes, or a new duration part in seconds */
-    private function worked(float $minutes): string|array
-    {
-        if (! $this->asDuration) {
-            return self::number($minutes);
-        }
-
-        return ['neu' => [
-            (string) $this->s->field('unit_amount') => self::number($minutes * 60),
-            (string) $this->s->field('unit_unit')   => (string) $this->s->value('unit_second'),
-        ]];
+        return [['op' => 'set_values', 'record' => (string) $order->id, 'values' => $worked + [(string) $this->s->field('order_running') => '']]];
     }
 
     /**
