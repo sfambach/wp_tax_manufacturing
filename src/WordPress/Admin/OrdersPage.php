@@ -819,8 +819,9 @@ final class OrdersPage
                 esc_html__('Der Auftrag kommt zurück in «Offen», mit dem Stand seiner Stücke.', 'taxmod-manufacturing'));
         }
 
+        // Prüftor 21.11. (a): «Abbrechen» asks first, opened by the standard delete icon.
         return $buttons . $this->dialogForm('cancel', $order, __('Abbrechen', 'taxmod-manufacturing'), __('Abbrechen', 'taxmod-manufacturing'),
-            esc_html__('Nichts wird gelöscht; «Wieder aufnehmen» holt ihn zurück.', 'taxmod-manufacturing'));
+            esc_html__('Nichts wird gelöscht; «Wieder aufnehmen» holt ihn zurück.', 'taxmod-manufacturing'), ListPage::ICON_DELETE);
     }
 
     /**
@@ -1208,12 +1209,12 @@ final class OrdersPage
             . '<p class="description">' . esc_html__('Der Bauplan funktioniert nicht. Die Revision gilt dann als «Nicht bestätigt». Ein einzelnes Stück, das nicht geht, ist Ausschuss: «Verschrotten» unter Positionen. «Wieder aufnehmen» nimmt es zurück.', 'taxmod-manufacturing'));
     }
 
-    private function dialogForm(string $do, BuildOrder $order, string $opener, string $title, string $body): string
+    private function dialogForm(string $do, BuildOrder $order, string $opener, string $title, string $body, string $icon = ''): string
     {
         return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => absint($_GET['auftrag'] ?? 0) === $order->id ? 'detail' : ''])
             // D-1436: the title is the verb, and the order it acts on.
-            . ListPage::dialogAction('taxmod-mf-' . $do . '-' . $order->id, $opener, sprintf(__('%1$s: %2$s', 'taxmod-manufacturing'), $title, $order->label), '<p>' . $body . '</p>', 'do', $do, $opener)
+            . ListPage::dialogAction('taxmod-mf-' . $do . '-' . $order->id, $opener, sprintf(__('%1$s: %2$s', 'taxmod-manufacturing'), $title, $order->label), '<p>' . $body . '</p>', 'do', $do, $opener, '', $icon)
             . '</form>';
     }
 
@@ -1248,7 +1249,7 @@ final class OrdersPage
             'readded'   => __('Position wieder hinzugefügt.', 'taxmod-manufacturing'),
             'stepped_back' => __('Einen Schritt zurück.', 'taxmod-manufacturing'),
             'stepped'      => __('Die gewählten Aufträge sind weitergestellt.', 'taxmod-manufacturing'),
-            'stepped_short' => __('Aufträge mit Fehlteilen sind nicht in Bau gegangen: jeden einzeln mit Grund in Bau geben.', 'taxmod-manufacturing'),
+            'stepped_short' => __('Mit Fehlteilen nicht in Bau gegangen, bitte einzeln mit Grund in Bau geben:', 'taxmod-manufacturing'),
             'reordered' => __('Fehlendes als Bedarf im Einkauf angelegt.', 'taxmod-manufacturing'),
             'nothing_missing' => __('Es fehlt nichts, was nirgends am Lager liegt.', 'taxmod-manufacturing'),
             'picked'    => __('Abgehakte Teile ins Gebinde umgebucht.', 'taxmod-manufacturing'),
@@ -1296,6 +1297,16 @@ final class OrdersPage
             $url   = $this->service->stockUrl($made);
             $tail  = ' ' . esc_html($names === [] ? __('Systeme: keine im Bauplan.', 'taxmod-manufacturing') : sprintf(__('Systeme übernommen: %s.', 'taxmod-manufacturing'), implode(', ', $names)))
                 . ($url === null ? '' : ' <a href="' . esc_url($url) . '">' . esc_html__('Neues Material öffnen', 'taxmod-manufacturing') . '</a>');
+        }
+
+        // Prüftor 21.11. (b): the orders a bulk «In Bau» left standing, each linked to its own page, where it is given its reason.
+        $short = array_filter(array_map('absint', explode(',', (string) ($_GET['short'] ?? ''))));
+
+        if ($short !== []) {
+            $names = array_map(fn (BuildOrder $o): string => '<a href="' . esc_url($this->url(['auftrag' => $o->id, 'tab' => $o->step])) . '">' . esc_html($o->label) . '</a>',
+                array_values(array_filter($this->service->orders(), static fn (BuildOrder $o): bool => in_array($o->id, $short, true))));
+
+            return '<div class="notice notice-warning"><p>' . esc_html($text) . ' ' . implode(', ', $names) . '</p></div>';
         }
 
         return $text === '' ? '' : '<div class="notice notice-success"><p>' . esc_html($text) . $tail . '</p></div>';

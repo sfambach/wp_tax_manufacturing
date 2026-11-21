@@ -81,7 +81,7 @@ final class OrderActions
 
                 $back['msg'] = $action === OrdersPage::BULK_CANCEL ? 'cancelled' : 'reopened';
             } elseif (in_array($action, OrdersPage::STEPPING, true)) {
-                $back['msg'] = $this->stepBulk($action, array_values(array_filter(array_map('absint', (array) ($_POST['selected'] ?? [])))), $today);
+                $back['msg'] = $this->stepBulk($action, array_values(array_filter(array_map('absint', (array) ($_POST['selected'] ?? [])))), $today, $back);
             } elseif ($action === OrdersPage::BULK_PICK || $action === OrdersPage::BULK_RESERVE) {
                 $back['msg'] = $this->pick(absint($_POST['order'] ?? 0), $today, $back, $action === OrdersPage::BULK_RESERVE);
             } elseif (in_array($action, OrdersPage::FITTING, true)) {
@@ -679,8 +679,9 @@ final class OrderActions
      * «Bau» only those with nothing missing — the others need their reason, one by one (D-1301).
      *
      * @param list<int> $selected
+     * @param array<string, string|int> $back
      */
-    private function stepBulk(string $action, array $selected, string $today): string
+    private function stepBulk(string $action, array $selected, string $today, array &$back): string
     {
         $all    = $this->service->orders();
         $from   = $action === OrdersPage::BULK_BACK ? ['order_staging'] : ($action === OrdersPage::BULK_STAGING ? ['order_planned'] : ['order_planned', 'order_staging']);
@@ -701,7 +702,13 @@ final class OrderActions
             };
         }
 
-        return $short === [] ? 'stepped' : 'stepped_short';
+        if ($short === []) {
+            return 'stepped';
+        }
+
+        $back['short'] = implode(',', array_map(static fn (BuildOrder $o): int => $o->id, $short));
+
+        return 'stepped_short';
     }
 
     /** Back to «Planung»: the order's reservations are given free; the box keeps what was moved (D-1384). */
