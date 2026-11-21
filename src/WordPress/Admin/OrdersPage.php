@@ -188,7 +188,9 @@ final class OrdersPage
         $html .= $this->chooseBoards()
             . ListPage::steps($steps, $tab, fn (string $slug): string => $this->url(['tab' => $slug]), $beside, ['all', __('Alle', 'taxmod-manufacturing'), count($orders)])
             . ListPage::bulkBar(self::FORM, self::NONCE, $this->bulkChoices($tab),
-                sprintf(_n('%d Auftrag', '%d Aufträge', count($shown), 'taxmod-manufacturing'), count($shown)), '<div class="alignleft actions taxmod-list-buttons">' . $this->createAction() . '</div>');
+                sprintf(_n('%d Auftrag', '%d Aufträge', count($shown), 'taxmod-manufacturing'), count($shown)), '<div class="alignleft actions taxmod-list-buttons">' . $this->createAction() . '</div>',
+                // Live check 21.11. C3: the rows no longer open (Stefan 21.11. 10:32 «aufklappen weg»), so «Expand all» went with them (D-1183).
+                false);
 
         if ($tab === 'boxes') {
             return $html . $this->boxList($orders, $boxes);
@@ -345,8 +347,7 @@ final class OrdersPage
         $actions[] = $order->isClosed()
             ? $this->dialogForm('reopen', $order, __('Wieder aufnehmen', 'taxmod-manufacturing'), __('Wieder aufnehmen', 'taxmod-manufacturing'),
                 esc_html__('Der Auftrag kommt zurück, mit dem Stand seiner Stücke.', 'taxmod-manufacturing'))
-            : $this->dialogForm('cancel', $order, __('Abbrechen', 'taxmod-manufacturing'), __('Abbrechen', 'taxmod-manufacturing'),
-                esc_html__('Nichts wird gelöscht; «Wieder aufnehmen» holt ihn zurück.', 'taxmod-manufacturing'));
+            : $this->cancelDialog($order, '');
 
         $sections = [];
         // His word 2026-11-15: taking parts out belongs to «Bereitstellung», not to «Angelegt» (without that stage in the model it stays at «Angelegt»).
@@ -844,8 +845,7 @@ final class OrdersPage
         }
 
         // Prüftor 21.11. (a): «Abbrechen» asks first, opened by the standard delete icon.
-        return $buttons . $this->dialogForm('cancel', $order, __('Abbrechen', 'taxmod-manufacturing'), __('Abbrechen', 'taxmod-manufacturing'),
-            esc_html__('Nichts wird gelöscht; «Wieder aufnehmen» holt ihn zurück.', 'taxmod-manufacturing'), ListPage::ICON_DELETE);
+        return $buttons . $this->cancelDialog($order, ListPage::ICON_DELETE);
     }
 
     /**
@@ -1233,12 +1233,24 @@ final class OrdersPage
             . '<p class="description">' . esc_html__('Der Bauplan funktioniert nicht. Die Revision gilt dann als «Nicht bestätigt». Ein einzelnes Stück, das nicht geht, ist Ausschuss: «Verschrotten» unter Positionen. «Wieder aufnehmen» nimmt es zurück.', 'taxmod-manufacturing'));
     }
 
-    private function dialogForm(string $do, BuildOrder $order, string $opener, string $title, string $body, string $icon = ''): string
+    /**
+     * ⚠️ *Prüftor 21.11., live check C1: the dialog had two buttons «Abbrechen», and the one that cancels the order held the
+     * focus. Now «Zurück» is primary and focused, «Auftrag abbrechen» says what it does.*
+     */
+    private function cancelDialog(BuildOrder $order, string $icon): string
+    {
+        return $this->dialogForm('cancel', $order, __('Abbrechen', 'taxmod-manufacturing'), __('Abbrechen', 'taxmod-manufacturing'),
+            esc_html__('Nichts wird gelöscht; «Wieder aufnehmen» holt ihn zurück.', 'taxmod-manufacturing'), $icon,
+            __('Auftrag abbrechen', 'taxmod-manufacturing'), __('Zurück', 'taxmod-manufacturing'));
+    }
+
+    private function dialogForm(string $do, BuildOrder $order, string $opener, string $title, string $body, string $icon = '', string $submit = '', string $back = ''): string
     {
         return '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="taxmod-mf-inline">' . wp_nonce_field(self::NONCE, '_wpnonce', true, false)
             . $this->hidden(['action' => self::ACTION, 'order' => (string) $order->id, 'tab' => $this->tab(), 'view' => absint($_GET['auftrag'] ?? 0) === $order->id ? 'detail' : ''])
             // D-1436: the title is the verb, and the order it acts on.
-            . ListPage::dialogAction('taxmod-mf-' . $do . '-' . $order->id, $opener, sprintf(__('%1$s: %2$s', 'taxmod-manufacturing'), $title, $order->label), '<p>' . $body . '</p>', 'do', $do, $opener, '', $icon)
+            . ListPage::dialogAction('taxmod-mf-' . $do . '-' . $order->id, $opener, sprintf(__('%1$s: %2$s', 'taxmod-manufacturing'), $title, $order->label), '<p>' . $body . '</p>', 'do', $do,
+                $submit === '' ? $opener : $submit, '', $icon, back: $back)
             . '</form>';
     }
 
