@@ -19,13 +19,16 @@ final class BuildOrders
     {
     }
 
-    /** @return list<BuildOrder> newest first */
-    public function all(Table $orders, Table $assemblies, Table $fittings): array
+    /**
+     * @param array<int, int> $bareBoards D-1572: revision → its bare board material
+     * @return list<BuildOrder> newest first
+     */
+    public function all(Table $orders, Table $assemblies, Table $fittings, array $bareBoards = []): array
     {
         $out = [];
 
         foreach ($orders->ids() as $id) {
-            $out[] = $this->one($id, $orders, $assemblies, $fittings);
+            $out[] = $this->one($id, $orders, $assemblies, $fittings, $bareBoards);
         }
 
         usort($out, static fn (BuildOrder $a, BuildOrder $b): int => $b->id <=> $a->id);
@@ -33,7 +36,8 @@ final class BuildOrders
         return $out;
     }
 
-    public function one(int $id, Table $orders, Table $assemblies, Table $fittings): BuildOrder
+    /** @param array<int, int> $bareBoards D-1572: revision → its bare board material */
+    public function one(int $id, Table $orders, Table $assemblies, Table $fittings, array $bareBoards = []): BuildOrder
     {
         $s = $this->s;
 
@@ -56,14 +60,16 @@ final class BuildOrders
                 }
             }
 
-            $parts[] = new Assembly(
+            $revision = (int) $assemblies->first($part, $s->field('assembly_revision'));
+            $parts[]  = new Assembly(
                 $part,
-                (int) $assemblies->first($part, $s->field('assembly_revision')),
+                $revision,
                 $fitted,
                 array_map('intval', $assemblies->all($part, $s->field('assembly_unused'))),
                 $count($assemblies, $part, 'assembly_tested'),
                 $count($assemblies, $part, 'assembly_done'),
                 $s->hasField('assembly_note') ? (string) ($assemblies->first($part, $s->field('assembly_note')) ?? '') : '',
+                $bareBoards[$revision] ?? 0,
             );
         }
 

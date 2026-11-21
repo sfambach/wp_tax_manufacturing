@@ -56,8 +56,8 @@ final class Demand
                 $rows[]   = self::row($position['id'], $position['thing'], $position['count'], $unused ? 0.0 : $position['count'] * $pieces, $boards, $unused ? 0 : $done, $optional, $unused, $left);
             }
 
-            // D-1388: the bare board is the revision record — what was bought is a version, and a fact has one place.
-            array_unshift($rows, self::row(0, $assembly->revision, 1.0, (float) $pieces, $most, $done, false, false, $left));
+            // D-1572: the bare board is its own material pointing at the revision; until it has one, the revision (D-1388).
+            array_unshift($rows, self::row(0, $assembly->boardThing(), 1.0, (float) $pieces, $most, $done, false, false, $left));
             $out[$assembly->id] = $rows;
         }
 
@@ -293,7 +293,7 @@ final class Demand
 
     /**
      * D-1302 «erst bei fertig»: what finishing `$made` more boards takes out of the box and the order's reservations — each
-     * used position × its count, and the bare board (the revision record, D-1388); negative gives back. A left-out position
+     * used position × its count, and the bare board ({@see Assembly::boardThing()}, D-1572); negative gives back. A left-out position
      * and one not fitted at all («no») take nothing.
      *
      * @param list<array{id: int, thing: int, count: float, fitting: string}> $positions of the assembly's revision
@@ -316,7 +316,7 @@ final class Demand
             $out[$position['thing']] = ($out[$position['thing']] ?? 0.0) + $made * $position['count'];
         }
 
-        $out[$assembly->revision] = ($out[$assembly->revision] ?? 0.0) + $made;
+        $out[$assembly->boardThing()] = ($out[$assembly->boardThing()] ?? 0.0) + $made;
 
         return array_filter($out, static fn (float $n): bool => $n !== 0.0);
     }

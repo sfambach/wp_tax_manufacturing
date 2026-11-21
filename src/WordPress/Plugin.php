@@ -67,6 +67,9 @@ final class Plugin
         // D-1483, Stefan 21.11. 15:08 «das Auge … sollte zum fachlichen Ziel springen»: a build order's link opens its own page.
         add_filter('taxmod_record_home', [self::class, 'recordHome'], 10, 3);
 
+        // D-1572: «Platinenmaterial erzeugen» at a board revision.
+        Admin\BareBoardPage::boot();
+
         // D-1463: a revision's status, derived from its orders when asked — for the post blocks (D-1466) and other modules.
         add_filter(self::REVISION_STATUS_FILTER, static fn (mixed $given, mixed $revisions): array => (new ManufacturingService())->revisionStatuses(array_values(array_filter(array_map('intval', (array) $revisions)))), 10, 2);
 

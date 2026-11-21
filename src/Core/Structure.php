@@ -37,7 +37,8 @@ final class Structure
 
     // D-1143: the assembled board as a material of its own, one record per revision.
     // D-1261: the hardware branch, whose groups (Sparten) hold the assembled boards.
-    private const OPTIONAL_NODES = ['location', 'assembled', 'lager', 'hardware', 'check_step', 'systems'];
+    // D-1572: «Platinen», the bare boards as material, each pointing at its revision.
+    private const OPTIONAL_NODES = ['location', 'assembled', 'lager', 'hardware', 'check_step', 'systems', 'bare_board'];
 
     private const OPTIONAL_FIELDS = ['order_shortage_reason', 'order_box', 'order_started', 'order_finished', 'order_note', 'assembly_note', 'assembly_tested', 'assembly_done',
         // D-1464: the assembly's own status falls away with «Fehlgeschlagen» at the order (Teil 1b, A1 removes the field).
@@ -57,7 +58,9 @@ final class Structure
         // D-1428: the art of an order and of its result material — «Bestücken» or «Kit».
         'order_art', 'assembled_art',
         // D-1475: the order's stopwatch — the minutes summed and since when it runs.
-        'order_worked', 'order_running'];
+        'order_worked', 'order_running',
+        // D-1572: the bare board's revision («für Revision») and the pictures, which «Platinenmaterial erzeugen» takes over.
+        'bare_board_revision', 'images'];
 
     /** D-954: the «Best.» values that matter here — «optional» may be left out, «nein» is never needed. */
     private const OPTIONAL_VALUES = ['fitting_optional', 'fitting_no', 'fitting_external', 'order_staging', 'order_test', 'art_fitting', 'art_kit', 'order_failed'];

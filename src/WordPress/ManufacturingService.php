@@ -62,12 +62,104 @@ final class ManufacturingService
     /** @return list<BuildOrder> */
     public function orders(): array
     {
-        return (new BuildOrders($this->structure()))->all($this->table('order'), $this->table('assembly'), $this->table('fitting'));
+        return (new BuildOrders($this->structure()))->all($this->table('order'), $this->table('assembly'), $this->table('fitting'), $this->bareBoards());
     }
 
     public function order(int $id): BuildOrder
     {
-        return (new BuildOrders($this->structure()))->one($id, $this->table('order'), $this->table('assembly'), $this->table('fitting'));
+        return (new BuildOrders($this->structure()))->one($id, $this->table('order'), $this->table('assembly'), $this->table('fitting'), $this->bareBoards());
+    }
+
+    /**
+     * D-1572: every bare board material with the revision it is made for, read once (CD-7); empty until the model has
+     * «Platinen» and «für Revision» — then the revision itself stays the bare board (D-1388). A second board for the same
+     * revision is not taken: the relation is 1:1, the first one counts.
+     *
+     * @return array<int, int> revision → bare board
+     */
+    public function bareBoards(): array
+    {
+        $s = $this->structure();
+
+        if (! $s->hasNode('bare_board') || ! $s->hasField('bare_board_revision')) {
+            return [];
+        }
+
+        $boards = $this->table('bare_board');
+        $out    = [];
+
+        foreach ($boards->ids() as $board) {
+            $revision = (int) ($boards->first($board, $s->field('bare_board_revision')) ?? 0);
+
+            if ($revision > 0 && ! isset($out[$revision])) {
+                $out[$revision] = $board;
+            }
+        }
+
+        return $out;
+    }
+
+    /** D-1572, his word 21.11. 19:25: «aus einer Revision dann ein Platinenmaterial generieren» — possible once the model has both. */
+    public function canMakeBareBoard(): bool
+    {
+        $s = $this->structure();
+
+        return $s->hasNode('bare_board') && $s->hasField('bare_board_revision') && $s->hasNode('board_revision') && has_filter(self::CREATE_THING_FILTER);
+    }
+
+    /**
+     * D-1572: the bare board material of a revision — the one there is, else a new one in «Platinen» named like the revision,
+     * pointing at it, with its pictures. One act (D-1407), so it is undone in one step.
+     *
+     * @return int the bare board's record id
+     */
+    public function makeBareBoard(int $revision): int
+    {
+        $s = $this->structure();
+
+        if (! $this->canMakeBareBoard()) {
+            throw ManufacturingError::notConfigured('bare_board_revision');
+        }
+
+        if (! $this->table('board_revision')->has($revision)) {
+            throw ManufacturingError::notARevision($revision);
+        }
+
+        $have = $this->bareBoards()[$revision] ?? 0;
+
+        if ($have > 0) {
+            return $have;
+        }
+
+        $make = function () use ($s, $revision): int {
+            $name   = $this->labelsOf([$revision])[$revision] ?? '#' . $revision;
+            $answer = apply_filters(self::CREATE_THING_FILTER, null, ['name' => $name, 'group' => $s->node('bare_board')]);
+
+            if (is_wp_error($answer) || ! is_int($answer)) {
+                throw ManufacturingError::stockRefused(is_wp_error($answer) ? $answer->get_error_message() : __('Das Lager hat kein Material angelegt.', 'taxmod-manufacturing'));
+            }
+
+            $values = [(string) $s->field('bare_board_revision') => (string) $revision];
+
+            // His word 21.11. 19:31: pictures at both — taken over once; afterwards each keeps its own.
+            if ($s->hasField('images')) {
+                $images = array_values(array_map('strval', $this->table('board_revision')->all($revision, $s->field('images'))));
+
+                if ($images !== []) {
+                    $values[(string) $s->field('images')] = ['values' => $images];
+                }
+            }
+
+            $this->model->write([['op' => 'set_values', 'record' => $answer, 'values' => $values]]);
+
+            return $answer;
+        };
+
+        if (! method_exists(\Taxmod\WordPress\ModelDoor::class, 'inAct')) {
+            return $make();
+        }
+
+        return (int) (\Taxmod\WordPress\ModelDoor::inAct($make)['result'] ?? 0);
     }
 
     /**
@@ -578,7 +670,7 @@ final class ManufacturingService
         }
 
         $things = array_column($this->assignedLists($built, $this->partsLists([$part->revision]))[$part->revision] ?? [], 'thing', 'id');
-        $things[0] = $part->revision;
+        $things[0] = $part->boardThing();
         $lines  = [];
 
         foreach ($pieces as $position => $n) {

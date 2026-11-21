@@ -35,16 +35,17 @@ final class BuildOrder
      * Stefan 21.11. 10:34: the order as it would be with these plans — the assemblies of a plan it keeps, an empty one with a
      * negative id for a plan it gains. A preview, never stored.
      *
-     * @param list<int> $revisions
+     * @param list<int>       $revisions
+     * @param array<int, int> $bareBoards D-1572: revision → its bare board material
      */
-    public function withRevisions(array $revisions): self
+    public function withRevisions(array $revisions, array $bareBoards = []): self
     {
         $kept = [];
         $new  = 0;
 
         foreach (array_values(array_unique(array_filter($revisions, static fn (int $r): bool => $r > 0))) as $revision) {
             $own    = array_values(array_filter($this->assemblies, static fn (Assembly $a): bool => $a->revision === $revision));
-            $kept[] = $own[0] ?? new Assembly(--$new, $revision, [], []);
+            $kept[] = $own[0] ?? new Assembly(--$new, $revision, [], [], 0, 0, '', $bareBoards[$revision] ?? 0);
         }
 
         return new self($this->id, $this->label, $this->project, $this->count, $this->step, $this->box, $this->started, $this->finished, $kept,

@@ -168,6 +168,12 @@ final class ManufacturingError extends \RuntimeException
         return new self('sparte_needed', (string) $revision);
     }
 
+    /** D-1572: «Platinenmaterial erzeugen» on a record that is no board revision. */
+    public static function notARevision(int $record): self
+    {
+        return new self('not_a_revision', (string) $record);
+    }
+
     public static function stockRefused(string $message): self
     {
         return new self('stock_refused', $message);
