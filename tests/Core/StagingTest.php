@@ -57,7 +57,22 @@ final class StagingTest extends TestCase
         $nodes = [45559 => 7, 60843 => 7, 45842 => 9, 43907 => 7];
         $box   = [60843 => 5.0, 45842 => 20.0, 43907 => 2.0];
 
-        self::assertSame([45559 => [60843 => 5.0]], Staging::substitutes([45559 => 1.0, 45842 => 0.0], $nodes, $box, [45559, 45842, 43907]));
+        $alike = Staging::candidates([45559 => 1.0, 45842 => 0.0], $nodes, $box, [45559, 45842, 43907]);
+
+        self::assertSame([45559 => [60843]], $alike);
+        self::assertSame([45559 => [60843 => 5.0]], Staging::substitutes([45559 => 1.0, 45842 => 0.0], $nodes, $box, [45559, 45842, 43907], $alike));
+    }
+
+    /** D-1540, Stefan 21.11.: a stand-in needs the same key values of its category; a candidate the model rejects is not offered. */
+    public function testOnlyCandidatesWithTheSameKeyValuesStandIn(): void
+    {
+        $nodes = [45559 => 7, 60843 => 7, 60844 => 7];
+        $box   = [60843 => 5.0, 60844 => 8.0];
+        $free  = [7 => [60843 => 5.0, 60844 => 8.0]];
+
+        self::assertSame([45559 => [60844 => 8.0]], Staging::substitutes([45559 => 1.0], $nodes, $box, [45559], [45559 => [60844]]));
+        self::assertSame([], Staging::substitutes([45559 => 1.0], $nodes, $box, [45559], []));
+        self::assertSame([45559 => [60843]], Staging::standIns([45559 => 1.0], [45559 => 7], $free, [45559], [45559 => [60843]]));
     }
 
     /** D-1539: stand-ins in the stock come from the node of the missing material, the most first, the order's own left out. */
@@ -66,8 +81,10 @@ final class StagingTest extends TestCase
         $nodes = [45559 => 7];
         $free  = [7 => [60843 => 5.0, 45559 => 3.0, 70001 => 40.0, 70002 => 0.0, 45842 => 9.0]];
 
-        self::assertSame([45559 => [70001, 60843]], Staging::standIns([45559 => 1.0], $nodes, $free, [45559, 45842]));
-        self::assertSame([45559 => [70001]], Staging::standIns([45559 => 1.0], $nodes, $free, [45559, 45842], 1));
+        $alike = [45559 => [60843, 70001, 70002]];
+
+        self::assertSame([45559 => [70001, 60843]], Staging::standIns([45559 => 1.0], $nodes, $free, [45559, 45842], $alike));
+        self::assertSame([45559 => [70001]], Staging::standIns([45559 => 1.0], $nodes, $free, [45559, 45842], $alike, 1));
     }
 
     /** A reservation whose lot lies in the box is counted once, as in the box. */
