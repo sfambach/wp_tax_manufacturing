@@ -72,7 +72,7 @@ final class ManufacturingService
 
     /**
      * D-1572: every bare board material with the revision it is made for, read once (CD-7); empty until the model has
-     * «Platinen» and «für Revision» — then the revision itself stays the bare board (D-1388). A second board for the same
+     * «Platinen» and «für Revision» — then no assembly has a bare board (step 3: the revision itself is no material). A second board for the same
      * revision is not taken: the relation is 1:1, the first one counts.
      *
      * @return array<int, int> revision → bare board

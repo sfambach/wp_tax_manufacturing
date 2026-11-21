@@ -12,12 +12,13 @@ final class StagingTest extends TestCase
 {
     private const BOX      = 85697;
     private const PLATINEN = 500;
-    private const BOARD    = 85710;
+    private const REVISION = 85710;
+    private const BOARD    = 88072;
 
     /** His ISA-Riser 16.11.: 8 boards, 5 in the box, 3 reserved at «Platinen» — nothing is missing, and the line says why. */
     public function testBoxAndReservationCoverTheNeed(): void
     {
-        $assembly     = new Assembly(1, self::BOARD, [], []);
+        $assembly     = new Assembly(1, self::REVISION, [], [], bareBoard: self::BOARD);
         $reservations = [['line' => 11, 'thing' => self::BOARD, 'quantity' => 3.0, 'places' => [self::PLATINEN => 3.0], 'position' => 0]];
         $box          = [self::BOARD => 5.0];
         $demand       = Demand::of([$assembly], [], 8, Staging::available($box, $reservations, self::BOX));
@@ -32,7 +33,7 @@ final class StagingTest extends TestCase
     /** Without the reservation the three missing come from the largest stock: the proposal is 8 − 5 = 3. */
     public function testMissingIsNeedLessBox(): void
     {
-        $assembly = new Assembly(1, self::BOARD, [], []);
+        $assembly = new Assembly(1, self::REVISION, [], [], bareBoard: self::BOARD);
         $box      = [self::BOARD => 5.0];
         $demand   = Demand::of([$assembly], [], 8, Staging::available($box, [], self::BOX));
         $lines    = Staging::lines($demand, $box, [], [self::BOARD => [self::PLATINEN => 15.0]], self::BOX);
@@ -44,7 +45,7 @@ final class StagingTest extends TestCase
     /** Stefan 20.11. 20:56: every place with free pieces stands, each offering what is missing as far as it holds. */
     public function testEveryPlaceIsOffered(): void
     {
-        $assembly = new Assembly(1, self::BOARD, [], []);
+        $assembly = new Assembly(1, self::REVISION, [], [], bareBoard: self::BOARD);
         $demand   = Demand::of([$assembly], [], 1, Staging::available([], [], self::BOX));
         $lines    = Staging::lines($demand, [], [], [self::BOARD => [self::PLATINEN => 90.0, 85749 => 15.0]], self::BOX);
 
@@ -94,7 +95,7 @@ final class StagingTest extends TestCase
 
         self::assertSame([self::BOARD => 5.0], Staging::available([self::BOARD => 5.0], $reservations, self::BOX));
 
-        $demand = Demand::of([new Assembly(1, self::BOARD, [], [])], [], 8, Staging::available([self::BOARD => 5.0], $reservations, self::BOX));
+        $demand = Demand::of([new Assembly(1, self::REVISION, [], [], bareBoard: self::BOARD)], [], 8, Staging::available([self::BOARD => 5.0], $reservations, self::BOX));
         $lines  = Staging::lines($demand, [self::BOARD => 5.0], $reservations, [], self::BOX);
 
         self::assertSame([3.0, 0.0], [$lines[0]['missing'], $lines[0]['reserved']]);
@@ -104,7 +105,7 @@ final class StagingTest extends TestCase
     /** What is found nowhere reads «nicht zugewiesen» (D-1387). */
     public function testNothingAnywhereIsUnassigned(): void
     {
-        $demand = Demand::of([new Assembly(1, self::BOARD, [], [])], [], 2, []);
+        $demand = Demand::of([new Assembly(1, self::REVISION, [], [], bareBoard: self::BOARD)], [], 2, []);
         $lines  = Staging::lines($demand, [], [], [], self::BOX);
 
         self::assertSame([['none', null, 2.0]], array_map(static fn (array $s): array => [$s['kind'], $s['place'], $s['quantity']], $lines[0]['sources']));
