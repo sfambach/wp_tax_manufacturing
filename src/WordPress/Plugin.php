@@ -64,6 +64,9 @@ final class Plugin
             return $pages;
         });
 
+        // D-1483, Stefan 21.11. 15:08 «das Auge … sollte zum fachlichen Ziel springen»: a build order's link opens its own page.
+        add_filter('taxmod_record_home', [self::class, 'recordHome'], 10, 3);
+
         // D-1463: a revision's status, derived from its orders when asked — for the post blocks (D-1466) and other modules.
         add_filter(self::REVISION_STATUS_FILTER, static fn (mixed $given, mixed $revisions): array => (new ManufacturingService())->revisionStatuses(array_values(array_filter(array_map('intval', (array) $revisions)))), 10, 2);
 
@@ -116,5 +119,18 @@ final class Plugin
                 'setup'     => ['type' => 'number'],
             ]]],
         ]);
+    }
+
+    /** D-1483: `(?string $url, int $record, int $node)` — a build order's link opens the order, another module's answer stays. */
+    public static function recordHome(mixed $url, mixed $record, mixed $node): mixed
+    {
+        // mixed: a WordPress filter passes whatever the previous callback returned.
+        if (is_string($url) && $url !== '' || (int) $record <= 0) {
+            return $url;
+        }
+
+        $structure = (new ManufacturingService())->structure();
+
+        return $structure->hasNode('order') && $structure->node('order') === (int) $node ? (new OrdersPage())->url(['auftrag' => (int) $record]) : $url;
     }
 }
