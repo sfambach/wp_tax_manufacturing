@@ -636,7 +636,7 @@ final class ManufacturingService
      * Books the ticked cuts as one transaction at the stock module: the long strip used, the pieces into the box, the rest
      * back at its place, the loss per cut (D-1178, D9).
      *
-     * @param list<array{from: int, thing: int, pieces: float}> $cuts
+     * @param list<array{from: int, thing: int, pieces: int}> $cuts
      */
     public function bookCut(int $order, array $cuts, string $today): void
     {
