@@ -59,7 +59,8 @@
     "board_systems": 149000110512,
     "order_worked": 149000110513,
     "order_running": 149000110514,
-    "images": 149000108057
+    "images": 149000108057,
+    "bare_board_revision": 149000110605
   },
   "values": {
     "order_planned": 149000110324,
