@@ -244,7 +244,7 @@ final class StagingSection
      * @param array<int, int> $base position → material of the parts list
      * @return list<string>
      */
-    /** @var array<int, array<int, float>> thing → older order → pieces it took from the box */
+    /** @var array<int, array<int, float>> thing → other order → pieces it was given in the box (D-1582) */
     private array $takers = [];
 
     /** Stefan 22.11. (Atari): «davon 2 für Auftrag 68478» — why what lies in the box is not this order's. */
@@ -252,13 +252,13 @@ final class StagingSection
     {
         $parts = [];
 
-        foreach ($this->takers[$thing] ?? [] as $older => $pieces) {
+        foreach ($this->takers[$thing] ?? [] as $other => $pieces) {
             if ($pieces > 0.0) {
-                $parts[] = sprintf(__('%1$s für Auftrag %2$d', 'taxmod-manufacturing'), $this->count($pieces), $older);
+                $parts[] = sprintf(__('%1$s für Auftrag %2$d', 'taxmod-manufacturing'), $this->count($pieces), $other);
             }
         }
 
-        return $parts === [] ? '' : '<br><span class="description">' . esc_html(sprintf(__('im Gebinde, aber vergeben: %s', 'taxmod-manufacturing'), implode(', ', $parts))) . '</span>';
+        return $parts === [] ? '' : '<br><span class="description">' . esc_html(sprintf(__('im Gebinde, aber zugewiesen: %s', 'taxmod-manufacturing'), implode(', ', $parts))) . '</span>';
     }
 
     private function materialRow(BuildOrder $order, array $line, array $labels, array $refs, int $position, array $base): array

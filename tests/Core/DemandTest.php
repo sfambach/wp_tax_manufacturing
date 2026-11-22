@@ -170,33 +170,32 @@ final class DemandTest extends TestCase
         self::assertSame([2, 5], Demand::surplusReservations($demand, [305 => 1.0], $lines));
     }
 
-    public function testABoxServesItsOrdersOldestFirstAndOwnReservationsBeforeTheBox(): void
+    /** Stefan 22.11., card «Nur echte Zuweisungen»: the box is not split by age — what is not assigned is open to every order. */
+    public function testABoxIsNotSplitByAge(): void
     {
-        $older = new BuildOrder(10, 'A', 1, 2, 'order_staging', 70, null, null, [new Assembly(100, 300, [], [], 0, 0, bareBoard: 3000)]);
-        $newer = new BuildOrder(11, 'B', 1, 2, 'order_staging', 70, null, null, [new Assembly(101, 300, [], [], 0, 0, bareBoard: 3000)]);
-        $list  = [300 => [['id' => 1, 'thing' => 305, 'count' => 3.0, 'fitting' => '']]];
-        // 10 of 305 and 1 board in the box; the older order needs 6 and 2 boards, 1 of the 305 reserved for it elsewhere.
-        $shares = Demand::boxShares([$newer, $older], [10 => $list, 11 => $list], [10 => [305 => 1.0]], [70 => [305 => 10.0, 3000 => 1.0]]);
+        $older  = new BuildOrder(10, 'A', 1, 2, 'order_staging', 70, null, null, [new Assembly(100, 300, [], [], 0, 0, bareBoard: 3000)]);
+        $newer  = new BuildOrder(11, 'B', 1, 2, 'order_staging', 70, null, null, [new Assembly(101, 300, [], [], 0, 0, bareBoard: 3000)]);
+        $shares = Demand::boxShares([$newer, $older], [70 => [305 => 10.0, 3000 => 1.0]]);
 
         self::assertSame([305 => 10.0, 3000 => 1.0], $shares[10]);
-        self::assertSame([305 => 5.0, 3000 => 0.0], $shares[11]);
+        self::assertSame([305 => 10.0, 3000 => 1.0], $shares[11]);
+        self::assertSame([], Demand::boxTakers([$newer, $older]));
     }
 
-    /** D-1582, Stefan 22.11. (Atari, 3 strips, 3 orders): the newest order was given 2 in the box; the oldest gets the 1 left. */
+    /** D-1582, Stefan 22.11. (Atari, 3 strips, 3 orders): the newest order was given 2 in the box; the 1 left is open to the others. */
     public function testWhatAnOrderWasGivenInTheBoxIsItsOwn(): void
     {
         $order  = static fn (int $id): BuildOrder => new BuildOrder($id, 'A', 1, 1, 'order_staging', 70, null, null, [new Assembly($id * 10, 300, [], [])]);
-        $list   = [300 => [['id' => 1, 'thing' => 87436, 'count' => 2.0, 'fitting' => '']]];
-        $lists  = [10 => $list, 11 => $list, 12 => $list];
         $orders = [$order(10), $order(11), $order(12)];
         $given  = [12 => [87436 => 2.0]];
-        $shares = Demand::boxShares($orders, $lists, [], [70 => [87436 => 3.0]], $given);
+        $shares = Demand::boxShares($orders, [70 => [87436 => 3.0]], $given);
 
-        self::assertSame([87436 => 2.0], $shares[12]);
+        self::assertSame([87436 => 3.0], $shares[12]);
         self::assertSame([87436 => 1.0], $shares[10]);
-        self::assertSame([87436 => 0.0], $shares[11]);
-        self::assertSame([87436 => [12 => 2.0]], Demand::boxTakers($orders, $lists, [], [70 => [87436 => 3.0]], $given)[10]);
-        self::assertSame([87436 => [10 => 1.0, 12 => 2.0]], Demand::boxTakers($orders, $lists, [], [70 => [87436 => 3.0]], $given)[11]);
+        self::assertSame([87436 => 1.0], $shares[11]);
+        self::assertSame([87436 => [12 => 2.0]], Demand::boxTakers($orders, $given)[10]);
+        self::assertSame([87436 => [12 => 2.0]], Demand::boxTakers($orders, $given)[11]);
+        self::assertArrayNotHasKey(12, Demand::boxTakers($orders, $given));
     }
 
     public function testShortfallNamesWhatTheBoxLacksForAFinish(): void
