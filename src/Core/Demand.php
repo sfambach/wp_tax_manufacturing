@@ -161,7 +161,7 @@ final class Demand
      * @param list<BuildOrder> $orders
      * @param array<int, array<int, list<array{id: int, thing: int, count: float, fitting: string}>>> $lists order → revision → positions
      * @param array<int, array<int, float>> $reserved order → thing → pieces reserved for it
-     * D-NEU, Stefan 22.11. «der Auftrag, der kommt und dem ich das zuweise, der kriegt das auch»: what an order was given in
+     * D-1582, Stefan 22.11. «der Auftrag, der kommt und dem ich das zuweise, der kriegt das auch»: what an order was given in
      * the box (its reservation naming a lot there) is its own; only the rest is shared by age.
      *
      * @param array<int, array<int, float>> $present box → thing → pieces in it
@@ -181,7 +181,7 @@ final class Demand
      * @param array<int, array<int, list<array{id: int, thing: int, count: float, fitting: string}>>> $lists
      * @param array<int, array<int, float>> $reserved
      * @param array<int, array<int, float>> $present
-     * @param array<int, array<int, float>> $given D-NEU: order → thing → pieces of its box given to it
+     * @param array<int, array<int, float>> $given D-1582: order → thing → pieces of its box given to it
      * @return array<int, array<int, array<int, float>>> order → thing → other order → pieces: what older orders took, and what any other was given
      */
     public static function boxTakers(array $orders, array $lists, array $reserved, array $present, array $given = []): array

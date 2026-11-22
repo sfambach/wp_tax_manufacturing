@@ -468,7 +468,7 @@ final class ManufacturingService
     }
 
     /**
-     * D-NEU: what each order's reservation names inside its own box — given to it there, not shared by age.
+     * D-1582: what each order's reservation names inside its own box — given to it there, not shared by age.
      *
      * @param list<int> $orders
      * @param array<int, int|null> $boxes order → box
@@ -498,7 +498,7 @@ final class ManufacturingService
         return $out;
     }
 
-    /** D-NEU: the project a box belongs to, 0 for none. */
+    /** D-1582: the project a box belongs to, 0 for none. */
     public function projectOfBox(?int $box): int
     {
         return $box === null ? 0 : (int) ($this->projectBoxes()[$box]['project'] ?? 0);
@@ -681,7 +681,7 @@ final class ManufacturingService
             throw ManufacturingError::stockRefused(__('Das Lager bietet das Reservieren noch nicht an.', 'taxmod-manufacturing'));
         }
 
-        // D-NEU: the order's project, so the stock gives it what lies in that project's box.
+        // D-1582: the order's project, so the stock gives it what lies in that project's box.
         $answer = apply_filters(self::RESERVE_FILTER, null, ['subject' => $order, 'rows' => $rows, 'deadline' => '', 'date' => $today, 'title' => $built->label, 'project' => $this->projectOfBox($built->box)]);
         $this->reservationLines = [];
 
