@@ -211,7 +211,8 @@ final class OrdersPage
             $own[$order->id] = $this->service->assignedLists($order, $lists, $assigned[$order->id] ?? []);
         }
 
-        $shares = Demand::boxShares($related, $own, $reserved, $present);
+        $given  = $this->service->givenInBox($ids, array_combine($ids, array_map(static fn (BuildOrder $o): ?int => $o->box, $related)));
+        $shares = Demand::boxShares($related, $own, $reserved, $present, $given);
         $rows   = '';
         // His report 18.11. «3 Atari Card Reader … nicht ersichtlich, welcher es denn ist»: the board each order builds, read once.
         $made   = $this->boardNames(array_values(array_unique(array_merge([], ...array_map(static fn (BuildOrder $o): array => array_column($o->assemblies, 'revision'), $shown)))), $labels);
@@ -352,7 +353,7 @@ final class OrdersPage
         $sections = [];
         // His word 2026-11-15: taking parts out belongs to «Bereitstellung», not to «Angelegt» (without that stage in the model it stays at «Angelegt»).
         $picking  = $order->step === 'order_staging' || ($order->step === 'order_planned' && ! $staging) || $order->step === 'order_building';
-        $picks    = $picking ? (new StagingSection($this->service, self::NONCE, self::ACTION, $this->tab()))->render($order, $demand, $plain, $share, $held, $labels) : '';
+        $picks    = $picking ? (new StagingSection($this->service, self::NONCE, self::ACTION, $this->tab()))->render($order, $demand, $plain, $share, $held, $labels, $this->boxTakers($orders, $order)) : '';
 
         if ($picks !== '') {
             $sections[] = ['title' => __('Material bereitstellen', 'taxmod-manufacturing'), 'html' => $picks, 'open' => ! $started];
@@ -647,7 +648,25 @@ final class OrdersPage
      */
     public function boxShare(array $orders, BuildOrder $order): ?array
     {
-        $sharing = array_values(array_filter($orders, static fn (BuildOrder $o): bool => $order->box !== null && $o->box === $order->box && ! $o->isClosed() && $o->id < $order->id));
+        return $this->boxSplit($orders, $order, false);
+    }
+
+    /**
+     * Stefan 22.11.: which other open orders of the same box took (older) or were given (D-1582) what of it — the reason shown at a line that lacks it.
+     *
+     * @param list<BuildOrder> $orders
+     * @return array<int, array<int, float>> thing → other order → pieces
+     */
+    public function boxTakers(array $orders, BuildOrder $order): array
+    {
+        return $this->boxSplit($orders, $order, true) ?? [];
+    }
+
+    /** @param list<BuildOrder> $orders */
+    private function boxSplit(array $orders, BuildOrder $order, bool $takers): ?array
+    {
+        // D-1582: every open order of the box counts — a newer one may have been given parts in it.
+        $sharing = array_values(array_filter($orders, static fn (BuildOrder $o): bool => $order->box !== null && $o->box === $order->box && ! $o->isClosed() && $o->id !== $order->id));
 
         if ($sharing === []) {
             return null;
@@ -663,7 +682,13 @@ final class OrdersPage
             $own[$o->id] = $this->service->assignedLists($o, $lists, $assigned[$o->id] ?? []);
         }
 
-        return Demand::boxShares($sharing, $own, $this->service->reservedFor($ids, array_combine($ids, array_map(static fn (BuildOrder $o): ?int => $o->box, $sharing))), [(int) $order->box => $this->service->presentIn($order->box)])[$order->id] ?? [];
+        $reserved = $this->service->reservedFor($ids, array_combine($ids, array_map(static fn (BuildOrder $o): ?int => $o->box, $sharing)));
+        $present  = [(int) $order->box => $this->service->presentIn($order->box)];
+        $given    = $this->service->givenInBox($ids, array_combine($ids, array_map(static fn (BuildOrder $o): ?int => $o->box, $sharing)));
+
+        return $takers
+            ? Demand::boxTakers($sharing, $own, $reserved, $present, $given)[$order->id] ?? []
+            : Demand::boxShares($sharing, $own, $reserved, $present, $given)[$order->id] ?? [];
     }
 
     /**
@@ -719,7 +744,8 @@ final class OrdersPage
             $own[$order->id] = $this->service->assignedLists($order, $lists, $assigned[$order->id] ?? []);
         }
 
-        $shares = Demand::boxShares($related, $own, $reserved, $present);
+        $given  = $this->service->givenInBox($ids, array_combine($ids, array_map(static fn (BuildOrder $o): ?int => $o->box, $related)));
+        $shares = Demand::boxShares($related, $own, $reserved, $present, $given);
         $out    = [];
 
         foreach ($orders as $order) {

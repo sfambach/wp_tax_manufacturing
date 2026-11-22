@@ -468,6 +468,43 @@ final class ManufacturingService
     }
 
     /**
+     * D-1582: what each order's reservation names inside its own box — given to it there, not shared by age.
+     *
+     * @param list<int> $orders
+     * @param array<int, int|null> $boxes order → box
+     * @return array<int, array<int, float>> order → thing → pieces
+     */
+    public function givenInBox(array $orders, array $boxes): array
+    {
+        if ($orders === [] || ! has_filter(self::RESERVATIONS_FILTER)) {
+            return [];
+        }
+
+        $answer = $this->reservationLines($orders);
+        $out    = [];
+
+        foreach (is_array($answer) ? $answer : [] as $order => $lines) {
+            $box = $boxes[(int) $order] ?? null;
+
+            foreach ($box === null || ! is_array($lines) ? [] : $lines as $line) {
+                $pieces = is_array($line) && is_array($line['places'] ?? null) ? min((float) ($line['quantity'] ?? 0), (float) ($line['places'][$box] ?? 0.0)) : 0.0;
+
+                if ($pieces > 0.0 && (int) ($line['thing'] ?? 0) > 0) {
+                    $out[(int) $order][(int) $line['thing']] = ($out[(int) $order][(int) $line['thing']] ?? 0.0) + $pieces;
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /** D-1582: the project a box belongs to, 0 for none. */
+    public function projectOfBox(?int $box): int
+    {
+        return $box === null ? 0 : (int) ($this->projectBoxes()[$box]['project'] ?? 0);
+    }
+
+    /**
      * D-1387: what is assigned to each position of these orders — the reservations that name a position, one read for all
      * orders (CD-7).
      *
@@ -644,7 +681,8 @@ final class ManufacturingService
             throw ManufacturingError::stockRefused(__('Das Lager bietet das Reservieren noch nicht an.', 'taxmod-manufacturing'));
         }
 
-        $answer = apply_filters(self::RESERVE_FILTER, null, ['subject' => $order, 'rows' => $rows, 'deadline' => '', 'date' => $today, 'title' => $built->label]);
+        // D-1582: the order's project, so the stock gives it what lies in that project's box.
+        $answer = apply_filters(self::RESERVE_FILTER, null, ['subject' => $order, 'rows' => $rows, 'deadline' => '', 'date' => $today, 'title' => $built->label, 'project' => $this->projectOfBox($built->box)]);
         $this->reservationLines = [];
 
         if (is_wp_error($answer)) {

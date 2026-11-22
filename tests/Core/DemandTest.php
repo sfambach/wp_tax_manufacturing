@@ -182,6 +182,23 @@ final class DemandTest extends TestCase
         self::assertSame([305 => 5.0, 3000 => 0.0], $shares[11]);
     }
 
+    /** D-1582, Stefan 22.11. (Atari, 3 strips, 3 orders): the newest order was given 2 in the box; the oldest gets the 1 left. */
+    public function testWhatAnOrderWasGivenInTheBoxIsItsOwn(): void
+    {
+        $order  = static fn (int $id): BuildOrder => new BuildOrder($id, 'A', 1, 1, 'order_staging', 70, null, null, [new Assembly($id * 10, 300, [], [])]);
+        $list   = [300 => [['id' => 1, 'thing' => 87436, 'count' => 2.0, 'fitting' => '']]];
+        $lists  = [10 => $list, 11 => $list, 12 => $list];
+        $orders = [$order(10), $order(11), $order(12)];
+        $given  = [12 => [87436 => 2.0]];
+        $shares = Demand::boxShares($orders, $lists, [], [70 => [87436 => 3.0]], $given);
+
+        self::assertSame([87436 => 2.0], $shares[12]);
+        self::assertSame([87436 => 1.0], $shares[10]);
+        self::assertSame([87436 => 0.0], $shares[11]);
+        self::assertSame([87436 => [12 => 2.0]], Demand::boxTakers($orders, $lists, [], [70 => [87436 => 3.0]], $given)[10]);
+        self::assertSame([87436 => [10 => 1.0, 12 => 2.0]], Demand::boxTakers($orders, $lists, [], [70 => [87436 => 3.0]], $given)[11]);
+    }
+
     public function testShortfallNamesWhatTheBoxLacksForAFinish(): void
     {
         self::assertSame([305 => 2.0], Demand::shortfall([305 => 6.0, 300 => 1.0], [305 => 4.0, 300 => 1.0]));
