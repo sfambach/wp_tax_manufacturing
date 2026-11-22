@@ -182,7 +182,7 @@ final class DemandTest extends TestCase
         self::assertSame([305 => 5.0, 3000 => 0.0], $shares[11]);
     }
 
-    /** D-NEU, Stefan 22.11. (Atari, 3 strips, 3 orders): the newest order was given 2 in the box; the oldest gets the 1 left. */
+    /** D-1582, Stefan 22.11. (Atari, 3 strips, 3 orders): the newest order was given 2 in the box; the oldest gets the 1 left. */
     public function testWhatAnOrderWasGivenInTheBoxIsItsOwn(): void
     {
         $order  = static fn (int $id): BuildOrder => new BuildOrder($id, 'A', 1, 1, 'order_staging', 70, null, null, [new Assembly($id * 10, 300, [], [])]);

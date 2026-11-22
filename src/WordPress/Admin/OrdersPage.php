@@ -652,7 +652,7 @@ final class OrdersPage
     }
 
     /**
-     * Stefan 22.11.: which other open orders of the same box took (older) or were given (D-NEU) what of it — the reason shown at a line that lacks it.
+     * Stefan 22.11.: which other open orders of the same box took (older) or were given (D-1582) what of it — the reason shown at a line that lacks it.
      *
      * @param list<BuildOrder> $orders
      * @return array<int, array<int, float>> thing → other order → pieces
@@ -665,7 +665,7 @@ final class OrdersPage
     /** @param list<BuildOrder> $orders */
     private function boxSplit(array $orders, BuildOrder $order, bool $takers): ?array
     {
-        // D-NEU: every open order of the box counts — a newer one may have been given parts in it.
+        // D-1582: every open order of the box counts — a newer one may have been given parts in it.
         $sharing = array_values(array_filter($orders, static fn (BuildOrder $o): bool => $order->box !== null && $o->box === $order->box && ! $o->isClosed() && $o->id !== $order->id));
 
         if ($sharing === []) {
