@@ -166,9 +166,46 @@ final class Demand
      */
     public static function boxShares(array $orders, array $lists, array $reserved, array $present): array
     {
+        return self::boxSplit($orders, $lists, $reserved, $present)[0];
+    }
+
+    /**
+     * Stefan 22.11. (Atari, 3 strips for 3 orders): which older orders of the same box took what of it — the reason a line
+     * lacks what lies in the box. Same split as {@see boxShares()}.
+     *
+     * @param list<BuildOrder> $orders
+     * @param array<int, array<int, list<array{id: int, thing: int, count: float, fitting: string}>>> $lists
+     * @param array<int, array<int, float>> $reserved
+     * @param array<int, array<int, float>> $present
+     * @return array<int, array<int, array<int, float>>> order → thing → older order → pieces it took from the box
+     */
+    public static function boxTakers(array $orders, array $lists, array $reserved, array $present): array
+    {
+        [, $taken] = self::boxSplit($orders, $lists, $reserved, $present);
+        $out       = [];
+
+        foreach ($orders as $order) {
+            foreach ($orders as $older) {
+                if ($older->id >= $order->id || $older->box === null || $older->box !== $order->box) {
+                    continue;
+                }
+
+                foreach ($taken[$older->id] ?? [] as $thing => $pieces) {
+                    $out[$order->id][$thing][$older->id] = $pieces;
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /** @return array{0: array<int, array<int, float>>, 1: array<int, array<int, float>>} shares, and order → thing → pieces it took from the box */
+    private static function boxSplit(array $orders, array $lists, array $reserved, array $present): array
+    {
         usort($orders, static fn (BuildOrder $a, BuildOrder $b): int => $a->id <=> $b->id);
-        $left = $present;
-        $out  = [];
+        $left  = $present;
+        $out   = [];
+        $taken = [];
 
         foreach ($orders as $order) {
             if ($order->box === null) {
@@ -203,11 +240,12 @@ final class Demand
 
                 if ($fromBox > 0.0) {
                     $left[$order->box][$thing] = max(0.0, ($box[$thing] ?? 0.0) - $fromBox);
+                    $taken[$order->id][$thing] = min($fromBox, $box[$thing] ?? 0.0);
                 }
             }
         }
 
-        return $out;
+        return [$out, $taken];
     }
 
     /**

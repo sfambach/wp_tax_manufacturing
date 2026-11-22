@@ -352,7 +352,7 @@ final class OrdersPage
         $sections = [];
         // His word 2026-11-15: taking parts out belongs to «Bereitstellung», not to «Angelegt» (without that stage in the model it stays at «Angelegt»).
         $picking  = $order->step === 'order_staging' || ($order->step === 'order_planned' && ! $staging) || $order->step === 'order_building';
-        $picks    = $picking ? (new StagingSection($this->service, self::NONCE, self::ACTION, $this->tab()))->render($order, $demand, $plain, $share, $held, $labels) : '';
+        $picks    = $picking ? (new StagingSection($this->service, self::NONCE, self::ACTION, $this->tab()))->render($order, $demand, $plain, $share, $held, $labels, $this->boxTakers($orders, $order)) : '';
 
         if ($picks !== '') {
             $sections[] = ['title' => __('Material bereitstellen', 'taxmod-manufacturing'), 'html' => $picks, 'open' => ! $started];
@@ -647,6 +647,23 @@ final class OrdersPage
      */
     public function boxShare(array $orders, BuildOrder $order): ?array
     {
+        return $this->boxSplit($orders, $order, false);
+    }
+
+    /**
+     * Stefan 22.11.: which older open orders of the same box took what of it — the reason shown at a line that lacks it.
+     *
+     * @param list<BuildOrder> $orders
+     * @return array<int, array<int, float>> thing → older order → pieces
+     */
+    public function boxTakers(array $orders, BuildOrder $order): array
+    {
+        return $this->boxSplit($orders, $order, true) ?? [];
+    }
+
+    /** @param list<BuildOrder> $orders */
+    private function boxSplit(array $orders, BuildOrder $order, bool $takers): ?array
+    {
         $sharing = array_values(array_filter($orders, static fn (BuildOrder $o): bool => $order->box !== null && $o->box === $order->box && ! $o->isClosed() && $o->id < $order->id));
 
         if ($sharing === []) {
@@ -663,7 +680,12 @@ final class OrdersPage
             $own[$o->id] = $this->service->assignedLists($o, $lists, $assigned[$o->id] ?? []);
         }
 
-        return Demand::boxShares($sharing, $own, $this->service->reservedFor($ids, array_combine($ids, array_map(static fn (BuildOrder $o): ?int => $o->box, $sharing))), [(int) $order->box => $this->service->presentIn($order->box)])[$order->id] ?? [];
+        $reserved = $this->service->reservedFor($ids, array_combine($ids, array_map(static fn (BuildOrder $o): ?int => $o->box, $sharing)));
+        $present  = [(int) $order->box => $this->service->presentIn($order->box)];
+
+        return $takers
+            ? Demand::boxTakers($sharing, $own, $reserved, $present)[$order->id] ?? []
+            : Demand::boxShares($sharing, $own, $reserved, $present)[$order->id] ?? [];
     }
 
     /**

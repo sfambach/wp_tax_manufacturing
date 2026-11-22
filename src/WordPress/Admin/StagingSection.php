@@ -51,9 +51,12 @@ final class StagingSection
      * @param array<int, float> $box thing → pieces of the box left for this order
      * @param list<array{line: int, thing: int, quantity: float, places: array<int, float>, position: int}> $reservations
      * @param array<int, string> $labels
+     * @param array<int, array<int, float>> $takers Stefan 22.11.: thing → older order of the same box → pieces it took
      */
-    public function render(BuildOrder $order, array $demand, array $plain, array $box, array $reservations, array $labels): string
+    public function render(BuildOrder $order, array $demand, array $plain, array $box, array $reservations, array $labels, array $takers = []): string
     {
+        $this->takers = $takers;
+
         if ($order->box === null || $order->isClosed()) {
             return '';
         }
@@ -241,6 +244,23 @@ final class StagingSection
      * @param array<int, int> $base position → material of the parts list
      * @return list<string>
      */
+    /** @var array<int, array<int, float>> thing → older order → pieces it took from the box */
+    private array $takers = [];
+
+    /** Stefan 22.11. (Atari): «davon 2 für Auftrag 68478» — why what lies in the box is not this order's. */
+    private function takenBy(int $thing): string
+    {
+        $parts = [];
+
+        foreach ($this->takers[$thing] ?? [] as $older => $pieces) {
+            if ($pieces > 0.0) {
+                $parts[] = sprintf(__('%1$s für Auftrag %2$d', 'taxmod-manufacturing'), $this->count($pieces), $older);
+            }
+        }
+
+        return $parts === [] ? '' : '<br><span class="description">' . esc_html(sprintf(__('im Gebinde, aber vergeben: %s', 'taxmod-manufacturing'), implode(', ', $parts))) . '</span>';
+    }
+
     private function materialRow(BuildOrder $order, array $line, array $labels, array $refs, int $position, array $base): array
     {
         $covered = $line['missing'] <= 1e-9;
@@ -253,7 +273,7 @@ final class StagingSection
             '<strong>' . $this->part($line['thing'], $labels, $order) . '</strong>' . ($refs === [] ? '' : ' <span class="description">' . esc_html(implode(', ', $refs)) . '</span>'),
             '',
             '<strong>' . esc_html($this->count($line['needed'])) . '</strong>',
-            esc_html($this->count($line['box'])),
+            esc_html($this->count($line['box'])) . ($line['missing'] > 1e-9 ? $this->takenBy($line['thing']) : ''),
             esc_html($this->count($line['reserved'])),
             '<strong>' . esc_html($this->count($line['missing'])) . '</strong>',
             '',
