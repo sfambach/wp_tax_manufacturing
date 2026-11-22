@@ -380,14 +380,17 @@ final class StagingSection
             return '';
         }
 
-        $wanted = $position === 0 ? $thing : ($base[$position] ?? $thing);
-        $key    = 'taxmod-mf-assign-' . $order->id . '-' . $position . '-' . $thing;
-        $picker = (string) apply_filters('taxmod_stock_material_picker', '', [
+        $wanted  = $position === 0 ? $thing : ($base[$position] ?? $thing);
+        $key     = 'taxmod-mf-assign-' . $order->id . '-' . $position . '-' . $thing;
+        // D-NEU, Stefan 22.11.: in its project's box an order may be given what lies there — the box is offered, not left out.
+        $project = $this->service->projectOfBox($order->box);
+        $picker  = (string) apply_filters('taxmod_stock_material_picker', '', [
             'key'       => $key,
             'name'      => 'assign',
             'term'      => $labels[$wanted] ?? '',
             'preferred' => [$wanted],
-            'except'    => (int) $order->box,
+            'except'    => $project > 0 ? 0 : (int) $order->box,
+            'within'    => $project,
             'quantity'  => max($missing, 0.0),
         ]);
 

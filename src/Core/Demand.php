@@ -161,12 +161,16 @@ final class Demand
      * @param list<BuildOrder> $orders
      * @param array<int, array<int, list<array{id: int, thing: int, count: float, fitting: string}>>> $lists order → revision → positions
      * @param array<int, array<int, float>> $reserved order → thing → pieces reserved for it
+     * D-NEU, Stefan 22.11. «der Auftrag, der kommt und dem ich das zuweise, der kriegt das auch»: what an order was given in
+     * the box (its reservation naming a lot there) is its own; only the rest is shared by age.
+     *
      * @param array<int, array<int, float>> $present box → thing → pieces in it
+     * @param array<int, array<int, float>> $given order → thing → pieces of its box its reservation names
      * @return array<int, array<int, float>> order → thing → pieces of its box left for it
      */
-    public static function boxShares(array $orders, array $lists, array $reserved, array $present): array
+    public static function boxShares(array $orders, array $lists, array $reserved, array $present, array $given = []): array
     {
-        return self::boxSplit($orders, $lists, $reserved, $present)[0];
+        return self::boxSplit($orders, $lists, $reserved, $present, $given)[0];
     }
 
     /**
@@ -177,21 +181,28 @@ final class Demand
      * @param array<int, array<int, list<array{id: int, thing: int, count: float, fitting: string}>>> $lists
      * @param array<int, array<int, float>> $reserved
      * @param array<int, array<int, float>> $present
-     * @return array<int, array<int, array<int, float>>> order → thing → older order → pieces it took from the box
+     * @param array<int, array<int, float>> $given D-NEU: order → thing → pieces of its box given to it
+     * @return array<int, array<int, array<int, float>>> order → thing → other order → pieces: what older orders took, and what any other was given
      */
-    public static function boxTakers(array $orders, array $lists, array $reserved, array $present): array
+    public static function boxTakers(array $orders, array $lists, array $reserved, array $present, array $given = []): array
     {
-        [, $taken] = self::boxSplit($orders, $lists, $reserved, $present);
+        [, $taken] = self::boxSplit($orders, $lists, $reserved, $present, $given);
         $out       = [];
 
         foreach ($orders as $order) {
-            foreach ($orders as $older) {
-                if ($older->id >= $order->id || $older->box === null || $older->box !== $order->box) {
+            foreach ($orders as $other) {
+                if ($other->id === $order->id || $other->box === null || $other->box !== $order->box) {
                     continue;
                 }
 
-                foreach ($taken[$older->id] ?? [] as $thing => $pieces) {
-                    $out[$order->id][$thing][$older->id] = $pieces;
+                $took = $other->id < $order->id ? $taken[$other->id] ?? [] : [];
+
+                foreach (($given[$other->id] ?? []) as $thing => $pieces) {
+                    $took[$thing] = ($took[$thing] ?? 0.0) + $pieces;
+                }
+
+                foreach ($took as $thing => $pieces) {
+                    $out[$order->id][$thing][$other->id] = $pieces;
                 }
             }
         }
@@ -199,13 +210,23 @@ final class Demand
         return $out;
     }
 
-    /** @return array{0: array<int, array<int, float>>, 1: array<int, array<int, float>>} shares, and order → thing → pieces it took from the box */
-    private static function boxSplit(array $orders, array $lists, array $reserved, array $present): array
+    /**
+     * @param array<int, array<int, float>> $given
+     * @return array{0: array<int, array<int, float>>, 1: array<int, array<int, float>>} shares, and order → thing → pieces it took from the shared rest
+     */
+    private static function boxSplit(array $orders, array $lists, array $reserved, array $present, array $given = []): array
     {
         usort($orders, static fn (BuildOrder $a, BuildOrder $b): int => $a->id <=> $b->id);
         $left  = $present;
         $out   = [];
         $taken = [];
+
+        // What an order was given is not in the shared rest.
+        foreach ($orders as $order) {
+            foreach ($order->box === null ? [] : ($given[$order->id] ?? []) as $thing => $pieces) {
+                $left[$order->box][$thing] = max(0.0, ($left[$order->box][$thing] ?? 0.0) - $pieces);
+            }
+        }
 
         foreach ($orders as $order) {
             if ($order->box === null) {
@@ -213,8 +234,15 @@ final class Demand
                 continue;
             }
 
-            $box             = $left[$order->box] ?? [];
+            $pool            = $left[$order->box] ?? [];
+            $mine            = $given[$order->id] ?? [];
+            $box             = $pool;
             $own             = $reserved[$order->id] ?? [];
+
+            foreach ($mine as $thing => $pieces) {
+                $box[$thing] = ($box[$thing] ?? 0.0) + $pieces;
+            }
+
             $out[$order->id] = $box;
 
             if ($order->isClosed()) {
@@ -236,11 +264,11 @@ final class Demand
             }
 
             foreach ($used as $thing => $pieces) {
-                $fromBox = max(0.0, $pieces - ($own[$thing] ?? 0.0));
+                $fromPool = max(0.0, $pieces - ($own[$thing] ?? 0.0) - ($mine[$thing] ?? 0.0));
 
-                if ($fromBox > 0.0) {
-                    $left[$order->box][$thing] = max(0.0, ($box[$thing] ?? 0.0) - $fromBox);
-                    $taken[$order->id][$thing] = min($fromBox, $box[$thing] ?? 0.0);
+                if ($fromPool > 0.0) {
+                    $left[$order->box][$thing] = max(0.0, ($pool[$thing] ?? 0.0) - $fromPool);
+                    $taken[$order->id][$thing] = min($fromPool, $pool[$thing] ?? 0.0);
                 }
             }
         }
