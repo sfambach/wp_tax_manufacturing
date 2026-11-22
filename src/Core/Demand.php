@@ -154,40 +154,50 @@ final class Demand
     }
 
     /**
-     * His word 16.11. «für Atari haben wir mehrere Aufträge … für welchen sind dann die Teile reserviert in der Kiste»: a
-     * project box serves its open orders one after another, the oldest first (D-1301 «Gebinde und Reservierung», D-1030).
-     * Each order gets what the orders before it leave; its own reservations are used before the box.
+     * Stefan 22.11. (card «Nur echte Zuweisungen», replacing the age split of 16.11.): a project box is not split among its
+     * orders by age. What an order was given in the box (D-1582, its reservation naming a lot there) is its own; the rest
+     * lies free for every order of the project until it is assigned.
      *
      * @param list<BuildOrder> $orders
-     * @param array<int, array<int, list<array{id: int, thing: int, count: float, fitting: string}>>> $lists order → revision → positions
-     * @param array<int, array<int, float>> $reserved order → thing → pieces reserved for it
-     * D-1582, Stefan 22.11. «der Auftrag, der kommt und dem ich das zuweise, der kriegt das auch»: what an order was given in
-     * the box (its reservation naming a lot there) is its own; only the rest is shared by age.
-     *
      * @param array<int, array<int, float>> $present box → thing → pieces in it
      * @param array<int, array<int, float>> $given order → thing → pieces of its box its reservation names
-     * @return array<int, array<int, float>> order → thing → pieces of its box left for it
+     * @return array<int, array<int, float>> order → thing → pieces of its box open to it
      */
-    public static function boxShares(array $orders, array $lists, array $reserved, array $present, array $given = []): array
+    public static function boxShares(array $orders, array $present, array $given = []): array
     {
-        return self::boxSplit($orders, $lists, $reserved, $present, $given)[0];
+        $free = $present;
+
+        foreach ($orders as $order) {
+            foreach ($order->box === null ? [] : ($given[$order->id] ?? []) as $thing => $pieces) {
+                $free[$order->box][$thing] = max(0.0, ($free[$order->box][$thing] ?? 0.0) - $pieces);
+            }
+        }
+
+        $out = [];
+
+        foreach ($orders as $order) {
+            $box = $order->box === null ? [] : $free[$order->box] ?? [];
+
+            foreach ($order->box === null ? [] : ($given[$order->id] ?? []) as $thing => $pieces) {
+                $box[$thing] = ($box[$thing] ?? 0.0) + $pieces;
+            }
+
+            $out[$order->id] = $box;
+        }
+
+        return $out;
     }
 
     /**
-     * Stefan 22.11. (Atari, 3 strips for 3 orders): which older orders of the same box took what of it — the reason a line
-     * lacks what lies in the box. Same split as {@see boxShares()}.
+     * Which other orders of the same box were given what of it (D-1582) — the reason a line lacks what lies in the box.
      *
      * @param list<BuildOrder> $orders
-     * @param array<int, array<int, list<array{id: int, thing: int, count: float, fitting: string}>>> $lists
-     * @param array<int, array<int, float>> $reserved
-     * @param array<int, array<int, float>> $present
-     * @param array<int, array<int, float>> $given D-1582: order → thing → pieces of its box given to it
-     * @return array<int, array<int, array<int, float>>> order → thing → other order → pieces: what older orders took, and what any other was given
+     * @param array<int, array<int, float>> $given order → thing → pieces of its box given to it
+     * @return array<int, array<int, array<int, float>>> order → thing → other order → pieces
      */
-    public static function boxTakers(array $orders, array $lists, array $reserved, array $present, array $given = []): array
+    public static function boxTakers(array $orders, array $given = []): array
     {
-        [, $taken] = self::boxSplit($orders, $lists, $reserved, $present, $given);
-        $out       = [];
+        $out = [];
 
         foreach ($orders as $order) {
             foreach ($orders as $other) {
@@ -195,85 +205,13 @@ final class Demand
                     continue;
                 }
 
-                $took = $other->id < $order->id ? $taken[$other->id] ?? [] : [];
-
                 foreach (($given[$other->id] ?? []) as $thing => $pieces) {
-                    $took[$thing] = ($took[$thing] ?? 0.0) + $pieces;
-                }
-
-                foreach ($took as $thing => $pieces) {
                     $out[$order->id][$thing][$other->id] = $pieces;
                 }
             }
         }
 
         return $out;
-    }
-
-    /**
-     * @param array<int, array<int, float>> $given
-     * @return array{0: array<int, array<int, float>>, 1: array<int, array<int, float>>} shares, and order → thing → pieces it took from the shared rest
-     */
-    private static function boxSplit(array $orders, array $lists, array $reserved, array $present, array $given = []): array
-    {
-        usort($orders, static fn (BuildOrder $a, BuildOrder $b): int => $a->id <=> $b->id);
-        $left  = $present;
-        $out   = [];
-        $taken = [];
-
-        // What an order was given is not in the shared rest.
-        foreach ($orders as $order) {
-            foreach ($order->box === null ? [] : ($given[$order->id] ?? []) as $thing => $pieces) {
-                $left[$order->box][$thing] = max(0.0, ($left[$order->box][$thing] ?? 0.0) - $pieces);
-            }
-        }
-
-        foreach ($orders as $order) {
-            if ($order->box === null) {
-                $out[$order->id] = [];
-                continue;
-            }
-
-            $pool            = $left[$order->box] ?? [];
-            $mine            = $given[$order->id] ?? [];
-            $box             = $pool;
-            $own             = $reserved[$order->id] ?? [];
-
-            foreach ($mine as $thing => $pieces) {
-                $box[$thing] = ($box[$thing] ?? 0.0) + $pieces;
-            }
-
-            $out[$order->id] = $box;
-
-            if ($order->isClosed()) {
-                continue;
-            }
-
-            $there = $box;
-
-            foreach ($own as $thing => $pieces) {
-                $there[$thing] = ($there[$thing] ?? 0.0) + $pieces;
-            }
-
-            $used = [];
-
-            foreach (self::of($order->assemblies, $lists[$order->id] ?? [], $order->count, $there) as $rows) {
-                foreach ($rows as $row) {
-                    $used[$row['thing']] = ($used[$row['thing']] ?? 0.0) + $row['present'];
-                }
-            }
-
-            foreach ($used as $thing => $pieces) {
-                $fromPool = max(0.0, $pieces - ($own[$thing] ?? 0.0) - ($mine[$thing] ?? 0.0));
-
-                if ($fromPool > 0.0) {
-                    $left[$order->box][$thing] = max(0.0, ($pool[$thing] ?? 0.0) - $fromPool);
-                    $taken[$order->id][$thing] = min($fromPool, $pool[$thing] ?? 0.0);
-                }
-            }
-        }
-
-        return [$out, $taken];
     }
 
     /**
