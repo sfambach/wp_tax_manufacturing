@@ -33,7 +33,7 @@ final class BareBoardPage
     {
         $service = new ManufacturingService();
 
-        if (! current_user_can('manage_options') || ! $service->canMakeBareBoard() || $nodeId !== $service->structure()->node('board_revision')) {
+        if (! current_user_can(\Taxmod\WordPress\Rights::MANUFACTURE) || ! $service->canMakeBareBoard() || $nodeId !== $service->structure()->node('board_revision')) {
             return $actions;
         }
 
@@ -49,7 +49,7 @@ final class BareBoardPage
     /** A page without a menu entry: it is reached from the button only. */
     public static function register(): void
     {
-        add_submenu_page('taxmod', __('Platinenmaterial erzeugen', 'taxmod-manufacturing'), '', 'manage_options', self::PAGE, static function (): void {
+        add_submenu_page('taxmod', __('Platinenmaterial erzeugen', 'taxmod-manufacturing'), '', \Taxmod\WordPress\Rights::MANUFACTURE, self::PAGE, static function (): void {
             print self::render(absint(wp_unslash((string) ($_GET['revision'] ?? '0')))); // phpcs:ignore WordPress.Security -- read-only page, escaped in render()
         });
         // Removed only when the menu is drawn: WordPress checks access to a page against the submenu, so removing the entry
@@ -59,7 +59,7 @@ final class BareBoardPage
 
     private static function render(int $revision): string
     {
-        if (! current_user_can('manage_options')) {
+        if (! current_user_can(\Taxmod\WordPress\Rights::MANUFACTURE)) {
             return '';
         }
 
@@ -96,7 +96,7 @@ final class BareBoardPage
         $revision = absint(wp_unslash((string) ($_POST['revision'] ?? '0')));
 
         // D-1254: a refusal is said on the page, never as a bare error page.
-        if (! current_user_can('manage_options') || ! wp_verify_nonce(sanitize_text_field(wp_unslash((string) ($_POST['_wpnonce'] ?? ''))), self::NONCE)) {
+        if (! current_user_can(\Taxmod\WordPress\Rights::MANUFACTURE) || ! wp_verify_nonce(sanitize_text_field(wp_unslash((string) ($_POST['_wpnonce'] ?? ''))), self::NONCE)) {
             self::back($revision, __('Keine Berechtigung oder die Seite ist abgelaufen, bitte neu laden.', 'taxmod-manufacturing'));
         }
 
