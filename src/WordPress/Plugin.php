@@ -31,10 +31,10 @@ final class Plugin
     public function bootWhenModellerIsThere(): void
     {
         // The one door into the model (D-1186), its bracket for one act over several bookings (D-1419) and the shared page blocks button/iconButton/money (D-1500, 0.2.172). D-1501: fields through ListPage::field, 0.2.175.
-        // Asked by version, not by loading the classes (D-1422).
-        if (! class_exists(\Taxmod\WordPress\Plugin::class, false) || version_compare(\Taxmod\WordPress\Plugin::VERSION, '0.2.175', '<')) {
+        // Asked by version, not by loading the classes (D-1422). The rights table (D-1585) came with 0.2.237.
+        if (! class_exists(\Taxmod\WordPress\Plugin::class, false) || version_compare(\Taxmod\WordPress\Plugin::VERSION, '0.2.237', '<')) {
             add_action('admin_notices', static function (): void {
-                echo '<div class="notice notice-error"><p>' . esc_html__('Taxmod Fertigung braucht den aktiven Taxonomy Modeller ab 0.2.175.', 'taxmod-manufacturing') . '</p></div>';
+                echo '<div class="notice notice-error"><p>' . esc_html__('Taxmod Fertigung braucht den aktiven Taxonomy Modeller ab 0.2.237.', 'taxmod-manufacturing') . '</p></div>';
             });
 
             return;
@@ -58,7 +58,7 @@ final class Plugin
                 }
 
                 // The area head «Fertigung» opens the first point instead of an overview of tiles (stock 0.64.78; an older stock ignores it).
-                $pages[] = ['slug' => $slug, 'label' => $labels[$view], 'area' => 'production', 'opens_area' => $view === 'boxes', 'render' => static fn (): string => (new OrdersPage())->render()];
+                $pages[] = ['slug' => $slug, 'label' => $labels[$view], 'area' => 'production', 'capability' => \Taxmod\WordPress\Rights::MANUFACTURE, 'opens_area' => $view === 'boxes', 'render' => static fn (): string => (new OrdersPage())->render()];
             }
 
             return $pages;

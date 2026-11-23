@@ -64,7 +64,7 @@ final class OrderActions
 
     private function act(string $action): void
     {
-        if (! current_user_can('manage_options')) {
+        if (! current_user_can(\Taxmod\WordPress\Rights::MANUFACTURE)) {
             $this->page->refuse(__('Keine Berechtigung.', 'taxmod-manufacturing'));
         }
 
