@@ -2269,6 +2269,43 @@ final class ManufacturingService
         return $out;
     }
 
+    /**
+     * Stefan 26.11. «A»: the revisions of every plan of the given projects, for the column «Revisionen» and the list under
+     * Fertigung › «Revisionen». The tables are read once, the labels in one read (CD-7).
+     *
+     * @param list<int> $projects
+     * @return array<int, list<array{board: int, board_label: string, revision: int, revision_label: string}>> project → revisions in plan order
+     */
+    public function revisionsOfProjects(array $projects): array
+    {
+        $s      = $this->structure();
+        $projT  = $this->table('project');
+        $boardT = $this->table('board');
+        $plans  = [];
+        $ids    = [];
+
+        foreach ($projects as $project) {
+            foreach (array_map('intval', $projT->all($project, $s->field('project_boards'))) as $board) {
+                $revisions               = array_map('intval', $boardT->all($board, $s->field('board_revisions')));
+                $plans[$project][$board] = $revisions;
+                array_push($ids, $board, ...$revisions);
+            }
+        }
+
+        $labels = $ids === [] ? [] : $this->labelsOf($ids);
+        $out    = [];
+
+        foreach ($plans as $project => $boards) {
+            foreach ($boards as $board => $revisions) {
+                foreach ($revisions as $revision) {
+                    $out[$project][] = ['board' => $board, 'board_label' => $labels[$board] ?? '#' . $board, 'revision' => $revision, 'revision_label' => $labels[$revision] ?? '#' . $revision];
+                }
+            }
+        }
+
+        return $out;
+    }
+
     /** @return array<int, string> project id → label, sorted */
     public function projects(): array
     {

@@ -16,6 +16,7 @@ use TaxmodManufacturing\Core\Staging;
 use TaxmodManufacturing\Core\Stopwatch;
 use TaxmodManufacturing\Core\ManufacturingError;
 use TaxmodManufacturing\Core\Positions;
+use TaxmodManufacturing\Core\ProjectOverview;
 use TaxmodManufacturing\WordPress\ManufacturingService;
 
 /**
@@ -35,6 +36,7 @@ final class OrdersPage
      */
     public const VIEWS = [
         'boxes'          => self::SLUG,
+        'revisions'      => self::SLUG . '-revisionen',
         'order_planned'  => self::SLUG . '-angelegt',
         'order_staging'  => self::SLUG . '-bereitstellung',
         'order_building' => self::SLUG . '-in-fertigung',
@@ -48,7 +50,9 @@ final class OrdersPage
     public static function viewLabels(): array
     {
         return [
-            'boxes'          => __('Projektgebinde', 'taxmod-manufacturing'),
+            // Stefan 26.11. «A»: «Projekte» replaces «Projektgebinde» — orders grow out of the project, not out of its box.
+            'boxes'          => __('Projekte', 'taxmod-manufacturing'),
+            'revisions'      => __('Revisionen', 'taxmod-manufacturing'),
             'order_planned'  => __('In Planung', 'taxmod-manufacturing'),
             'order_staging'  => __('In Bereitstellung', 'taxmod-manufacturing'),
             'order_building' => __('In Bau', 'taxmod-manufacturing'),
@@ -62,7 +66,7 @@ final class OrdersPage
     }
 
     /** Every view the list knows; «open», «done» and «all» stay for old links. */
-    public const TABS = ['boxes', 'open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_test', 'order_rework', 'order_done', 'order_failed'];
+    public const TABS = ['boxes', 'revisions', 'open', 'done', 'cancelled', 'all', 'order_planned', 'order_staging', 'order_building', 'order_test', 'order_rework', 'order_done', 'order_failed'];
 
     public const ACTION = 'taxmod_manufacturing';
 
@@ -143,7 +147,11 @@ final class OrdersPage
 
         if ($asked !== '' && ! in_array($asked, self::TABS, true)) {
             return $html . '<div class="notice notice-error"><p>' . esc_html__('Diese Ansicht gibt es nicht.', 'taxmod-manufacturing')
-                . ' <a href="' . esc_url($this->url(['tab' => 'boxes'])) . '">' . esc_html__('Zu den Projektgebinden', 'taxmod-manufacturing') . '</a></p></div>';
+                . ' <a href="' . esc_url($this->url(['tab' => 'boxes'])) . '">' . esc_html__('Zu den Projekten', 'taxmod-manufacturing') . '</a></p></div>';
+        }
+
+        if ($this->tab() === 'revisions') {
+            return $html . $this->revisionList();
         }
 
         try {
@@ -166,9 +174,10 @@ final class OrdersPage
         // D-1300, D-1197, D-1325: the process as arrow tiles with their counts, starting at the project boxes an order grows
         // out of; «Abgebrochen» ends it beside «Fertiggestellt». «Offen» fell away: it counted what «Angelegt» counts (his word 13.11.).
         $boxes = $this->service->projectBoxes();
+        $this->projects ??= $this->service->projects();
         $name  = self::viewLabels();
         $steps = array_values(array_filter([
-            ['boxes', $name['boxes'], count($boxes)],
+            ['boxes', $name['boxes'], count($this->projects)],
             ['order_planned', $name['order_planned'], $in('order_planned')],
             $this->service->structure()->hasValue('order_staging') ? ['order_staging', $name['order_staging'], $in('order_staging')] : null,
             ['order_building', $name['order_building'], $in('order_building')],
@@ -193,7 +202,7 @@ final class OrdersPage
                 false);
 
         if ($tab === 'boxes') {
-            return $html . $this->boxList($orders, $boxes);
+            return $html . $this->projectList($orders, $boxes);
         }
 
         // The orders sharing a box with a shown one count too: the box serves them in turn (his word 16.11., Atari).
@@ -1093,38 +1102,91 @@ final class OrdersPage
     }
 
     /**
-     * D-1325 (his word: «bei der Fertigung mit dem Projektgebinde starten»): the project boxes, each with its project, what
-     * lies in it, its open orders, and «+ Auftrag» with project and box filled in.
+     * Stefan 26.11. «A»: one row per project, every project — its boxes («—» without), what lies in them, the revisions of its
+     * plans (each opens its form in the model), its open orders, and «+ Auftrag» with the project filled in (D-1325: and the
+     * box, when it has exactly one).
      *
      * @param list<BuildOrder> $orders
      * @param array<int, array{project: int, label: string, pieces: ?float}> $boxes place → box, read once by the page
      */
-    private function boxList(array $orders, array $boxes): string
+    private function projectList(array $orders, array $boxes): string
     {
-        $labels = $this->service->labelsOf(array_values(array_unique(array_column($boxes, 'project'))));
-        $count  = static fn (float $n): string => ListPage::number($n, 2);
-        $rows   = '';
+        $this->projects ??= $this->service->projects();
+        $this->boards   ??= $this->service->boardsOfProjects(array_keys($this->projects));
+        $revisions = $this->service->revisionsOfProjects(array_keys($this->projects));
+        $node      = $this->service->structure()->node('board_revision');
+        $rows      = '';
 
-        foreach ($boxes as $place => $box) {
-            $open   = array_filter($orders, static fn (BuildOrder $o): bool => $o->box === $place && ! $o->isClosed());
-            $links  = implode(', ', array_map(fn (BuildOrder $o): string => '<a href="' . esc_url($this->url(['auftrag' => $o->id])) . '">' . esc_html($o->label) . '</a>', $open));
-            $rows  .= ListPage::row('taxmod-mf-boxes', (string) $place, [
-                esc_html($box['label']),
-                esc_html($labels[$box['project']] ?? '#' . $box['project']),
-                esc_html($box['pieces'] === null ? '—' : $count($box['pieces'])),
-                $links === '' ? '—' : $links,
-            ], $this->createAction($box['project'], $place), '');
+        foreach (ProjectOverview::rows($this->projects, $boxes) as $row) {
+            $project = $row['project'];
+            $open    = array_filter($orders, static fn (BuildOrder $o): bool => $o->project === $project && ! $o->isClosed());
+            $orderLinks = implode(', ', array_map(fn (BuildOrder $o): string => '<a href="' . esc_url($this->url(['auftrag' => $o->id])) . '">' . esc_html($o->label) . '</a>', $open));
+            $revisionLinks = implode(', ', array_map(static fn (array $r): string => '<a href="' . esc_url(BareBoardPage::recordUrl($node, $r['revision'])) . '">'
+                . esc_html($r['board_label'] . ' · ' . $r['revision_label']) . '</a>', $revisions[$project] ?? []));
+            $rows .= ListPage::row('taxmod-mf-projects', (string) $project, [
+                esc_html($row['label']),
+                $row['boxes'] === [] ? '—' : esc_html(implode(', ', $row['boxes'])),
+                esc_html($row['pieces'] === null ? '—' : ListPage::number($row['pieces'], 2)),
+                $revisionLinks === '' ? '—' : $revisionLinks,
+                $orderLinks === '' ? '—' : $orderLinks,
+            ], isset($this->boards[$project]) ? $this->createAction($project, ProjectOverview::onlyBox($row)) : '', '');
         }
 
         if ($rows === '') {
-            $rows = '<tr class="no-items"><td class="colspanchange" colspan="6">' . esc_html__('Keine Projektgebinde. Ein Gebinde wird zum Projektgebinde, wenn es im Lager ein Projekt bekommt.', 'taxmod-manufacturing') . '</td></tr>';
+            $rows = '<tr class="no-items"><td class="colspanchange" colspan="7">' . esc_html__('Keine Projekte.', 'taxmod-manufacturing') . '</td></tr>';
         }
 
         return ListPage::table([
-            [__('Gebinde', 'taxmod-manufacturing')],
             [__('Projekt', 'taxmod-manufacturing')],
+            [__('Gebinde', 'taxmod-manufacturing')],
             [__('Inhalt (Stück)', 'taxmod-manufacturing'), '8em'],
+            [__('Revisionen', 'taxmod-manufacturing')],
             [__('Offene Aufträge', 'taxmod-manufacturing')],
+        ], $rows);
+    }
+
+    /**
+     * Stefan 26.11. «A»: every revision of every plan in one list — its project, plan, whether its bare board is a material,
+     * and «Platinenmaterial erzeugen» (D-1572) where it is not yet.
+     */
+    private function revisionList(): string
+    {
+        $this->projects ??= $this->service->projects();
+        $structure = $this->service->structure();
+        $revisions = $this->service->revisionsOfProjects(array_keys($this->projects));
+        $bare      = $this->service->bareBoards();
+        $canMake   = $this->service->canMakeBareBoard();
+        $revNode   = $structure->node('board_revision');
+        $boardNode = $structure->node('board');
+        $bareNode  = $structure->hasNode('bare_board') ? $structure->node('bare_board') : 0;
+        $rows      = '';
+        $count     = 0;
+
+        foreach ($revisions as $project => $list) {
+            foreach ($list as $r) {
+                $made  = $bare[$r['revision']] ?? 0;
+                ++$count;
+                $rows .= ListPage::row('taxmod-mf-revisions', (string) $r['revision'], [
+                    esc_html($this->projects[$project] ?? '#' . $project),
+                    '<a href="' . esc_url(BareBoardPage::recordUrl($boardNode, $r['board'])) . '">' . esc_html($r['board_label']) . '</a>',
+                    '<a href="' . esc_url(BareBoardPage::recordUrl($revNode, $r['revision'])) . '">' . esc_html($r['revision_label']) . '</a>',
+                    $made > 0 && $bareNode > 0
+                        ? '<a href="' . esc_url(BareBoardPage::recordUrl($bareNode, $made)) . '">' . esc_html__('ja', 'taxmod-manufacturing') . '</a>'
+                        : esc_html__('nein', 'taxmod-manufacturing'),
+                ], $made === 0 && $canMake ? ListPage::button(__('Platinenmaterial erzeugen', 'taxmod-manufacturing'), BareBoardPage::pageUrl($r['revision'])) : '', '');
+            }
+        }
+
+        if ($rows === '') {
+            $rows = '<tr class="no-items"><td class="colspanchange" colspan="6">' . esc_html__('Keine Revisionen. Eine Revision entsteht am Bauplan eines Projekts.', 'taxmod-manufacturing') . '</td></tr>';
+        }
+
+        return ListPage::listBar(sprintf(_n('%d Revision', '%d Revisionen', $count, 'taxmod-manufacturing'), $count))
+            . ListPage::table([
+            [__('Projekt', 'taxmod-manufacturing')],
+            [__('Bauplan', 'taxmod-manufacturing')],
+            [__('Revision', 'taxmod-manufacturing')],
+            [__('Platine', 'taxmod-manufacturing'), '6em'],
         ], $rows);
     }
 
