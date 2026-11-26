@@ -270,10 +270,13 @@ final class StagingSection
 
         return [
             '',
-            '<strong>' . $this->part($line['thing'], $labels, $order) . '</strong>' . ($refs === [] ? '' : ' <span class="description">' . esc_html(implode(', ', $refs)) . '</span>'),
+            // Live-Check 37 (1137 px): the note why the box lacks it stands under the material, where text wraps; in the number
+            // column it widened the table past the screen and pushed the row buttons out of sight.
+            '<strong>' . $this->part($line['thing'], $labels, $order) . '</strong>' . ($refs === [] ? '' : ' <span class="description">' . esc_html(implode(', ', $refs)) . '</span>')
+                . ($line['missing'] > 1e-9 ? $this->takenBy($line['thing']) : ''),
             '',
             '<strong>' . esc_html($this->count($line['needed'])) . '</strong>',
-            esc_html($this->count($line['box'])) . ($line['missing'] > 1e-9 ? $this->takenBy($line['thing']) : ''),
+            esc_html($this->count($line['box'])),
             esc_html($this->count($line['reserved'])),
             '<strong>' . esc_html($this->count($line['missing'])) . '</strong>',
             '',
