@@ -39,14 +39,20 @@ final class BareBoardPage
 
         $actions[] = [
             'label' => __('Platinenmaterial erzeugen', 'taxmod-manufacturing'),
-            'url'   => admin_url('admin.php?page=' . self::PAGE . '&revision=' . $recordId),
+            'url'   => self::pageUrl($recordId),
             'title' => __('Legt die nackte Platine als Material an, mit Verweis auf diese Revision', 'taxmod-manufacturing'),
         ];
 
         return $actions;
     }
 
-    /** A page without a menu entry: it is reached from the button only. */
+    /** The page that asks once before the board material of a revision is made. */
+    public static function pageUrl(int $revision): string
+    {
+        return admin_url('admin.php?page=' . self::PAGE . '&revision=' . $revision);
+    }
+
+    /** A page without a menu entry: it is reached from the buttons only (record, Fertigung › «Revisionen»). */
     public static function register(): void
     {
         add_submenu_page('taxmod', __('Platinenmaterial erzeugen', 'taxmod-manufacturing'), '', \Taxmod\WordPress\Rights::MANUFACTURE, self::PAGE, static function (): void {
@@ -118,7 +124,8 @@ final class BareBoardPage
         exit;
     }
 
-    private static function recordUrl(int $node, int $record): string
+    /** The model's form of a record — where a revision or a board is kept (Stefan 26.11. «A»: «dort wird gepflegt»). */
+    public static function recordUrl(int $node, int $record): string
     {
         return add_query_arg(['page' => 'taxmod', 'taxmod_node' => (string) $node, 'taxmod_open_record' => (string) $record], admin_url('admin.php'));
     }
